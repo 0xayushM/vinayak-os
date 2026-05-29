@@ -58,6 +58,12 @@ _sync_state = {
 }
 
 
+# Wall-clock cap per pipeline during the initial sync. A report either finishes
+# fetching its 1-month window or, after 5 minutes, returns whatever landed so far
+# and the sync moves on — so one slow report (e.g. Production) can't stall it.
+PIPELINE_TIME_CAP_SECONDS = 300
+
+
 def _full_sync_plan():
     """(PipelineClass, from_days_back, key, label) for every pipeline, ordered
     fast→slow so operational panels light up first."""
@@ -166,7 +172,9 @@ def _run_full_sync(email: str, password: str) -> None:
             _set(key, status="running")
             try:
                 from_date = _incremental_from(PipelineCls, days_back, today)
-                rows = PipelineCls().run(from_date, today)
+                rows = PipelineCls().run(
+                    from_date, today, max_seconds=PIPELINE_TIME_CAP_SECONDS
+                )
                 _set(key, status="success", rows=rows)
             except Exception as exc:  # noqa: BLE001
                 logger.error("Full sync: %s failed: %s", PipelineCls.__name__, exc)

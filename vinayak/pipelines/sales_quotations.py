@@ -91,6 +91,7 @@ class SalesQuotationsPipeline(BasePipeline):
     REPORT_ID = "8"
     TABLE_NAME = "tz_sales_quotations"
     RowSchema = SalesQuotationRow
+    DATE_FILTER_FIELD = "quote_date"
 
     def _get_filters(self, from_date: str, to_date: str) -> dict:
         return {"filters": {"from_date": from_date, "to_date": to_date}}

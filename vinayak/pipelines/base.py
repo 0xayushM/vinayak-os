@@ -42,6 +42,12 @@ class BasePipeline(ABC):
     TABLE_NAME: str
     RowSchema: type  # Pydantic model
 
+    # Name of the RowSchema attribute that the from_date/to_date filter applies
+    # to (the record's primary date). Used to compute the true coverage floor
+    # when a fetch is cut short by the time cap. Leave None for snapshot reports
+    # (inventory/process routing) that have no date window.
+    DATE_FILTER_FIELD: str | None = None
+
     # ── Public methods ────────────────────────────────────────────────────────
 
     def run(
@@ -50,6 +56,7 @@ class BasePipeline(ABC):
         to_date: date,
         is_backfill: bool = False,
         company_id: str = "kbrushes",
+        max_seconds: float | None = None,
     ) -> int:
         """
         Full pipeline run:
@@ -69,15 +76,31 @@ class BasePipeline(ABC):
         rows_upserted = 0
         try:
             filters = self._get_filters(str(from_date), str(to_date))
-            raw_rows = fetch_report(self.REPORT_ID, filters)
+            stats: dict = {}
+            raw_rows = fetch_report(
+                self.REPORT_ID, filters, max_seconds=max_seconds, stats=stats,
+            )
             rows_fetched = len(raw_rows)
 
             validated = self._validate(raw_rows)
             self._upsert(conn, validated)
             rows_upserted = len(validated)  # execute_values rowcount unreliable with page_size batching
 
-            self._touch_backfill_state(conn, company_id, from_date)
+            # Record how far back this run actually reached. Rows come back
+            # newest-first, so a complete fetch covers the whole window down to
+            # from_date. A time-capped (truncated) fetch only has the most recent
+            # rows — its coverage floor is the OLDEST record date we managed to
+            # pull, NOT from_date. Recording the real floor lets the backfill
+            # resume from exactly there instead of skipping the unfetched span.
+            coverage_floor = self._coverage_floor(from_date, validated, stats)
+            self._touch_backfill_state(conn, company_id, coverage_floor)
             self._finish_run(conn, run_id, "success", rows_fetched, rows_upserted)
+            if stats.get("truncated"):
+                logger.warning(
+                    "%s: ⏱  time-capped — coverage floor recorded as %s "
+                    "(window start was %s); backfill will continue from there",
+                    self.PIPELINE_NAME, coverage_floor, from_date,
+                )
             logger.info(
                 "%s: ✅  fetched=%d upserted=%d",
                 self.PIPELINE_NAME, rows_fetched, rows_upserted,
@@ -208,6 +231,34 @@ class BasePipeline(ABC):
         return None
 
     # ── Backfill watermark ─────────────────────────────────────────────────────
+
+    def _coverage_floor(self, from_date: date, validated: list, stats: dict) -> date:
+        """
+        Decide the oldest date this run can claim to have fetched.
+
+        • Complete fetch (not truncated), or a snapshot report with no date
+          field → the run covered the whole window, so the floor is from_date.
+        • Truncated fetch → rows are newest-first, so we only have the recent
+          tail. The real floor is the OLDEST record date among the rows we got.
+          If no dated rows came back, fall back to to-date semantics by claiming
+          only from_date+window isn't covered — i.e. return the newest possible
+          (today) so the backfill re-pulls the whole window from scratch.
+        """
+        if not stats.get("truncated") or not self.DATE_FILTER_FIELD:
+            return from_date
+
+        dates = [
+            d for d in (
+                getattr(row, self.DATE_FILTER_FIELD, None) for row in validated
+            ) if d is not None
+        ]
+        if dates:
+            return min(dates)
+
+        # Truncated but couldn't read any record date — don't claim coverage we
+        # can't prove. Record today so the backward backfill re-fetches the
+        # whole window rather than silently skipping it.
+        return date.today()
 
     def _touch_backfill_state(self, conn, company_id: str, from_date: date) -> None:
         """

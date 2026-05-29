@@ -74,6 +74,7 @@ class ProcessDetailsPipeline(BasePipeline):
     REPORT_ID = "25"
     TABLE_NAME = "tz_process_details"
     RowSchema = ProcessDetailsRow
+    DATE_FILTER_FIELD = "production_date"
 
     def _get_filters(self, from_date: str, to_date: str) -> dict:
         return {"filters": {"from_date": from_date, "to_date": to_date}}

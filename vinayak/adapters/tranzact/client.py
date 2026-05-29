@@ -176,6 +176,8 @@ def fetch_report(
     report_id: str,
     filters: dict | None = None,
     per_page: int = 200,
+    max_seconds: float | None = None,
+    stats: dict | None = None,
 ) -> list[dict]:
     """
     Fetch ALL rows of a TranzAct report across all pages.
@@ -185,6 +187,15 @@ def fetch_report(
         filters:    Dict merged into the request payload (date ranges, etc.)
         per_page:   Rows per page. Larger pages = fewer throttled requests =
                     faster sync. Set to 200; reduce if you hit timeouts.
+        max_seconds: Wall-clock cap for the whole paginated fetch. When set,
+                    pagination stops once this many seconds have elapsed and the
+                    rows gathered so far are returned (partial result). Used by
+                    the initial sync so one slow report can't stall onboarding.
+        stats:      Optional dict the caller passes in to receive fetch metadata.
+                    Populated with {"truncated": bool, "pages_fetched": int}.
+                    `truncated` is True when the max_seconds cap stopped paging
+                    before all pages were retrieved — i.e. the result is partial
+                    and the oldest data was NOT reached.
 
     Returns:
         Flat list of row dicts — all pages concatenated.
@@ -195,9 +206,20 @@ def fetch_report(
     """
     all_rows: list[dict] = []
     page = 1
+    truncated = False
+    deadline = (time.monotonic() + max_seconds) if max_seconds else None
 
     with requests.Session() as session:
         while True:
+            if deadline is not None and time.monotonic() >= deadline:
+                truncated = True
+                logger.warning(
+                    "fetch_report: report_id=%s hit %.0fs time cap at page %d — "
+                    "returning %d rows fetched so far (partial)",
+                    report_id, max_seconds, page, len(all_rows),
+                )
+                break
+
             payload: dict[str, Any] = {
                 "report": {"id": report_id},
                 "pagination": {"page": page, "per_page": per_page},
@@ -226,7 +248,12 @@ def fetch_report(
                 break
             page += 1
 
+    if stats is not None:
+        stats["truncated"] = truncated
+        stats["pages_fetched"] = page
+
     logger.info(
-        "fetch_report: report_id=%s total rows=%d", report_id, len(all_rows)
+        "fetch_report: report_id=%s total rows=%d truncated=%s",
+        report_id, len(all_rows), truncated,
     )
     return all_rows

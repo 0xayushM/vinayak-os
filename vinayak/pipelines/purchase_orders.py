@@ -80,6 +80,7 @@ class PurchaseOrdersPipeline(BasePipeline):
     REPORT_ID = "3"
     TABLE_NAME = "tz_purchase_orders"
     RowSchema = PurchaseOrderRow
+    DATE_FILTER_FIELD = "po_date"
 
     def _get_filters(self, from_date: str, to_date: str) -> dict:
         return {"filters": {"from_date": from_date, "to_date": to_date}}
