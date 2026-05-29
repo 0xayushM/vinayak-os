@@ -175,7 +175,7 @@ def _post_with_retry(
 def fetch_report(
     report_id: str,
     filters: dict | None = None,
-    per_page: int = 50,
+    per_page: int = 200,
 ) -> list[dict]:
     """
     Fetch ALL rows of a TranzAct report across all pages.
@@ -183,7 +183,8 @@ def fetch_report(
     Args:
         report_id:  String report ID (e.g. "29" for Sales Invoice Register)
         filters:    Dict merged into the request payload (date ranges, etc.)
-        per_page:   Rows per page. TranzAct default is 50; reduce if timeouts occur.
+        per_page:   Rows per page. Larger pages = fewer throttled requests =
+                    faster sync. Set to 200; reduce if you hit timeouts.
 
     Returns:
         Flat list of row dicts — all pages concatenated.
