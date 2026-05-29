@@ -18,4 +18,4 @@ COPY vinayak/ ./vinayak/
 ENV PORT=8000
 EXPOSE 8000
 
-CMD uvicorn vinayak.api.main:app --host 0.0.0.0 --port ${PORT}
+CMD ["sh", "-c", "exec uvicorn vinayak.api.main:app --host 0.0.0.0 --port $PORT"]
