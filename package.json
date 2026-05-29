@@ -13,5 +13,8 @@
     "start": "pnpm --filter @vinayak/web start",
     "lint": "pnpm -r lint",
     "typecheck": "pnpm -r typecheck"
+  },
+  "devDependencies": {
+    "next": "16.2.6"
   }
 }
