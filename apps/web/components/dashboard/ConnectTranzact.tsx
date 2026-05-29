@@ -48,7 +48,30 @@ export default function ConnectTranzact({ onConnected, compact = false }: Props)
 
   const busy = step === "saving" || step === "testing" || step === "syncing";
 
-  async function pollSyncUntilDone(maxSeconds = 600) {
+  /**
+   * Core operational reports. These feed the panels a user sees first and run
+   * fast (small windows, fetched first by the backend). Once these have all
+   * reached a terminal state, the dashboard is usable — the remaining,
+   * slower/heavier reports keep syncing in the background and don't block
+   * onboarding. This prevents one slow or failed pipeline (e.g. Sales
+   * Quotations) from holding the user at the connect screen.
+   */
+  const CORE_PIPELINES = [
+    "ar_aging",
+    "sales_orders",
+    "purchase_orders",
+    "inventory_valuation",
+  ];
+
+  function coreReady(state: SyncState): boolean {
+    const core = state.pipelines.filter((p) => CORE_PIPELINES.includes(p.key));
+    // Wait until the checklist has been seeded with the core entries.
+    if (core.length < CORE_PIPELINES.length) return false;
+    // Terminal = succeeded or failed; either way we stop waiting on it.
+    return core.every((p) => p.status === "success" || p.status === "failed");
+  }
+
+  async function pollSyncUntilReady(maxSeconds = 600) {
     const start = Date.now();
     while (Date.now() - start < maxSeconds * 1000) {
       try {
@@ -56,8 +79,11 @@ export default function ConnectTranzact({ onConnected, compact = false }: Props)
         if (res.ok) {
           const state: SyncState = await res.json();
           setSync(state);
-          // Finished when the worker stops running and has processed everything.
-          if (!state.running && state.total > 0 && state.completed >= state.total) {
+          // Enter the dashboard as soon as the core reports have landed, or
+          // once the whole run has finished — whichever comes first.
+          const allDone =
+            !state.running && state.total > 0 && state.completed >= state.total;
+          if (allDone || (state.total > 0 && coreReady(state))) {
             return true;
           }
         }
@@ -107,11 +133,12 @@ export default function ConnectTranzact({ onConnected, compact = false }: Props)
         credentials: "include",
       });
 
-      // 4. Poll until all reports finish
-      await pollSyncUntilDone();
+      // 4. Poll until the core reports have landed (the rest keep syncing in
+      //    the background — a slow or failed pipeline won't block onboarding).
+      await pollSyncUntilReady();
 
       setStep("done");
-      setMessage("All set — loading your dashboard.");
+      setMessage("Core reports are in — loading your dashboard. Remaining reports will keep syncing in the background.");
       onConnected?.();
     } catch (err) {
       setStep("error");

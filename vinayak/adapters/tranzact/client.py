@@ -91,6 +91,8 @@ def _post_with_retry(
     Returns the parsed JSON body.
     Raises RuntimeError after exhausting retries.
     """
+    prev_5xx_signature: tuple[int, str] | None = None
+
     for attempt in range(max_retries):
         _throttle()
         token = get_access_token(
@@ -124,7 +126,34 @@ def _post_with_retry(
             )
             continue  # retry immediately after forced refresh
 
-        if resp.status_code == 429 or resp.status_code >= 500:
+        # 429 is always worth retrying (transient rate limit).
+        if resp.status_code == 429:
+            wait = 2 ** attempt * 5  # 5 s, 10 s, 20 s
+            logger.warning(
+                "fetch_report: HTTP 429 — backing off %ds (attempt %d)",
+                wait, attempt + 1,
+            )
+            time.sleep(wait)
+            continue
+
+        # 5xx: retry transient errors, but fast-fail on a *deterministic* one.
+        # A server error that returns the byte-for-byte same body on a fresh
+        # attempt is not going to fix itself by waiting — it's a bad request the
+        # server mis-handles (e.g. a missing/mismatched report param). Bail
+        # immediately instead of burning ~35s on identical retries.
+        if resp.status_code >= 500:
+            signature = (resp.status_code, resp.text[:500])
+            if prev_5xx_signature == signature:
+                logger.error(
+                    "fetch_report: HTTP %d repeated identical response — "
+                    "treating as deterministic failure, not retrying. body=%s",
+                    resp.status_code, resp.text[:500],
+                )
+                raise RuntimeError(
+                    f"fetch_report: deterministic HTTP {resp.status_code} from "
+                    f"/generate_report for payload {payload} — body={resp.text[:500]}"
+                )
+            prev_5xx_signature = signature
             wait = 2 ** attempt * 5  # 5 s, 10 s, 20 s
             logger.warning(
                 "fetch_report: HTTP %d — backing off %ds (attempt %d)",
