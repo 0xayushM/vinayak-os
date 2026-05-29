@@ -88,8 +88,15 @@ def _full_sync_plan():
 
 def _run_full_sync(email: str, password: str) -> None:
     """Prime the token cache with the user's stored credentials, then run
-    every pipeline once. Per-pipeline failures are logged (recorded in
-    tz_sync_runs by BasePipeline) but never abort the whole run."""
+    every pipeline once.  For each pipeline the window is computed as:
+
+      • First ever run  → today minus the default days_back window
+      • Subsequent runs → last successful completed_at date (with 1-day
+                          overlap to catch late-arriving records), capped at
+                          the default window so we never regress too far back.
+
+    Per-pipeline failures are logged (recorded in tz_sync_runs by BasePipeline)
+    but never abort the whole run."""
     global _sync_state
     import datetime as _dt
     plan = _full_sync_plan()
@@ -111,6 +118,32 @@ def _run_full_sync(email: str, password: str) -> None:
                     p.update(fields)
                     break
 
+    def _incremental_from(PipelineCls, days_back: int, today: date) -> date:
+        """Return the from_date for an incremental run.
+
+        Uses the last successful sync date (minus 1 day overlap) when available,
+        otherwise falls back to the full default window.
+        """
+        default_from = today - timedelta(days=days_back)
+        try:
+            db = psycopg2.connect(DATABASE_URL)
+            try:
+                last = PipelineCls.get_last_success_date(db)
+            finally:
+                db.close()
+            if last is not None:
+                # Re-fetch from 1 day before last success to cover edge cases,
+                # but never go further back than the default window.
+                incremental = max(last - timedelta(days=1), default_from)
+                logger.info(
+                    "%s: incremental sync from %s (last success: %s)",
+                    PipelineCls.PIPELINE_NAME, incremental, last,
+                )
+                return incremental
+        except Exception as exc:
+            logger.warning("Could not query last sync date for %s: %s", PipelineCls.__name__, exc)
+        return default_from
+
     try:
         # Prime the in-memory token cache using the credentials the user just
         # connected with, so the whole sync is driven by THEIR account.
@@ -127,7 +160,8 @@ def _run_full_sync(email: str, password: str) -> None:
                 _sync_state["current"] = key
             _set(key, status="running")
             try:
-                rows = PipelineCls().run(today - timedelta(days=days_back), today)
+                from_date = _incremental_from(PipelineCls, days_back, today)
+                rows = PipelineCls().run(from_date, today)
                 _set(key, status="success", rows=rows)
             except Exception as exc:  # noqa: BLE001
                 logger.error("Full sync: %s failed: %s", PipelineCls.__name__, exc)
