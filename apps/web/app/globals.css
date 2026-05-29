@@ -1,26 +1,111 @@
 @import "tailwindcss";
 
+/* ════════════════════════════════════════════════════════════════════════
+   Vinayak Brain OS — premium dark design system
+   Single restrained accent (indigo), layered surfaces, hairline borders.
+   ════════════════════════════════════════════════════════════════════════ */
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* Base canvas */
+  --bg-base:        #08080b;
+  --bg-elevated:    #0e0e12;
+
+  /* Layered surfaces */
+  --surface-1:      rgba(255, 255, 255, 0.024);
+  --surface-2:      rgba(255, 255, 255, 0.04);
+  --hairline:       rgba(255, 255, 255, 0.07);
+  --hairline-soft:  rgba(255, 255, 255, 0.045);
+
+  /* Text ramp */
+  --text-primary:   #f4f4f5;
+  --text-secondary: #a1a1aa;
+  --text-muted:     #6b6b76;
+
+  /* Single signature accent */
+  --accent:         #6366f1;
+  --accent-soft:    #818cf8;
+
+  --background: var(--bg-base);
+  --foreground: var(--text-primary);
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
+  --color-background: var(--bg-base);
+  --color-foreground: var(--text-primary);
+  --color-accent:     var(--accent);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html, body {
+  background: var(--bg-base);
+  color: var(--text-primary);
+  font-family: var(--font-geist-sans), -apple-system, BlinkMacSystemFont, "Segoe UI",
+    Roboto, Helvetica, Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+/* Ambient top glow — gives the canvas depth without a flat fill */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background:
+    radial-gradient(120% 60% at 50% -10%, rgba(99, 102, 241, 0.10), transparent 60%),
+    radial-gradient(80% 50% at 100% 0%, rgba(99, 102, 241, 0.05), transparent 55%);
 }
+
+/* Refined scrollbars */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.12) transparent;
+}
+*::-webkit-scrollbar { width: 9px; height: 9px; }
+*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.10);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+*::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.18); background-clip: padding-box; }
+
+::selection {
+  background: rgba(99, 102, 241, 0.32);
+  color: #fff;
+}
+
+/* ── Reusable surface utilities ─────────────────────────────────────────── */
+
+/* Premium card: layered fill + hairline + inset sheen + soft drop shadow */
+.surface-card {
+  background: linear-gradient(180deg, var(--surface-2), var(--surface-1));
+  border: 1px solid var(--hairline);
+  border-radius: 1rem;
+  box-shadow:
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.05),
+    0 1px 2px 0 rgba(0, 0, 0, 0.4),
+    0 12px 32px -16px rgba(0, 0, 0, 0.7);
+  transition: border-color 0.25s ease, box-shadow 0.25s ease, transform 0.25s ease;
+}
+.surface-card-hover:hover {
+  border-color: rgba(255, 255, 255, 0.12);
+  box-shadow:
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.06),
+    0 1px 2px 0 rgba(0, 0, 0, 0.4),
+    0 18px 44px -18px rgba(0, 0, 0, 0.8);
+}
+
+/* Subtle inset panel (sidebar, headers) */
+.surface-rail {
+  background: linear-gradient(180deg, rgba(255,255,255,0.022), rgba(255,255,255,0.006));
+}
+
+@keyframes fade-rise {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.animate-rise { animation: fade-rise 0.4s cubic-bezier(0.22, 1, 0.36, 1) both; }

@@ -9,7 +9,7 @@ function StatusIcon({ status }: { status: string }) {
   if (status === "success")
     return <CheckCircle className="w-4 h-4 text-emerald-500 shrink-0" />;
   if (status === "running")
-    return <RefreshCw className="w-4 h-4 text-blue-500 animate-spin shrink-0" />;
+    return <RefreshCw className="w-4 h-4 text-indigo-400 animate-spin shrink-0" />;
   return <XCircle className="w-4 h-4 text-red-500 shrink-0" />;
 }
 
@@ -26,11 +26,11 @@ export default function SyncHealthPage() {
   const { data, error, isLoading, mutate } = useSyncHealth();
 
   return (
-    <div className="p-6 space-y-6 max-w-3xl">
+    <div className="p-4 sm:p-6 lg:p-8 space-y-6 max-w-3xl mx-auto w-full animate-rise">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-lg font-semibold text-zinc-100">Sync Health</h1>
-          <p className="text-xs text-zinc-500 mt-0.5">
+          <h1 className="text-xl sm:text-2xl font-semibold tracking-tight text-zinc-50">Sync Health</h1>
+          <p className="text-[12.5px] text-zinc-500 mt-1">
             Last 25 pipeline runs across all TranzAct reports
           </p>
         </div>
@@ -82,15 +82,15 @@ export default function SyncHealthPage() {
       )}
 
       {data && (
-        <div className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden">
+        <div className="surface-card overflow-hidden">
           <table className="w-full text-xs">
             <thead>
-              <tr className="border-b border-zinc-800">
-                <th className="text-left px-4 py-3 text-zinc-500 font-semibold">Pipeline</th>
-                <th className="text-left px-4 py-3 text-zinc-500 font-semibold">Status</th>
-                <th className="text-left px-4 py-3 text-zinc-500 font-semibold">Started</th>
-                <th className="text-left px-4 py-3 text-zinc-500 font-semibold">Completed</th>
-                <th className="text-right px-4 py-3 text-zinc-500 font-semibold">Rows</th>
+              <tr className="border-b border-white/[0.07]">
+                <th className="text-left px-4 py-3 text-zinc-500 font-medium">Pipeline</th>
+                <th className="text-left px-4 py-3 text-zinc-500 font-medium">Status</th>
+                <th className="text-left px-4 py-3 text-zinc-500 font-medium">Started</th>
+                <th className="text-left px-4 py-3 text-zinc-500 font-medium">Completed</th>
+                <th className="text-right px-4 py-3 text-zinc-500 font-medium">Rows</th>
               </tr>
             </thead>
             <tbody>
@@ -98,7 +98,7 @@ export default function SyncHealthPage() {
                 <tr
                   key={i}
                   className={cn(
-                    "border-b border-zinc-800/50 last:border-0",
+                    "border-b border-white/[0.04] last:border-0 hover:bg-white/[0.02] transition-colors",
                     run.status === "error" && "bg-red-500/5",
                   )}
                 >
@@ -109,7 +109,7 @@ export default function SyncHealthPage() {
                       <span
                         className={cn(
                           run.status === "success" && "text-emerald-400",
-                          run.status === "running" && "text-blue-400",
+                          run.status === "running" && "text-indigo-400",
                           run.status === "error"   && "text-red-400",
                         )}
                       >

@@ -12,17 +12,19 @@ import {
 // ════════════════════════════════════════════════════════════════════════════
 export default function DashboardOverview() {
   return (
-    <div className="p-6 space-y-6">
+    <div className="p-4 sm:p-6 lg:p-8 space-y-8 max-w-[1600px] mx-auto w-full animate-rise">
       <div>
-        <h1 className="text-lg font-semibold text-zinc-100">Business Overview</h1>
-        <p className="text-xs text-zinc-500 mt-0.5">
+        <h1 className="text-xl sm:text-2xl font-semibold tracking-tight text-zinc-50">
+          Business Overview
+        </h1>
+        <p className="text-[12.5px] text-zinc-500 mt-1">
           KBrushes · Powered by TranzAct · Panels refresh automatically
         </p>
       </div>
 
       {/* Strategic panels — daily cache */}
       <section>
-        <h2 className="text-xs font-semibold text-zinc-600 uppercase tracking-wider mb-3">
+        <h2 className="text-[11px] font-semibold text-zinc-600 uppercase tracking-[0.1em] mb-3">
           Strategic — Daily Refresh
         </h2>
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
@@ -45,7 +47,7 @@ export default function DashboardOverview() {
 
       {/* Operational panels — hourly cache */}
       <section>
-        <h2 className="text-xs font-semibold text-zinc-600 uppercase tracking-wider mb-3">
+        <h2 className="text-[11px] font-semibold text-zinc-600 uppercase tracking-[0.1em] mb-3">
           Operational — Hourly Refresh
         </h2>
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">

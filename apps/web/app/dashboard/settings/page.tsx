@@ -6,10 +6,10 @@ import { HistoryBackfill } from "@/components/dashboard/HistoryBackfill";
 
 export default function SettingsPage() {
   return (
-    <div className="p-6 space-y-8 max-w-xl">
+    <div className="p-4 sm:p-6 lg:p-8 space-y-8 max-w-xl mx-auto w-full animate-rise">
       <div>
-        <h1 className="text-lg font-semibold text-zinc-100">Settings & Connections</h1>
-        <p className="text-xs text-zinc-500 mt-0.5">
+        <h1 className="text-xl sm:text-2xl font-semibold tracking-tight text-zinc-50">Settings & Connections</h1>
+        <p className="text-[12.5px] text-zinc-500 mt-1">
           Connect your ERP tools or re-sync data on demand.
         </p>
       </div>
@@ -22,15 +22,15 @@ export default function SettingsPage() {
 
       {/* Future ERP placeholders */}
       <div className="space-y-3">
-        <h3 className="text-xs font-semibold text-zinc-600 uppercase tracking-wider">
+        <h3 className="text-[11px] font-semibold text-zinc-600 uppercase tracking-[0.1em]">
           Coming in Phase 3
         </h3>
         {["Tally Prime (Local Agent)", "Busy Accounting"].map((name) => (
           <div
             key={name}
-            className="bg-zinc-900/50 border border-zinc-800 rounded-xl p-4 flex items-center gap-3 opacity-50"
+            className="surface-card p-4 flex items-center gap-3 opacity-50"
           >
-            <div className="w-9 h-9 rounded-lg bg-zinc-800 border border-zinc-700 flex items-center justify-center">
+            <div className="w-9 h-9 rounded-lg bg-white/[0.04] border border-white/[0.06] flex items-center justify-center">
               <Unplug className="w-4 h-4 text-zinc-600" />
             </div>
             <div>

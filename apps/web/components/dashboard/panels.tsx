@@ -16,6 +16,7 @@ import {
 } from "recharts";
 import { PanelWrapper } from "@/components/dashboard/PanelWrapper";
 import { KpiCard } from "@/components/dashboard/KpiCard";
+import { DataTable } from "@/components/dashboard/DataTable";
 import {
   useRevenueSummary, useRevenueTrend, useCustomerConcentration,
   useTopSkus, useArSummary, useOpenOrders, useInventorySummary,
@@ -26,14 +27,21 @@ import {
 import { formatCurrency, formatNumber } from "@/lib/utils/cn";
 
 // ── Chart palette (dark theme) ────────────────────────────────────────────────
-export const COLORS = ["#3b82f6", "#10b981", "#f59e0b", "#8b5cf6", "#ef4444", "#06b6d4"];
-const BLUE  = "#3b82f6";
-const GREEN = "#10b981";
+export const COLORS = ["#6366f1", "#818cf8", "#34d399", "#f59e0b", "#a78bfa", "#22d3ee"];
+const BLUE  = "#6366f1";
+const GREEN = "#34d399";
 const AMBER = "#f59e0b";
 
 const tooltipStyle = {
-  contentStyle: { background: "#18181b", border: "1px solid #3f3f46", borderRadius: 8 },
+  contentStyle: {
+    background: "rgba(14,14,18,0.95)",
+    border: "1px solid rgba(255,255,255,0.08)",
+    borderRadius: 10,
+    boxShadow: "0 12px 32px -16px rgba(0,0,0,0.8)",
+    fontSize: 12,
+  },
   labelStyle: { color: "#a1a1aa" },
+  itemStyle: { color: "#f4f4f5" },
 };
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -64,7 +72,7 @@ export function RevenueTrendPanel() {
     <PanelWrapper title="Revenue Trend" subtitle="6-month bar chart" meta={data?.meta} loading={isLoading} error={error}>
       <ResponsiveContainer width="100%" height={180}>
         <BarChart data={months} margin={{ top: 4, right: 8, left: -20, bottom: 0 }}>
-          <CartesianGrid strokeDasharray="3 3" stroke="#27272a" vertical={false} />
+          <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
           <XAxis dataKey="month" tick={{ fill: "#71717a", fontSize: 10 }} axisLine={false} tickLine={false} />
           <YAxis tick={{ fill: "#71717a", fontSize: 10 }} axisLine={false} tickLine={false} tickFormatter={(v) => formatCurrency(v, true)} />
           <Tooltip {...tooltipStyle} formatter={fmt("Revenue")} />
@@ -117,8 +125,8 @@ export function TopSkusPanel() {
         {skus.slice(0, 8).map((s) => (
           <div key={s.sku_code} className="flex items-center gap-2 text-xs">
             <span className="text-zinc-500 font-mono w-14 shrink-0 truncate">{s.sku_code}</span>
-            <div className="flex-1 bg-zinc-800 rounded-full h-1.5 overflow-hidden">
-              <div className="h-full rounded-full bg-blue-500" style={{ width: `${(s.revenue / max) * 100}%` }} />
+            <div className="flex-1 bg-white/[0.06] rounded-full h-1.5 overflow-hidden">
+              <div className="h-full rounded-full bg-indigo-500" style={{ width: `${(s.revenue / max) * 100}%` }} />
             </div>
             <span className="text-zinc-300 tabular-nums w-16 text-right shrink-0">{formatCurrency(s.revenue, true)}</span>
           </div>
@@ -129,35 +137,29 @@ export function TopSkusPanel() {
   );
 }
 
-// Detailed Top-SKU table (used on the SKUs page).
+// Detailed Top-SKU table (used on the SKUs page) — sortable + paginated.
 export function TopSkusTablePanel() {
   const { data, error, isLoading } = useTopSkus(30);
   const skus = data?.data?.skus ?? [];
+  type Sku = (typeof skus)[number];
   return (
     <PanelWrapper title="Top SKUs — detail" subtitle="Quantity & revenue, last 30 days" meta={data?.meta} loading={isLoading} error={error}>
-      <div className="overflow-x-auto">
-        <table className="w-full text-xs">
-          <thead>
-            <tr className="text-zinc-500 border-b border-zinc-800">
-              <th className="text-left font-medium py-2">SKU</th>
-              <th className="text-left font-medium py-2">Name</th>
-              <th className="text-right font-medium py-2">Qty sold</th>
-              <th className="text-right font-medium py-2">Revenue</th>
-            </tr>
-          </thead>
-          <tbody>
-            {skus.map((s) => (
-              <tr key={s.sku_code} className="border-b border-zinc-800/50">
-                <td className="py-2 font-mono text-zinc-400">{s.sku_code}</td>
-                <td className="py-2 text-zinc-300 truncate max-w-[220px]">{s.item_name}</td>
-                <td className="py-2 text-right text-zinc-400 tabular-nums">{formatNumber(s.qty_sold)}</td>
-                <td className="py-2 text-right text-zinc-200 tabular-nums">{formatCurrency(s.revenue, true)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        {skus.length === 0 && <p className="text-xs text-zinc-600 pt-3">No SKU sales in this period.</p>}
-      </div>
+      <DataTable<Sku>
+        rows={skus}
+        rowKey={(s) => s.sku_code}
+        emptyMessage="No SKU sales in this period."
+        initialSort={{ key: "revenue", dir: "desc" }}
+        columns={[
+          { key: "sku_code", header: "SKU", sortValue: (s) => s.sku_code,
+            cell: (s) => <span className="font-mono text-zinc-400">{s.sku_code}</span> },
+          { key: "item_name", header: "Name", sortValue: (s) => s.item_name ?? "",
+            cell: (s) => <span className="block truncate max-w-[260px]">{s.item_name}</span> },
+          { key: "qty_sold", header: "Qty sold", align: "right", sortValue: (s) => s.qty_sold,
+            cell: (s) => formatNumber(s.qty_sold) },
+          { key: "revenue", header: "Revenue", align: "right", sortValue: (s) => s.revenue,
+            cell: (s) => <span className="text-zinc-200">{formatCurrency(s.revenue, true)}</span> },
+        ]}
+      />
     </PanelWrapper>
   );
 }
@@ -200,7 +202,7 @@ export function TopVendorsPanel() {
         {vendors.slice(0, 8).map((v) => (
           <div key={v.vendor_name} className="flex items-center gap-2 text-xs">
             <span className="text-zinc-400 w-32 shrink-0 truncate">{v.vendor_name}</span>
-            <div className="flex-1 bg-zinc-800 rounded-full h-1.5 overflow-hidden">
+            <div className="flex-1 bg-white/[0.06] rounded-full h-1.5 overflow-hidden">
               <div className="h-full rounded-full bg-amber-500" style={{ width: `${(v.spend / max) * 100}%` }} />
             </div>
             <span className="text-zinc-300 tabular-nums w-16 text-right shrink-0">{formatCurrency(v.spend, true)}</span>
@@ -220,10 +222,10 @@ export function BomCoveragePanel() {
     <PanelWrapper title="BOM Coverage" subtitle="Items with routing" meta={data?.meta} loading={isLoading} error={error}>
       <div className="pt-2 space-y-3">
         <div className="flex items-end justify-between">
-          <span className="text-3xl font-bold text-blue-400 tabular-nums">{pct.toFixed(1)}%</span>
+          <span className="text-3xl font-semibold tracking-tight text-indigo-300 tabular-nums">{pct.toFixed(1)}%</span>
           <span className="text-xs text-zinc-500">{d?.items_with_bom}/{d?.total_items} items</span>
         </div>
-        <div className="w-full bg-zinc-800 rounded-full h-2 overflow-hidden">
+        <div className="w-full bg-white/[0.06] rounded-full h-2 overflow-hidden">
           <div className="h-full rounded-full bg-blue-500 transition-all" style={{ width: `${pct}%` }} />
         </div>
         {(d?.items_missing_bom ?? 0) > 0 && (
@@ -267,7 +269,7 @@ export function ArBucketTablePanel() {
       <div className="overflow-x-auto">
         <table className="w-full text-xs">
           <thead>
-            <tr className="text-zinc-500 border-b border-zinc-800">
+            <tr className="text-zinc-500 border-b border-white/[0.07]">
               <th className="text-left font-medium py-2">Bucket</th>
               <th className="text-right font-medium py-2">Amount</th>
               <th className="text-right font-medium py-2">Invoices</th>
@@ -276,7 +278,7 @@ export function ArBucketTablePanel() {
           </thead>
           <tbody>
             {buckets.map((b) => (
-              <tr key={b.bucket} className="border-b border-zinc-800/50">
+              <tr key={b.bucket} className="border-b border-white/[0.04] hover:bg-white/[0.02] transition-colors">
                 <td className="py-2 text-zinc-300">{b.bucket}</td>
                 <td className="py-2 text-right text-zinc-200 tabular-nums">{formatCurrency(b.amount, true)}</td>
                 <td className="py-2 text-right text-zinc-400 tabular-nums">{formatNumber(b.invoice_count)}</td>
@@ -314,6 +316,52 @@ export function OpenOrdersPanel() {
           ))}
         </div>
       </div>
+    </PanelWrapper>
+  );
+}
+
+// Open orders by-status detail table (Orders page).
+export function OpenOrdersTablePanel() {
+  const { data, error, isLoading } = useOpenOrders();
+  const rows = data?.data?.by_status ?? [];
+  type Row = (typeof rows)[number];
+  return (
+    <PanelWrapper title="Orders by status — detail" subtitle="Count & value per status" meta={data?.meta} loading={isLoading} error={error}>
+      <DataTable<Row>
+        rows={rows}
+        rowKey={(r) => r.status}
+        emptyMessage="No open orders."
+        initialSort={{ key: "value", dir: "desc" }}
+        columns={[
+          { key: "status", header: "Status", sortValue: (r) => r.status, cell: (r) => r.status },
+          { key: "count", header: "Orders", align: "right", sortValue: (r) => r.count, cell: (r) => formatNumber(r.count) },
+          { key: "value", header: "Value", align: "right", sortValue: (r) => r.value,
+            cell: (r) => <span className="text-zinc-200">{formatCurrency(r.value, true)}</span> },
+        ]}
+      />
+    </PanelWrapper>
+  );
+}
+
+// Open POs by-vendor detail table (POs page).
+export function OpenPosTablePanel() {
+  const { data, error, isLoading } = useOpenPOs();
+  const rows = data?.data?.by_vendor ?? [];
+  type Row = (typeof rows)[number];
+  return (
+    <PanelWrapper title="Open POs by vendor — detail" subtitle="Outstanding PO value per vendor" meta={data?.meta} loading={isLoading} error={error}>
+      <DataTable<Row>
+        rows={rows}
+        rowKey={(r) => r.vendor_name}
+        emptyMessage="No open purchase orders."
+        initialSort={{ key: "value", dir: "desc" }}
+        columns={[
+          { key: "vendor_name", header: "Vendor", sortValue: (r) => r.vendor_name ?? "",
+            cell: (r) => <span className="block truncate max-w-[280px]">{r.vendor_name}</span> },
+          { key: "value", header: "Open value", align: "right", sortValue: (r) => r.value,
+            cell: (r) => <span className="text-zinc-200">{formatCurrency(r.value, true)}</span> },
+        ]}
+      />
     </PanelWrapper>
   );
 }
@@ -380,7 +428,7 @@ export function InventoryCategoryTablePanel() {
       <div className="overflow-x-auto">
         <table className="w-full text-xs">
           <thead>
-            <tr className="text-zinc-500 border-b border-zinc-800">
+            <tr className="text-zinc-500 border-b border-white/[0.07]">
               <th className="text-left font-medium py-2">Category</th>
               <th className="text-right font-medium py-2">Value</th>
               <th className="text-right font-medium py-2">SKUs</th>
@@ -388,7 +436,7 @@ export function InventoryCategoryTablePanel() {
           </thead>
           <tbody>
             {cats.map((c) => (
-              <tr key={c.category} className="border-b border-zinc-800/50">
+              <tr key={c.category} className="border-b border-white/[0.04] hover:bg-white/[0.02] transition-colors">
                 <td className="py-2 text-zinc-300">{c.category}</td>
                 <td className="py-2 text-right text-zinc-200 tabular-nums">{formatCurrency(c.value, true)}</td>
                 <td className="py-2 text-right text-zinc-400 tabular-nums">{formatNumber(c.sku_count)}</td>

@@ -2,7 +2,8 @@
 
 import { relativeTime } from "@/lib/utils/cn";
 import { PanelMeta } from "@/hooks/useDashboard";
-import { AlertTriangle, RefreshCw } from "lucide-react";
+import { AlertTriangle, Loader2 } from "lucide-react";
+import { cn } from "@/lib/utils/cn";
 
 interface PanelWrapperProps {
   title: string;
@@ -12,6 +13,8 @@ interface PanelWrapperProps {
   error?: Error | null;
   children: React.ReactNode;
   className?: string;
+  /** Optional right-aligned actions in the header (filters, links). */
+  action?: React.ReactNode;
 }
 
 export function PanelWrapper({
@@ -22,43 +25,55 @@ export function PanelWrapper({
   error,
   children,
   className = "",
+  action,
 }: PanelWrapperProps) {
   return (
-    <div className={`bg-zinc-900 border border-zinc-800 rounded-xl flex flex-col ${className}`}>
+    <div
+      className={cn(
+        "surface-card surface-card-hover flex flex-col group",
+        className,
+      )}
+    >
       {/* Header */}
-      <div className="px-4 pt-4 pb-2 flex items-start justify-between gap-2 shrink-0">
-        <div>
-          <h3 className="text-sm font-semibold text-zinc-100">{title}</h3>
+      <div className="px-5 pt-4 pb-3 flex items-start justify-between gap-3 shrink-0">
+        <div className="min-w-0">
+          <h3 className="text-[13px] font-semibold tracking-tight text-zinc-100 truncate">
+            {title}
+          </h3>
           {subtitle && (
-            <p className="text-xs text-zinc-500 mt-0.5">{subtitle}</p>
+            <p className="text-[11px] text-zinc-500 mt-0.5 truncate">{subtitle}</p>
           )}
         </div>
-        <div className="flex items-center gap-1.5 shrink-0">
+        <div className="flex items-center gap-2 shrink-0">
+          {action}
           {meta?.stale && (
-            <span className="flex items-center gap-1 text-[10px] bg-amber-500/10 text-amber-400 border border-amber-500/20 px-2 py-0.5 rounded-full font-medium">
+            <span className="flex items-center gap-1 text-[10px] bg-amber-500/10 text-amber-300 border border-amber-500/20 px-2 py-0.5 rounded-full font-medium">
               <AlertTriangle className="w-2.5 h-2.5" />
               Stale
             </span>
           )}
-          {meta?.last_synced_at && (
-            <span className="text-[10px] text-zinc-600">
+          {meta?.last_synced_at && !meta?.stale && (
+            <span className="text-[10px] text-zinc-600 tabular-nums hidden sm:block">
               {relativeTime(meta.last_synced_at)}
             </span>
           )}
         </div>
       </div>
 
+      {/* Hairline under header */}
+      <div className="mx-5 h-px bg-white/[0.05] shrink-0" />
+
       {/* Body */}
-      <div className="flex-1 px-4 pb-4 min-h-0">
+      <div className="flex-1 px-5 py-4 min-h-0">
         {loading ? (
-          <div className="h-full flex items-center justify-center py-8">
-            <RefreshCw className="w-5 h-5 text-zinc-600 animate-spin" />
+          <div className="h-full flex items-center justify-center py-10">
+            <Loader2 className="w-5 h-5 text-zinc-600 animate-spin" />
           </div>
         ) : error ? (
-          <div className="h-full flex items-center justify-center py-8">
+          <div className="h-full flex items-center justify-center py-10">
             <div className="text-center">
-              <AlertTriangle className="w-5 h-5 text-red-500 mx-auto mb-2" />
-              <p className="text-xs text-red-400">{error.message}</p>
+              <AlertTriangle className="w-5 h-5 text-red-400 mx-auto mb-2" />
+              <p className="text-xs text-red-300/80">{error.message}</p>
             </div>
           </div>
         ) : (
