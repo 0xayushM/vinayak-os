@@ -44,7 +44,13 @@ class BasePipeline(ABC):
 
     # ── Public methods ────────────────────────────────────────────────────────
 
-    def run(self, from_date: date, to_date: date, is_backfill: bool = False) -> int:
+    def run(
+        self,
+        from_date: date,
+        to_date: date,
+        is_backfill: bool = False,
+        company_id: str = "kbrushes",
+    ) -> int:
         """
         Full pipeline run:
           1. Open a DB connection and log 'running' to tz_sync_runs
@@ -52,6 +58,8 @@ class BasePipeline(ABC):
           3. Validate rows with Pydantic (bad rows are skipped, not raised)
           4. Upsert valid rows into the cached table
           5. Update tz_sync_runs with 'success' or 'failed'
+          6. Move the backfill watermark back if this run reached further into
+             the past than any previous run.
 
         Returns the number of rows upserted.
         """
@@ -68,6 +76,7 @@ class BasePipeline(ABC):
             self._upsert(conn, validated)
             rows_upserted = len(validated)  # execute_values rowcount unreliable with page_size batching
 
+            self._touch_backfill_state(conn, company_id, from_date)
             self._finish_run(conn, run_id, "success", rows_fetched, rows_upserted)
             logger.info(
                 "%s: ✅  fetched=%d upserted=%d",
@@ -192,6 +201,60 @@ class BasePipeline(ABC):
                     ORDER BY completed_at DESC
                     LIMIT 1""",
                 (cls.PIPELINE_NAME,),
+            )
+            row = cur.fetchone()
+        if row and row[0]:
+            return row[0].date() if hasattr(row[0], "date") else row[0]
+        return None
+
+    # ── Backfill watermark ─────────────────────────────────────────────────────
+
+    def _touch_backfill_state(self, conn, company_id: str, from_date: date) -> None:
+        """
+        Record how far back this pipeline has now fetched.
+
+        Upserts tz_backfill_state.oldest_fetched_date to the EARLIER of the
+        existing value and `from_date`, so the watermark only ever moves
+        backwards in time. Called automatically on every successful run().
+        """
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO tz_backfill_state
+                       (company_id, pipeline_name, oldest_fetched_date, updated_at)
+                VALUES (%s, %s, %s, NOW())
+                ON CONFLICT (company_id, pipeline_name) DO UPDATE SET
+                    oldest_fetched_date = LEAST(
+                        tz_backfill_state.oldest_fetched_date, EXCLUDED.oldest_fetched_date
+                    ),
+                    updated_at = NOW()
+                """,
+                (company_id, self.PIPELINE_NAME, from_date),
+            )
+        conn.commit()
+
+    @classmethod
+    def get_oldest_fetched_date(cls, conn, company_id: str = "kbrushes") -> date | None:
+        """Earliest date this pipeline has data for, or None if never run."""
+        with conn.cursor() as cur:
+            cur.execute(
+                """SELECT oldest_fetched_date FROM tz_backfill_state
+                    WHERE company_id = %s AND pipeline_name = %s""",
+                (company_id, cls.PIPELINE_NAME),
+            )
+            row = cur.fetchone()
+        if row and row[0]:
+            return row[0].date() if hasattr(row[0], "date") else row[0]
+        return None
+
+    @classmethod
+    def get_backfill_floor(cls, conn, company_id: str = "kbrushes") -> date | None:
+        """Per-pipeline floor date (stop backfilling past this), or None."""
+        with conn.cursor() as cur:
+            cur.execute(
+                """SELECT floor_date FROM tz_backfill_state
+                    WHERE company_id = %s AND pipeline_name = %s""",
+                (company_id, cls.PIPELINE_NAME),
             )
             row = cur.fetchone()
         if row and row[0]:

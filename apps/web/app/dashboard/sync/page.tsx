@@ -3,6 +3,7 @@
 import { useSyncHealth } from "@/hooks/useDashboard";
 import { CheckCircle, AlertTriangle, XCircle, RefreshCw } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
+import { HistoryBackfill } from "@/components/dashboard/HistoryBackfill";
 
 function StatusIcon({ status }: { status: string }) {
   if (status === "success")
@@ -41,6 +42,9 @@ export default function SyncHealthPage() {
           Refresh
         </button>
       </div>
+
+      {/* History coverage — how far back each report has been fetched */}
+      <HistoryBackfill mode="coverage" />
 
       {/* Health banner */}
       {data && (

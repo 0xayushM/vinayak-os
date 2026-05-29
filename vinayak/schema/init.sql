@@ -74,6 +74,25 @@ CREATE TABLE IF NOT EXISTS tz_sync_runs (
 CREATE INDEX IF NOT EXISTS idx_sync_runs_pipeline_time
     ON tz_sync_runs (pipeline_name, completed_at DESC);
 
+-- ── Backfill watermark ───────────────────────────────────────
+-- Tracks, per (company, pipeline), how far BACK in time we have
+-- fetched history. The initial sync pulls ~1 month; the nightly
+-- backward-backfill job walks this date further into the past one
+-- window at a time, until it reaches floor_date.
+--
+--   oldest_fetched_date — the earliest date we have data for.
+--   floor_date          — stop backfilling once oldest <= floor
+--                         (NULL = use the job's default floor).
+
+CREATE TABLE IF NOT EXISTS tz_backfill_state (
+    company_id           TEXT NOT NULL DEFAULT 'kbrushes',
+    pipeline_name        TEXT NOT NULL,
+    oldest_fetched_date  DATE,
+    floor_date           DATE,
+    updated_at           TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (company_id, pipeline_name)
+);
+
 -- ── Sales invoices (report 29, daily) ───────────────────────
 -- Source: Sales Invoice Register
 -- Used for: S1 Revenue KPIs, S2 Monthly trend, S3–S5 customer/SKU panels

@@ -2,6 +2,7 @@
 
 import { Unplug } from "lucide-react";
 import ConnectTranzact from "@/components/dashboard/ConnectTranzact";
+import { HistoryBackfill } from "@/components/dashboard/HistoryBackfill";
 
 export default function SettingsPage() {
   return (
@@ -15,6 +16,9 @@ export default function SettingsPage() {
 
       {/* TranzAct connection — save, test, and run a fresh sync */}
       <ConnectTranzact compact />
+
+      {/* Historical data — coverage + pull older history on demand */}
+      <HistoryBackfill mode="full" />
 
       {/* Future ERP placeholders */}
       <div className="space-y-3">

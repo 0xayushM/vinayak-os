@@ -72,17 +72,22 @@ def _full_sync_plan():
     from vinayak.pipelines.sales_quotations import SalesQuotationsPipeline
     from vinayak.pipelines.process_routing import ProcessRoutingPipeline
 
+    # Initial sync window: 1 month for every pipeline. The dashboard shows the
+    # most recent month immediately; older history is filled in afterwards by
+    # the nightly backward-backfill job (vinayak/jobs/backfill.py) or on demand
+    # via POST /connections/tranzact/history.
+    INITIAL_WINDOW_DAYS = 30
     return [
-        (ARAgingPipeline, 1, "ar_aging", "AR Aging"),
-        (SalesOrdersPipeline, 7, "sales_orders", "Sales Orders"),
-        (PurchaseOrdersPipeline, 7, "purchase_orders", "Purchase Orders"),
-        (InventoryValuationPipeline, 1, "inventory_valuation", "Inventory Valuation"),
-        (ProcessDetailsPipeline, 7, "process_details", "Production Details"),
-        (SalesInvoicesPipeline, 30, "sales_invoices", "Sales Invoices"),
-        (PurchaseInvoicesPipeline, 30, "purchase_invoices", "Purchase Invoices"),
-        (GRNQIRPipeline, 30, "grn_qir", "GRN / Quality"),
-        (SalesQuotationsPipeline, 30, "sales_quotations", "Sales Quotations"),
-        (ProcessRoutingPipeline, 30, "process_routing", "Process Routing"),
+        (ARAgingPipeline, INITIAL_WINDOW_DAYS, "ar_aging", "AR Aging"),
+        (SalesOrdersPipeline, INITIAL_WINDOW_DAYS, "sales_orders", "Sales Orders"),
+        (PurchaseOrdersPipeline, INITIAL_WINDOW_DAYS, "purchase_orders", "Purchase Orders"),
+        (InventoryValuationPipeline, INITIAL_WINDOW_DAYS, "inventory_valuation", "Inventory Valuation"),
+        (ProcessDetailsPipeline, INITIAL_WINDOW_DAYS, "process_details", "Production Details"),
+        (SalesInvoicesPipeline, INITIAL_WINDOW_DAYS, "sales_invoices", "Sales Invoices"),
+        (PurchaseInvoicesPipeline, INITIAL_WINDOW_DAYS, "purchase_invoices", "Purchase Invoices"),
+        (GRNQIRPipeline, INITIAL_WINDOW_DAYS, "grn_qir", "GRN / Quality"),
+        (SalesQuotationsPipeline, INITIAL_WINDOW_DAYS, "sales_quotations", "Sales Quotations"),
+        (ProcessRoutingPipeline, INITIAL_WINDOW_DAYS, "process_routing", "Process Routing"),
     ]
 
 
@@ -448,6 +453,114 @@ def trigger_full_sync(user: TokenPayload = Depends(get_current_user)):
 def full_sync_status(user: TokenPayload = Depends(get_current_user)):
     with _sync_lock:
         return dict(_sync_state)
+
+
+# ── On-demand history backfill ───────────────────────────────────────────────
+# Lets a user reach further into the past than the initial 1-month window.
+# Runs the same backward-backfill step the nightly cron uses, in a background
+# thread. Process-local guard prevents overlapping backfills per process.
+_backfill_lock = threading.Lock()
+_backfill_running = False
+
+
+class HistoryBackfillRequest(BaseModel):
+    months: int = 1        # how many extra months of history to pull this call
+    floor_months: int = 12  # don't go further back than this many months total
+
+
+@router.post("/tranzact/history", summary="Pull older history (backward backfill)")
+def trigger_history_backfill(
+    body: HistoryBackfillRequest | None = None,
+    user: TokenPayload = Depends(get_current_user),
+):
+    """
+    Walk each pipeline's history one (or more) months further into the past,
+    on top of whatever has already been fetched. Returns immediately; the work
+    runs in a background thread. Safe to call repeatedly — it advances the
+    backfill watermark and stops once the floor is reached.
+    """
+    global _backfill_running
+    req = body or HistoryBackfillRequest()
+
+    with _backfill_lock:
+        if _backfill_running:
+            return {"status": "already_running"}
+
+    # Load this company's stored credentials.
+    conn = _conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """SELECT encrypted_credentials FROM tool_connections
+                    WHERE company_id = %s AND tool_name = 'tranzact' AND is_active = TRUE""",
+                (user.company_id,),
+            )
+            row = cur.fetchone()
+    except Exception as exc:
+        conn.close()
+        _raise_if_schema_missing(exc)
+    finally:
+        conn.close()
+
+    if not row:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No TranzAct credentials found. Connect TranzAct first.",
+        )
+
+    creds = _decrypt(row[0])
+
+    def _worker(company_id: str, email: str, password: str, months: int, floor_months: int):
+        global _backfill_running
+        try:
+            from vinayak.jobs.backfill import backfill_company
+            summary = backfill_company(
+                company_id, email, password, months=months, floor_months=floor_months,
+            )
+            logger.info("History backfill done for %s: %s", company_id, summary)
+        except Exception as exc:  # noqa: BLE001
+            logger.error("History backfill failed for %s: %s", company_id, exc)
+        finally:
+            with _backfill_lock:
+                _backfill_running = False
+
+    with _backfill_lock:
+        _backfill_running = True
+
+    threading.Thread(
+        target=_worker,
+        args=(user.company_id, creds["email"], creds["password"], req.months, req.floor_months),
+        daemon=True,
+    ).start()
+
+    logger.info("History backfill started for company %s (+%d months)", user.company_id, req.months)
+    return {"status": "started", "months": req.months, "floor_months": req.floor_months}
+
+
+@router.get("/tranzact/history", summary="History backfill state + coverage")
+def history_backfill_status(user: TokenPayload = Depends(get_current_user)):
+    """Report whether a backfill is running and how far back each pipeline goes."""
+    from vinayak.api.routes.connections import _full_sync_plan  # self-import safe
+
+    conn = _conn()
+    coverage = []
+    try:
+        for PipelineCls, _d, key, label in _full_sync_plan():
+            try:
+                oldest = PipelineCls.get_oldest_fetched_date(conn, user.company_id)
+            except Exception:
+                oldest = None
+            coverage.append({
+                "key": key,
+                "label": label,
+                "oldest_fetched_date": oldest.isoformat() if oldest else None,
+            })
+    finally:
+        conn.close()
+
+    with _backfill_lock:
+        running = _backfill_running
+    return {"running": running, "coverage": coverage}
 
 
 @router.delete("/{tool_name}", summary="Remove a tool connection")
