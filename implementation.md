@@ -84,13 +84,13 @@ pip install -r vinayak/requirements.txt     # fastapi, uvicorn, psycopg2-binary,
 Initialise the database schema (creates `tool_connections`, the `tz_*` cache tables, and `tz_sync_runs`):
 
 ```bash
-python -m vinayak.scripts.setup_db
+python3 -m vinayak.scripts.setup_db
 ```
 
 Sanity-check TranzAct auth in isolation before running the full app:
 
 ```bash
-python -m vinayak.scripts.test_login
+python3 -m vinayak.scripts.test_login
 ```
 
 Start the API (this also starts the APScheduler that runs pipelines on a cron):

@@ -177,6 +177,27 @@ class BasePipeline(ABC):
         except Exception as log_exc:
             logger.error("Could not log pipeline failure: %s", log_exc)
 
+    @classmethod
+    def get_last_success_date(cls, conn) -> date | None:
+        """
+        Query tz_sync_runs for the completed_at date of the most recent
+        successful run of this pipeline.  Returns None if no run exists.
+        """
+        with conn.cursor() as cur:
+            cur.execute(
+                """SELECT completed_at
+                     FROM tz_sync_runs
+                    WHERE pipeline_name = %s
+                      AND status = 'success'
+                    ORDER BY completed_at DESC
+                    LIMIT 1""",
+                (cls.PIPELINE_NAME,),
+            )
+            row = cur.fetchone()
+        if row and row[0]:
+            return row[0].date() if hasattr(row[0], "date") else row[0]
+        return None
+
     # ── Abstract methods (subclasses implement these) ─────────────────────────
 
     @abstractmethod
