@@ -3,7 +3,7 @@
 import { use } from "react";
 import { PanelWrapper } from "@/components/dashboard/PanelWrapper";
 import {
-  RevenueKpiPanel, RevenueTrendPanel, CustomerConcentrationPanel, TopSkusPanel,
+  RevenueKpiPanel, RevenueTrendPanel, RevenueDailyPanel, CustomerConcentrationPanel, TopSkusPanel,
   QuotePipelinePanel, PurchaseSummaryPanel, BomCoveragePanel,
   ArAgingPanel, OpenOrdersPanel, OpenPosPanel, InventoryPanel, GrnPanel, ProductionPanel,
 } from "@/components/dashboard/panels";
@@ -31,6 +31,9 @@ export default function DashboardOverview({ params }: { params: Promise<{ worksp
         <h2 className="text-[11px] font-semibold text-zinc-600 uppercase tracking-[0.1em] mb-3">
           Strategic — Daily Refresh
         </h2>
+        <div className="mb-4">
+          <RevenueDailyPanel />
+        </div>
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
           <RevenueKpiPanel />
           <RevenueTrendPanel />

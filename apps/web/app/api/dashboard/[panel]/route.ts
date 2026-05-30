@@ -45,6 +45,41 @@ const ROUTES: Record<string, RouteConfig> = {
     path: "/dashboard/revenue/trend",
   },
 
+  "revenue-daily": {
+    path: "/dashboard/revenue/daily",
+    paramMap: { days: "period_days" },
+  },
+
+  "sales-invoices": {
+    path: "/dashboard/sales/invoices",
+    // passthrough: start/end/search/page/page_size/sort/direction
+  },
+
+  "ar-invoices": {
+    path: "/dashboard/ar/invoices",
+    // passthrough: search/bucket/overdue_only/page/page_size/sort/direction
+  },
+
+  "purchase-invoices": {
+    path: "/dashboard/purchases/invoices",
+  },
+
+  "sales-orders": {
+    path: "/dashboard/orders/list",
+  },
+
+  "purchase-orders": {
+    path: "/dashboard/purchases/po-list",
+  },
+
+  "production-list": {
+    path: "/dashboard/production/list",
+  },
+
+  "inventory-list": {
+    path: "/dashboard/inventory/list",
+  },
+
   "customer-concentration": {
     path: "/dashboard/revenue/concentration",
     paramMap: { days: "period_days" },
@@ -59,6 +94,10 @@ const ROUTES: Record<string, RouteConfig> = {
             revenue: s.value,
             pct: total > 0 ? (s.value / total) * 100 : 0,
           })),
+          window_from: data.window_from ?? null,
+          window_to: data.window_to ?? null,
+          data_from: data.data_from ?? null,
+          data_to: data.data_to ?? null,
         },
       };
     },
@@ -76,6 +115,10 @@ const ROUTES: Record<string, RouteConfig> = {
           qty_sold: s.quantity,
           revenue: s.revenue,
         })),
+        window_from: body.data?.window_from ?? null,
+        window_to: body.data?.window_to ?? null,
+        data_from: body.data?.data_from ?? null,
+        data_to: body.data?.data_to ?? null,
       },
     }),
   },

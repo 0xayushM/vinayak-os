@@ -4,6 +4,7 @@ import { relativeTime } from "@/lib/utils/cn";
 import { PanelMeta } from "@/hooks/useDashboard";
 import { AlertTriangle, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
+import { SyncButton } from "@/components/dashboard/SyncButton";
 
 interface PanelWrapperProps {
   title: string;
@@ -46,12 +47,7 @@ export function PanelWrapper({
         </div>
         <div className="flex items-center gap-2 shrink-0">
           {action}
-          {meta?.stale && (
-            <span className="flex items-center gap-1 text-[10px] bg-amber-500/10 text-amber-300 border border-amber-500/20 px-2 py-0.5 rounded-full font-medium">
-              <AlertTriangle className="w-2.5 h-2.5" />
-              Stale
-            </span>
-          )}
+          {meta?.stale && <SyncButton />}
           {meta?.last_synced_at && !meta?.stale && (
             <span className="text-[10px] text-zinc-600 tabular-nums hidden sm:block">
               {relativeTime(meta.last_synced_at)}
