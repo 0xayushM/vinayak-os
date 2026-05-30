@@ -610,7 +610,7 @@ export function SalesInvoicesTablePanel({ range }: { range?: DateRange } = {}) {
         rowKey={(r) => `${r.invoice_number}-${r.sku_code ?? ""}-${r.line_total}`}
         page={d?.page ?? 0}
         pageCount={d?.page_count ?? 1}
-        filteredTotal={d?.filtered_total ?? 0}
+        filteredTotal={d?.total_count ?? 0}
         pageSize={d?.page_size ?? PAGE_SIZE}
         sort={sort}
         loading={isLoading}
@@ -667,7 +667,7 @@ export function ArInvoicesTablePanel() {
         rowKey={(r) => `${r.invoice_number}-${r.customer_name}`}
         page={d?.page ?? 0}
         pageCount={d?.page_count ?? 1}
-        filteredTotal={d?.filtered_total ?? 0}
+        filteredTotal={d?.total_count ?? 0}
         pageSize={d?.page_size ?? PAGE_SIZE}
         sort={sort}
         loading={isLoading}
@@ -735,7 +735,7 @@ export function PurchaseInvoicesTablePanel({ range }: { range?: DateRange } = {}
       <FilterableTable<PurchaseInvoiceRow>
         columns={columns} rows={d?.rows ?? []}
         rowKey={(r) => `${r.invoice_number}-${r.item_code ?? ""}-${r.line_total}`}
-        page={d?.page ?? 0} pageCount={d?.page_count ?? 1} filteredTotal={d?.filtered_total ?? 0}
+        page={d?.page ?? 0} pageCount={d?.page_count ?? 1} filteredTotal={d?.total_count ?? 0}
         pageSize={d?.page_size ?? PAGE_SIZE} sort={sort} loading={isLoading}
         search={search} onSearchChange={(s) => { setSearch(s); setPage(0); }}
         onSortChange={setSort} onPageChange={setPage}
@@ -772,7 +772,7 @@ export function SalesOrdersTablePanel({ range }: { range?: DateRange } = {}) {
       <FilterableTable<SalesOrderRow>
         columns={columns} rows={d?.rows ?? []}
         rowKey={(r) => `${r.order_number}-${r.sku_code ?? ""}-${r.order_value}`}
-        page={d?.page ?? 0} pageCount={d?.page_count ?? 1} filteredTotal={d?.filtered_total ?? 0}
+        page={d?.page ?? 0} pageCount={d?.page_count ?? 1} filteredTotal={d?.total_count ?? 0}
         pageSize={d?.page_size ?? PAGE_SIZE} sort={sort} loading={isLoading}
         search={search} onSearchChange={(s) => { setSearch(s); setPage(0); }}
         onSortChange={setSort} onPageChange={setPage}
@@ -810,7 +810,7 @@ export function PurchaseOrdersTablePanel({ range }: { range?: DateRange } = {}) 
       <FilterableTable<PurchaseOrderRow>
         columns={columns} rows={d?.rows ?? []}
         rowKey={(r) => `${r.po_number}-${r.item_code ?? ""}-${r.po_value}`}
-        page={d?.page ?? 0} pageCount={d?.page_count ?? 1} filteredTotal={d?.filtered_total ?? 0}
+        page={d?.page ?? 0} pageCount={d?.page_count ?? 1} filteredTotal={d?.total_count ?? 0}
         pageSize={d?.page_size ?? PAGE_SIZE} sort={sort} loading={isLoading}
         search={search} onSearchChange={(s) => { setSearch(s); setPage(0); }}
         onSortChange={setSort} onPageChange={setPage}
@@ -848,7 +848,7 @@ export function ProductionTablePanel({ range }: { range?: DateRange } = {}) {
       <FilterableTable<ProductionRow>
         columns={columns} rows={d?.rows ?? []}
         rowKey={(r) => `${r.work_order_number}-${r.process_name ?? ""}-${r.produced_qty}`}
-        page={d?.page ?? 0} pageCount={d?.page_count ?? 1} filteredTotal={d?.filtered_total ?? 0}
+        page={d?.page ?? 0} pageCount={d?.page_count ?? 1} filteredTotal={d?.total_count ?? 0}
         pageSize={d?.page_size ?? PAGE_SIZE} sort={sort} loading={isLoading}
         search={search} onSearchChange={(s) => { setSearch(s); setPage(0); }}
         onSortChange={setSort} onPageChange={setPage}
@@ -883,7 +883,7 @@ export function InventoryTablePanel() {
       <FilterableTable<InventoryRow>
         columns={columns} rows={d?.rows ?? []}
         rowKey={(r) => `${r.sku_code}-${r.warehouse ?? ""}`}
-        page={d?.page ?? 0} pageCount={d?.page_count ?? 1} filteredTotal={d?.filtered_total ?? 0}
+        page={d?.page ?? 0} pageCount={d?.page_count ?? 1} filteredTotal={d?.total_count ?? 0}
         pageSize={d?.page_size ?? PAGE_SIZE} sort={sort} loading={isLoading}
         search={search} onSearchChange={(s) => { setSearch(s); setPage(0); }}
         onSortChange={setSort} onPageChange={setPage}
