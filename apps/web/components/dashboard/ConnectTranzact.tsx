@@ -1,8 +1,10 @@
 "use client";
 
-import { useState } from "react";
-import { CheckCircle, AlertTriangle, Loader2, Plug, Circle, XCircle } from "lucide-react";
+import { useEffect, useState } from "react";
+import { CheckCircle, AlertTriangle, Loader2, Plug, Circle, XCircle, RefreshCw, FlaskConical, KeyRound } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
+import { apiFetch } from "@/lib/api";
+import { relativeTime } from "@/lib/utils/cn";
 
 type Step = "idle" | "saving" | "testing" | "syncing" | "done" | "error";
 
@@ -25,10 +27,16 @@ interface SyncState {
   pipelines: PipelineProgress[];
 }
 
+interface ExistingConnection {
+  is_active: boolean;
+  last_verified_at: string | null;
+  created_at: string | null;
+}
+
 interface Props {
   /** Called once the connection is verified AND the initial sync has finished. */
   onConnected?: () => void;
-  /** Compact mode for the settings page (no big hero copy). */
+  /** Compact mode for the settings page: checks existing connection first. */
   compact?: boolean;
 }
 
@@ -38,13 +46,38 @@ interface Props {
  *   2. Test connection              → POST /api/connections/tranzact/test
  *   3. Trigger initial full sync    → POST /api/connections/tranzact/sync
  *   4. Poll sync health until data has landed, then onConnected().
+ *
+ * In compact (settings) mode: checks for an existing connection first.
+ * If found, shows a status card instead of the credentials form — no risk
+ * of accidentally entering the wrong email for this workspace.
  */
 export default function ConnectTranzact({ onConnected, compact = false }: Props) {
+  const [existing, setExisting] = useState<ExistingConnection | null>(null);
+  const [checkDone, setCheckDone] = useState(!compact); // skip check when not compact
+  const [showChangeForm, setShowChangeForm] = useState(false);
+
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [step, setStep] = useState<Step>("idle");
   const [message, setMessage] = useState("");
   const [sync, setSync] = useState<SyncState | null>(null);
+
+  // In compact (settings) mode, check for existing connection on mount.
+  useEffect(() => {
+    if (!compact) return;
+    apiFetch("/api/connections/")
+      .then(async (r) => {
+        if (r.ok) {
+          const data = await r.json();
+          const tz: ExistingConnection | undefined = (data.connections ?? []).find(
+            (c: ExistingConnection & { tool_name: string }) => c.tool_name === "tranzact",
+          );
+          if (tz?.is_active) setExisting(tz);
+        }
+      })
+      .catch(() => {})
+      .finally(() => setCheckDone(true));
+  }, [compact]);
 
   const busy = step === "saving" || step === "testing" || step === "syncing";
 
@@ -75,7 +108,7 @@ export default function ConnectTranzact({ onConnected, compact = false }: Props)
     const start = Date.now();
     while (Date.now() - start < maxSeconds * 1000) {
       try {
-        const res = await fetch("/api/connections/tranzact/sync", { credentials: "include" });
+        const res = await apiFetch("/api/connections/tranzact/sync", { credentials: "include" });
         if (res.ok) {
           const state: SyncState = await res.json();
           setSync(state);
@@ -102,7 +135,7 @@ export default function ConnectTranzact({ onConnected, compact = false }: Props)
 
     try {
       // 1. Save
-      const saveRes = await fetch("/api/connections/tranzact", {
+      const saveRes = await apiFetch("/api/connections/tranzact", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
@@ -116,7 +149,7 @@ export default function ConnectTranzact({ onConnected, compact = false }: Props)
       // 2. Test
       setStep("testing");
       setMessage("Testing TranzAct authentication…");
-      const testRes = await fetch("/api/connections/tranzact/test", {
+      const testRes = await apiFetch("/api/connections/tranzact/test", {
         method: "POST",
         credentials: "include",
       });
@@ -128,7 +161,7 @@ export default function ConnectTranzact({ onConnected, compact = false }: Props)
       // 3. Trigger full sync
       setStep("syncing");
       setMessage("Connection verified. Pulling your data from TranzAct…");
-      await fetch("/api/connections/tranzact/sync", {
+      await apiFetch("/api/connections/tranzact/sync", {
         method: "POST",
         credentials: "include",
       });
@@ -146,6 +179,143 @@ export default function ConnectTranzact({ onConnected, compact = false }: Props)
     }
   }
 
+  // ── Loading check ───────────────────────────────────────────────────────────
+  if (!checkDone) {
+    return (
+      <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6 flex items-center gap-3 text-sm text-zinc-500">
+        <Loader2 className="w-4 h-4 animate-spin" /> Checking connection…
+      </div>
+    );
+  }
+
+  // ── Connected status card (compact / settings mode) ───────────────────────
+  if (compact && existing && !showChangeForm) {
+    return (
+      <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6 space-y-4 max-w-xl">
+        {/* Header */}
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-lg bg-emerald-600/15 border border-emerald-500/20 flex items-center justify-center">
+            <CheckCircle className="w-5 h-5 text-emerald-400" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <h2 className="text-sm font-semibold text-zinc-100">TranzAct connected</h2>
+            <p className="text-xs text-zinc-500">
+              {existing.last_verified_at
+                ? `Last verified ${relativeTime(existing.last_verified_at)}`
+                : "Connected · not yet verified"}
+            </p>
+          </div>
+        </div>
+
+        {/* Status message during re-sync / re-test */}
+        {message && (
+          <div className={cn(
+            "flex items-start gap-2 rounded-lg px-3 py-2.5 text-xs",
+            step === "done"    ? "bg-emerald-500/10 border border-emerald-500/20 text-emerald-400"
+            : step === "error" ? "bg-red-500/10 border border-red-500/20 text-red-400"
+            : "bg-zinc-800 text-zinc-400",
+          )}>
+            {step === "done"  && <CheckCircle className="w-3.5 h-3.5 mt-0.5 shrink-0" />}
+            {step === "error" && <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0" />}
+            {busy             && <Loader2 className="w-3.5 h-3.5 mt-0.5 shrink-0 animate-spin" />}
+            {message}
+          </div>
+        )}
+
+        {/* Inline sync progress */}
+        {(step === "syncing" || step === "done") && sync && sync.total > 0 && (
+          <div className="space-y-2">
+            <div className="flex items-center justify-between text-xs text-zinc-400">
+              <span>Pulling reports from TranzAct</span>
+              <span className="tabular-nums">{sync.completed}/{sync.total}</span>
+            </div>
+            <div className="h-1.5 w-full overflow-hidden rounded-full bg-zinc-800">
+              <div
+                className="h-full rounded-full bg-blue-500 transition-all duration-500"
+                style={{ width: `${Math.round((sync.completed / sync.total) * 100)}%` }}
+              />
+            </div>
+            <ul className="space-y-1 pt-1">
+              {sync.pipelines.map((p) => (
+                <li key={p.key} className="flex items-center gap-2 text-xs">
+                  {p.status === "success" && <CheckCircle className="w-3 h-3 shrink-0 text-emerald-400" />}
+                  {p.status === "running" && <Loader2 className="w-3 h-3 shrink-0 animate-spin text-blue-400" />}
+                  {p.status === "failed"  && <XCircle className="w-3 h-3 shrink-0 text-red-400" />}
+                  {p.status === "pending" && <Circle className="w-3 h-3 shrink-0 text-zinc-600" />}
+                  <span className={cn(
+                    "flex-1",
+                    p.status === "success" && "text-zinc-300",
+                    p.status === "running" && "text-zinc-200",
+                    p.status === "failed"  && "text-red-400",
+                    p.status === "pending" && "text-zinc-600",
+                  )}>{p.label}</span>
+                  {p.status === "success" && p.rows != null && (
+                    <span className="tabular-nums text-zinc-600">{p.rows.toLocaleString()} rows</span>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {/* Actions */}
+        <div className="flex flex-wrap gap-2 pt-1">
+          <button
+            onClick={async () => {
+              setStep("syncing");
+              setMessage("Re-syncing your data from TranzAct…");
+              setSync(null);
+              try {
+                await apiFetch("/api/connections/tranzact/sync", { method: "POST" });
+                await pollSyncUntilReady();
+                setStep("done");
+                setMessage("Sync complete.");
+              } catch (e) {
+                setStep("error");
+                setMessage(e instanceof Error ? e.message : String(e));
+              }
+            }}
+            disabled={busy}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded-lg transition-colors disabled:opacity-50"
+          >
+            {step === "syncing" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+            Re-sync data
+          </button>
+          <button
+            onClick={async () => {
+              setStep("testing");
+              setMessage("Testing TranzAct connection…");
+              try {
+                const r = await apiFetch("/api/connections/tranzact/test", { method: "POST" });
+                if (!r.ok) {
+                  const d = await r.json().catch(() => ({}));
+                  throw new Error(d.detail ?? "Test failed");
+                }
+                setStep("done");
+                setMessage("Connection test passed ✓");
+              } catch (e) {
+                setStep("error");
+                setMessage(e instanceof Error ? e.message : String(e));
+              }
+            }}
+            disabled={busy}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-zinc-700 hover:bg-zinc-600 text-zinc-200 text-xs font-semibold rounded-lg transition-colors disabled:opacity-50"
+          >
+            {step === "testing" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <FlaskConical className="w-3.5 h-3.5" />}
+            Test connection
+          </button>
+          <button
+            onClick={() => { setShowChangeForm(true); setStep("idle"); setMessage(""); }}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-400 text-xs font-semibold rounded-lg transition-colors"
+          >
+            <KeyRound className="w-3.5 h-3.5" /> Update credentials
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Credentials form (new connection OR update) ───────────────────────────
   return (
     <div
       className={cn(
@@ -157,13 +327,23 @@ export default function ConnectTranzact({ onConnected, compact = false }: Props)
         <div className="w-10 h-10 rounded-lg bg-blue-600/20 border border-blue-500/20 flex items-center justify-center">
           <Plug className="w-5 h-5 text-blue-400" />
         </div>
-        <div>
-          <h2 className="text-sm font-semibold text-zinc-100">Connect TranzAct</h2>
+        <div className="flex-1 min-w-0">
+          <h2 className="text-sm font-semibold text-zinc-100">
+            {showChangeForm ? "Update TranzAct credentials" : "Connect TranzAct"}
+          </h2>
           <p className="text-xs text-zinc-500">Cloud ERP · letstranzact.com</p>
         </div>
+        {showChangeForm && (
+          <button
+            onClick={() => setShowChangeForm(false)}
+            className="text-xs text-zinc-500 hover:text-zinc-300 transition-colors"
+          >
+            Cancel
+          </button>
+        )}
       </div>
 
-      {!compact && (
+      {!compact && !showChangeForm && (
         <p className="text-sm text-zinc-400">
           Enter your TranzAct login to start syncing your business data. We test
           the connection, then pull all reports into your dashboard automatically.

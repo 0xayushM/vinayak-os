@@ -19,21 +19,33 @@ from __future__ import annotations
 
 import logging
 import time
+from dataclasses import dataclass
 from typing import Any
 
 import requests
 
 from vinayak.adapters.tranzact.auth import get_access_token
 from vinayak.config import (
-    DEFAULT_COMPANY_ID,
     TRANZACT_BASE_URL,
     TRANZACT_REPORTING_URL,
-    TRANZACT_EMAIL,
-    TRANZACT_PASSWORD,
     TRANZACT_REQUESTS_PER_MINUTE,
 )
 
 logger = logging.getLogger(__name__)
+
+
+# ── Per-account credentials ──────────────────────────────────────────────────
+# In multi-brand mode each TranzAct account has its own login. Credentials are
+# threaded explicitly from the pipeline layer down to the token fetch so that a
+# sync for brand A never authenticates as brand B. When no creds are supplied
+# (e.g. legacy single-account callers) we fall back to the env-var account.
+
+@dataclass(frozen=True)
+class TranzactCreds:
+    email: str
+    password: str
+    base_url: str = TRANZACT_BASE_URL
+
 
 # ── Rate limiter (module-level state) ────────────────────────────────────────
 
@@ -84,6 +96,7 @@ def _get_total_pages(body: dict, per_page: int) -> int:
 def _post_with_retry(
     session: requests.Session,
     payload: dict,
+    creds: TranzactCreds,
     max_retries: int = 3,
 ) -> dict:
     """
@@ -96,9 +109,9 @@ def _post_with_retry(
     for attempt in range(max_retries):
         _throttle()
         token = get_access_token(
-            base_url=TRANZACT_BASE_URL,
-            email=TRANZACT_EMAIL,
-            password=TRANZACT_PASSWORD,
+            base_url=creds.base_url,
+            email=creds.email,
+            password=creds.password,
         )
         headers = {
             "Authorization": f"Bearer {token}",
@@ -119,9 +132,9 @@ def _post_with_retry(
         if resp.status_code == 401:
             logger.warning("fetch_report: 401 — forcing token refresh (attempt %d)", attempt + 1)
             token = get_access_token(
-                base_url=TRANZACT_BASE_URL,
-                email=TRANZACT_EMAIL,
-                password=TRANZACT_PASSWORD,
+                base_url=creds.base_url,
+                email=creds.email,
+                password=creds.password,
                 force_refresh=True,
             )
             continue  # retry immediately after forced refresh
@@ -178,6 +191,7 @@ def fetch_report(
     per_page: int = 200,
     max_seconds: float | None = None,
     stats: dict | None = None,
+    creds: TranzactCreds = ...,  # type: ignore[assignment]
 ) -> list[dict]:
     """
     Fetch ALL rows of a TranzAct report across all pages.
@@ -204,6 +218,12 @@ def fetch_report(
         rows = fetch_report("29", {"filters": {"from_date": "2026-01-01",
                                                "to_date":   "2026-01-31"}})
     """
+    if creds is ...:
+        raise ValueError(
+            "fetch_report: creds is required. TranzAct credentials must be "
+            "stored per brand via POST /connections/tranzact and passed through "
+            "the pipeline run — they are no longer read from environment variables."
+        )
     all_rows: list[dict] = []
     page = 1
     truncated = False
@@ -224,8 +244,6 @@ def fetch_report(
                 "report": {"id": report_id},
                 "pagination": {"page": page, "per_page": per_page},
             }
-            if DEFAULT_COMPANY_ID:
-                payload["company_id"] = DEFAULT_COMPANY_ID
             if filters:
                 payload.update(filters)
 
@@ -234,7 +252,7 @@ def fetch_report(
                 report_id, page, per_page,
             )
 
-            body = _post_with_retry(session, payload)
+            body = _post_with_retry(session, payload, creds)
             rows = _get_rows(body)
             all_rows.extend(rows)
 

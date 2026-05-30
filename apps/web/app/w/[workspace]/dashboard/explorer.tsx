@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useCallback } from "react";
+import { apiFetch } from "@/lib/api";
 
 // ── Report registry ───────────────────────────────────────────────────────────
 const REPORTS = [
@@ -186,7 +187,7 @@ export default function DashboardPage() {
     setAuthLoading(true);
     setAuthResult(null);
     try {
-      const res = await fetch("/api/tranzact/login", { method: "POST" });
+      const res = await apiFetch("/api/tranzact/login", { method: "POST" });
       const data: AuthResult = await res.json();
       setAuthResult(data);
     } catch (e) {
@@ -209,7 +210,7 @@ export default function DashboardPage() {
     } catch { /* ignore */ }
 
     try {
-      const res = await fetch("/api/tranzact/report", {
+      const res = await apiFetch("/api/tranzact/report", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

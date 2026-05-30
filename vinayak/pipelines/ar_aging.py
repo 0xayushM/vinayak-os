@@ -99,12 +99,13 @@ class ARAgingPipeline(BasePipeline):
     def _get_filters(self, from_date: str, to_date: str) -> dict:
         return {"filters": {"from_date": from_date, "to_date": to_date}}
 
-    def _upsert(self, conn, rows: list[ARAgingRow]) -> int:
+    def _upsert(self, conn, rows: list[ARAgingRow], company_id: str) -> int:
         if not rows:
             return 0
 
         records = [
             (
+                company_id,
                 r.raw_id,
                 r.customer_name,
                 r.customer_code,
@@ -121,11 +122,11 @@ class ARAgingPipeline(BasePipeline):
 
         sql = """
             INSERT INTO tz_ar_aging (
-                raw_id, customer_name, customer_code, invoice_number,
+                company_id, raw_id, customer_name, customer_code, invoice_number,
                 invoice_date, due_date, invoice_amount, outstanding_amount,
                 days_overdue, aging_bucket
             ) VALUES %s
-            ON CONFLICT (raw_id) DO UPDATE SET
+            ON CONFLICT (company_id, raw_id) DO UPDATE SET
                 customer_name      = EXCLUDED.customer_name,
                 customer_code      = EXCLUDED.customer_code,
                 invoice_number     = EXCLUDED.invoice_number,

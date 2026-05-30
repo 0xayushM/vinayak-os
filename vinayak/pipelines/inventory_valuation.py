@@ -88,12 +88,13 @@ class InventoryValuationPipeline(BasePipeline):
         # Inventory valuation is a point-in-time snapshot — no date window.
         return {}
 
-    def _upsert(self, conn, rows: list[InventoryValuationRow]) -> int:
+    def _upsert(self, conn, rows: list[InventoryValuationRow], company_id: str) -> int:
         if not rows:
             return 0
 
         records = [
             (
+                company_id,
                 r.raw_id,
                 r.sku_code,
                 r.sku_name,
@@ -109,10 +110,10 @@ class InventoryValuationPipeline(BasePipeline):
 
         sql = """
             INSERT INTO tz_inventory_valuation (
-                raw_id, sku_code, sku_name, category, warehouse,
+                company_id, raw_id, sku_code, sku_name, category, warehouse,
                 quantity, unit_cost, total_value, is_raw_material
             ) VALUES %s
-            ON CONFLICT (raw_id) DO UPDATE SET
+            ON CONFLICT (company_id, raw_id) DO UPDATE SET
                 sku_code        = EXCLUDED.sku_code,
                 sku_name        = EXCLUDED.sku_name,
                 category        = EXCLUDED.category,

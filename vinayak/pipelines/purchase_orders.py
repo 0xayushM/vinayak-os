@@ -85,12 +85,13 @@ class PurchaseOrdersPipeline(BasePipeline):
     def _get_filters(self, from_date: str, to_date: str) -> dict:
         return {"filters": {"from_date": from_date, "to_date": to_date}}
 
-    def _upsert(self, conn, rows: list[PurchaseOrderRow]) -> int:
+    def _upsert(self, conn, rows: list[PurchaseOrderRow], company_id: str) -> int:
         if not rows:
             return 0
 
         records = [
             (
+                company_id,
                 r.raw_id,
                 r.po_date,
                 r.po_number,
@@ -110,11 +111,11 @@ class PurchaseOrdersPipeline(BasePipeline):
 
         sql = """
             INSERT INTO tz_purchase_orders (
-                raw_id, po_date, po_number, vendor_name, vendor_code,
+                company_id, raw_id, po_date, po_number, vendor_name, vendor_code,
                 item_code, item_name, ordered_qty, received_qty, pending_qty,
                 po_value, expected_date, status
             ) VALUES %s
-            ON CONFLICT (raw_id) DO UPDATE SET
+            ON CONFLICT (company_id, raw_id) DO UPDATE SET
                 po_date       = EXCLUDED.po_date,
                 po_number     = EXCLUDED.po_number,
                 vendor_name   = EXCLUDED.vendor_name,

@@ -29,7 +29,7 @@ from typing import Type
 import psycopg2
 import psycopg2.extras
 
-from vinayak.adapters.tranzact.client import fetch_report
+from vinayak.adapters.tranzact.client import TranzactCreds, fetch_report
 from vinayak.config import DATABASE_URL
 
 logger = logging.getLogger(__name__)
@@ -55,8 +55,9 @@ class BasePipeline(ABC):
         from_date: date,
         to_date: date,
         is_backfill: bool = False,
-        company_id: str = "kbrushes",
+        company_id: str = "protegere",
         max_seconds: float | None = None,
+        creds: TranzactCreds | None = None,
     ) -> int:
         """
         Full pipeline run:
@@ -79,11 +80,12 @@ class BasePipeline(ABC):
             stats: dict = {}
             raw_rows = fetch_report(
                 self.REPORT_ID, filters, max_seconds=max_seconds, stats=stats,
+                creds=creds,
             )
             rows_fetched = len(raw_rows)
 
             validated = self._validate(raw_rows)
-            self._upsert(conn, validated)
+            self._upsert(conn, validated, company_id)
             rows_upserted = len(validated)  # execute_values rowcount unreliable with page_size batching
 
             # Record how far back this run actually reached. Rows come back
@@ -118,6 +120,8 @@ class BasePipeline(ABC):
         from_date: date,
         window_days: int = 30,
         sleep_between_windows: float = 1.0,
+        company_id: str = "protegere",
+        creds: TranzactCreds | None = None,
     ) -> None:
         """
         Split the period from_date → today into windows and run each.
@@ -137,7 +141,7 @@ class BasePipeline(ABC):
                 "%s backfill: window %d — %s → %s",
                 self.PIPELINE_NAME, window_count + 1, cursor, end,
             )
-            self.run(cursor, end, is_backfill=True)
+            self.run(cursor, end, is_backfill=True, company_id=company_id, creds=creds)
             cursor = end + timedelta(days=1)
             window_count += 1
             if cursor < today and sleep_between_windows > 0:
@@ -210,20 +214,22 @@ class BasePipeline(ABC):
             logger.error("Could not log pipeline failure: %s", log_exc)
 
     @classmethod
-    def get_last_success_date(cls, conn) -> date | None:
+    def get_last_success_date(cls, conn, company_id: str = "protegere") -> date | None:
         """
         Query tz_sync_runs for the completed_at date of the most recent
-        successful run of this pipeline.  Returns None if no run exists.
+        successful run of this pipeline for this brand. Returns None if no run
+        exists.
         """
         with conn.cursor() as cur:
             cur.execute(
                 """SELECT completed_at
                      FROM tz_sync_runs
                     WHERE pipeline_name = %s
+                      AND company_id = %s
                       AND status = 'success'
                     ORDER BY completed_at DESC
                     LIMIT 1""",
-                (cls.PIPELINE_NAME,),
+                (cls.PIPELINE_NAME, company_id),
             )
             row = cur.fetchone()
         if row and row[0]:
@@ -320,6 +326,7 @@ class BasePipeline(ABC):
         ...
 
     @abstractmethod
-    def _upsert(self, conn, rows: list) -> int:
-        """Insert/update rows into the cached table. Return count of rows upserted."""
+    def _upsert(self, conn, rows: list, company_id: str) -> int:
+        """Insert/update rows into the cached table, tagged with company_id
+        (the brand the data belongs to). Return count of rows upserted."""
         ...

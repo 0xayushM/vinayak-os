@@ -19,7 +19,7 @@ The meta dict is shown to the user as the "last synced X min ago" stamp.
 from __future__ import annotations
 
 import psycopg2
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import JSONResponse
 
 import logging
@@ -27,6 +27,7 @@ logger = logging.getLogger(__name__)
 
 from vinayak.config import DATABASE_URL
 from vinayak.schema import queries
+from vinayak.api.routes.workspaces import require_workspace
 
 router = APIRouter()
 
@@ -61,132 +62,132 @@ def _envelope(data: dict, report_id: int) -> dict:
 # ════════════════════════════════════════════════════════════════════════════
 
 @router.get("/revenue/summary")
-def revenue_summary(period_days: int = Query(default=30, ge=7, le=365)):
+def revenue_summary(period_days: int = Query(default=30, ge=7, le=365), company_id: str = Depends(require_workspace)):
     """S1 — Revenue KPIs for the selected period."""
     conn = _conn()
     try:
-        data = queries.get_revenue_summary(conn, period_days)
+        data = queries.get_revenue_summary(conn, company_id, period_days)
     finally:
         conn.close()
     return _envelope(data, report_id=29)
 
 
 @router.get("/revenue/trend")
-def revenue_trend(months: int = Query(default=6, ge=1, le=24)):
+def revenue_trend(months: int = Query(default=6, ge=1, le=24), company_id: str = Depends(require_workspace)):
     """S2 — Monthly revenue trend (bar chart data)."""
     conn = _conn()
     try:
-        data = queries.get_revenue_trend(conn, months)
+        data = queries.get_revenue_trend(conn, company_id, months)
     finally:
         conn.close()
     return _envelope(data, report_id=29)
 
 
 @router.get("/revenue/concentration")
-def customer_concentration(period_days: int = Query(default=30, ge=7, le=365)):
+def customer_concentration(period_days: int = Query(default=30, ge=7, le=365), company_id: str = Depends(require_workspace)):
     """S3 — Customer revenue concentration (doughnut chart)."""
     conn = _conn()
     try:
-        data = queries.get_customer_concentration(conn, period_days)
+        data = queries.get_customer_concentration(conn, company_id, period_days)
     finally:
         conn.close()
     return _envelope(data, report_id=29)
 
 
 @router.get("/revenue/customers")
-def top_customers_revenue(period_days: int = Query(default=30, ge=7, le=365)):
+def top_customers_revenue(period_days: int = Query(default=30, ge=7, le=365), company_id: str = Depends(require_workspace)):
     """S4 — Top customers by revenue."""
     conn = _conn()
     try:
-        data = queries.get_top_customers_revenue(conn, period_days)
+        data = queries.get_top_customers_revenue(conn, company_id, period_days)
     finally:
         conn.close()
     return _envelope(data, report_id=29)
 
 
 @router.get("/revenue/skus")
-def top_skus_revenue(period_days: int = Query(default=30, ge=7, le=365)):
+def top_skus_revenue(period_days: int = Query(default=30, ge=7, le=365), company_id: str = Depends(require_workspace)):
     """S5 — Top SKUs by revenue."""
     conn = _conn()
     try:
-        data = queries.get_top_skus_revenue(conn, period_days)
+        data = queries.get_top_skus_revenue(conn, company_id, period_days)
     finally:
         conn.close()
     return _envelope(data, report_id=29)
 
 
 @router.get("/inventory/summary")
-def inventory_summary():
+def inventory_summary(company_id: str = Depends(require_workspace)):
     """S6 — Inventory KPIs (current stock snapshot)."""
     conn = _conn()
     try:
-        data = queries.get_inventory_summary(conn)
+        data = queries.get_inventory_summary(conn, company_id)
     finally:
         conn.close()
     return _envelope(data, report_id=9)
 
 
 @router.get("/inventory/categories")
-def inventory_by_category():
+def inventory_by_category(company_id: str = Depends(require_workspace)):
     """S7 — Stock value by product category."""
     conn = _conn()
     try:
-        data = queries.get_inventory_by_category(conn)
+        data = queries.get_inventory_by_category(conn, company_id)
     finally:
         conn.close()
     return _envelope(data, report_id=9)
 
 
 @router.get("/inventory/top-holdings")
-def top_stock_holdings():
+def top_stock_holdings(company_id: str = Depends(require_workspace)):
     """S8 — Highest-value SKUs in stock."""
     conn = _conn()
     try:
-        data = queries.get_top_stock_holdings(conn)
+        data = queries.get_top_stock_holdings(conn, company_id)
     finally:
         conn.close()
     return _envelope(data, report_id=9)
 
 
 @router.get("/purchases/summary")
-def purchases_summary(period_days: int = Query(default=30, ge=7, le=365)):
+def purchases_summary(period_days: int = Query(default=30, ge=7, le=365), company_id: str = Depends(require_workspace)):
     """S9 — Purchase spend KPIs."""
     conn = _conn()
     try:
-        data = queries.get_purchases_summary(conn, period_days)
+        data = queries.get_purchases_summary(conn, company_id, period_days)
     finally:
         conn.close()
     return _envelope(data, report_id=77)
 
 
 @router.get("/purchases/vendors")
-def top_vendors_spend(period_days: int = Query(default=30, ge=7, le=365)):
+def top_vendors_spend(period_days: int = Query(default=30, ge=7, le=365), company_id: str = Depends(require_workspace)):
     """S10 — Top vendors by purchase spend."""
     conn = _conn()
     try:
-        data = queries.get_top_vendors_spend(conn, period_days)
+        data = queries.get_top_vendors_spend(conn, company_id, period_days)
     finally:
         conn.close()
     return _envelope(data, report_id=77)
 
 
 @router.get("/production/summary")
-def production_summary(period_days: int = Query(default=30, ge=7, le=365)):
+def production_summary(period_days: int = Query(default=30, ge=7, le=365), company_id: str = Depends(require_workspace)):
     """S11 — Production KPIs (FG output, reject rate)."""
     conn = _conn()
     try:
-        data = queries.get_production_summary(conn, period_days)
+        data = queries.get_production_summary(conn, company_id, period_days)
     finally:
         conn.close()
     return _envelope(data, report_id=25)
 
 
 @router.get("/orders/summary")
-def order_book_summary():
+def order_book_summary(company_id: str = Depends(require_workspace)):
     """S12 — Sales order book KPIs."""
     conn = _conn()
     try:
-        data = queries.get_order_book_summary(conn)
+        data = queries.get_order_book_summary(conn, company_id)
     finally:
         conn.close()
     return _envelope(data, report_id=2)
@@ -197,55 +198,55 @@ def order_book_summary():
 # ════════════════════════════════════════════════════════════════════════════
 
 @router.get("/ar/aging")
-def ar_aging():
+def ar_aging(company_id: str = Depends(require_workspace)):
     """O1 — AR aging buckets + overdue summary."""
     conn = _conn()
     try:
-        data = queries.get_ar_summary(conn)
+        data = queries.get_ar_summary(conn, company_id)
     finally:
         conn.close()
     return _envelope(data, report_id=102)
 
 
 @router.get("/ar/customers")
-def ar_customer_exposure():
+def ar_customer_exposure(company_id: str = Depends(require_workspace)):
     """O2 — AR exposure per customer."""
     conn = _conn()
     try:
-        data = queries.get_ar_customer_exposure(conn)
+        data = queries.get_ar_customer_exposure(conn, company_id)
     finally:
         conn.close()
     return _envelope(data, report_id=102)
 
 
 @router.get("/purchases/overdue-pos")
-def overdue_pos():
+def overdue_pos(company_id: str = Depends(require_workspace)):
     """O3 — Overdue purchase orders."""
     conn = _conn()
     try:
-        data = queries.get_overdue_pos(conn)
+        data = queries.get_overdue_pos(conn, company_id)
     finally:
         conn.close()
     return _envelope(data, report_id=3)
 
 
 @router.get("/production/wip")
-def production_wip():
+def production_wip(company_id: str = Depends(require_workspace)):
     """O4 — WIP and production status breakdown."""
     conn = _conn()
     try:
-        data = queries.get_production_wip(conn)
+        data = queries.get_production_wip(conn, company_id)
     finally:
         conn.close()
     return _envelope(data, report_id=25)
 
 
 @router.get("/orders/overdue")
-def overdue_orders():
+def overdue_orders(company_id: str = Depends(require_workspace)):
     """O5 — Overdue order confirmations."""
     conn = _conn()
     try:
-        data = queries.get_overdue_orders(conn)
+        data = queries.get_overdue_orders(conn, company_id)
     finally:
         conn.close()
     return _envelope(data, report_id=2)
@@ -256,20 +257,24 @@ def overdue_orders():
 # ════════════════════════════════════════════════════════════════════════════
 
 @router.get("/sync/health")
-def sync_health():
+def sync_health(company_id: str = Depends(require_workspace)):
     """Freshness status for all 10 pipelines. Never cached."""
     conn = _conn()
     try:
-        data = queries.get_sync_health(conn)
+        data = queries.get_sync_health(conn, company_id)
     finally:
         conn.close()
     return data
 
 
 @router.post("/sync/trigger/{pipeline_name}")
-def trigger_sync(pipeline_name: str):
+def trigger_sync(
+    pipeline_name: str,
+    company_id: str = Depends(require_workspace),
+):
     """
-    Manually trigger a pipeline run (cache invalidation).
+    Manually trigger a pipeline run (cache invalidation) for this workspace,
+    using the workspace's own stored TranzAct credentials.
     Runs synchronously — response returns after the sync completes.
     Only available for the 5 hourly pipelines (to avoid triggering heavy daily syncs).
     """
@@ -301,8 +306,32 @@ def trigger_sync(pipeline_name: str):
     from_date = today - timedelta(days=from_days)
     to_date = today
 
+    # Load this workspace's TranzAct credentials so the run authenticates as —
+    # and tags data for — the right brand.
+    from vinayak.config import TRANZACT_BASE_URL
+    from vinayak.adapters.tranzact.client import TranzactCreds
+    from vinayak.api.routes.connections import _decrypt
+
+    conn = _conn()
     try:
-        PipelineClass().run(from_date, to_date)
+        with conn.cursor() as cur:
+            cur.execute(
+                """SELECT encrypted_credentials FROM tool_connections
+                   WHERE company_id = %s AND tool_name = 'tranzact' AND is_active = TRUE""",
+                (company_id,),
+            )
+            row = cur.fetchone()
+    finally:
+        conn.close()
+
+    if not row:
+        raise HTTPException(404, detail="No TranzAct credentials for this workspace.")
+
+    cred = _decrypt(row[0])
+    creds = TranzactCreds(email=cred["email"], password=cred["password"], base_url=TRANZACT_BASE_URL)
+
+    try:
+        PipelineClass().run(from_date, to_date, company_id=company_id, creds=creds)
     except Exception as exc:
         raise HTTPException(500, detail=f"Pipeline failed: {exc}")
 

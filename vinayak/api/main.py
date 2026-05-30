@@ -78,9 +78,10 @@ async def _unhandled(request: Request, exc: Exception):
 
 
 # ── Register routers ──────────────────────────────────────────────────────────
-from vinayak.api.routes import auth, connections, dashboard, ai_tool  # noqa: E402
+from vinayak.api.routes import auth, connections, dashboard, ai_tool, workspaces  # noqa: E402
 
 app.include_router(auth.router,        prefix="/auth",        tags=["Auth"])
+app.include_router(workspaces.router,  prefix="/workspaces",   tags=["Workspaces"])
 app.include_router(connections.router, prefix="/connections",  tags=["Connections"])
 app.include_router(dashboard.router,   prefix="/dashboard",    tags=["Dashboard"])
 app.include_router(ai_tool.router,     prefix="/ai",           tags=["AI"])

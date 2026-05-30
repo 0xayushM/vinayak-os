@@ -6,10 +6,11 @@ import { usePathname } from "next/navigation";
 import {
   BarChart3, TrendingUp, Users, Package, ShoppingCart,
   CreditCard, Truck, Wrench, Activity, Settings, Zap, LogOut,
-  Menu, X,
+  Menu, X, ChevronsUpDown, Plus, ExternalLink, Check, Loader2,
 } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
 import { useSyncHealth } from "@/hooks/useDashboard";
+import { apiFetch, workspacePath } from "@/lib/api";
 
 const NAV = [
   {
@@ -46,31 +47,150 @@ const NAV = [
   },
 ];
 
+interface Workspace {
+  id: string;
+  name: string;
+  connected: boolean;
+}
+
+/**
+ * Brand picker. Lists every brand the owner can open. Selecting one is a full
+ * navigation (so SWR caches reset and the new tab's X-Workspace-Id takes over);
+ * "open in new tab" lets the owner view two brands side by side.
+ */
+function WorkspaceSwitcher({ ws, onNavigate }: { ws: string | null; onNavigate?: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [workspaces, setWorkspaces] = useState<Workspace[] | null>(null);
+  const [creating, setCreating] = useState(false);
+
+  useEffect(() => {
+    apiFetch("/api/workspaces")
+      .then((r) => (r.ok ? r.json() : { workspaces: [] }))
+      .then((d) => setWorkspaces(d.workspaces ?? []))
+      .catch(() => setWorkspaces([]));
+  }, []);
+
+  const current = workspaces?.find((w) => w.id === ws) ?? null;
+  const label = current?.name ?? ws ?? "Select brand";
+
+  async function handleCreate() {
+    const name = window.prompt("New brand name (e.g. Protegere)");
+    if (!name) return;
+    const id = name.trim().toLowerCase().replace(/[^a-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "");
+    if (!id) return;
+    setCreating(true);
+    try {
+      const res = await apiFetch("/api/workspaces", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, name: name.trim() }),
+      });
+      if (res.ok) {
+        window.location.href = workspacePath(id, "/dashboard");
+      } else {
+        const e = await res.json().catch(() => ({}));
+        window.alert(e.detail ?? "Could not create brand.");
+      }
+    } finally {
+      setCreating(false);
+    }
+  }
+
+  return (
+    <div className="relative px-4 py-4 border-b border-white/[0.05]">
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className="flex items-center gap-2 w-full text-left"
+      >
+        <span className="grid place-items-center w-7 h-7 rounded-lg bg-indigo-500/15 border border-indigo-400/20 text-indigo-300 text-sm shrink-0">
+          ◆
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="text-[13px] font-semibold tracking-tight text-zinc-100 truncate">
+            {label}
+          </div>
+          <div className="text-[10.5px] text-zinc-500 truncate">Vinayak Brain OS · TranzAct</div>
+        </div>
+        <ChevronsUpDown className="w-3.5 h-3.5 text-zinc-500 shrink-0" />
+      </button>
+
+      {open && (
+        <>
+          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
+          <div className="absolute left-3 right-3 top-[calc(100%-4px)] z-20 rounded-xl bg-[var(--bg-elevated)] border border-white/[0.08] shadow-2xl py-1.5 max-h-80 overflow-y-auto">
+            <div className="px-3 pb-1 text-[10px] font-semibold text-zinc-600 uppercase tracking-[0.1em]">
+              Brands
+            </div>
+            {workspaces === null && (
+              <div className="flex items-center gap-2 px-3 py-2 text-[11.5px] text-zinc-500">
+                <Loader2 className="w-3.5 h-3.5 animate-spin" /> Loading…
+              </div>
+            )}
+            {workspaces?.length === 0 && (
+              <div className="px-3 py-2 text-[11.5px] text-zinc-500">No brands yet.</div>
+            )}
+            {workspaces?.map((w) => {
+              const active = w.id === ws;
+              return (
+                <div key={w.id} className="flex items-center group">
+                  <Link
+                    href={workspacePath(w.id, "/dashboard")}
+                    onClick={() => { setOpen(false); onNavigate?.(); }}
+                    className={cn(
+                      "flex items-center gap-2 flex-1 min-w-0 px-3 py-2 text-[12.5px] transition-colors",
+                      active ? "text-zinc-100" : "text-zinc-400 hover:text-zinc-200",
+                    )}
+                  >
+                    <span className="truncate flex-1">{w.name}</span>
+                    {!w.connected && (
+                      <span className="text-[9.5px] text-amber-400/80 shrink-0">not connected</span>
+                    )}
+                    {active && <Check className="w-3.5 h-3.5 text-indigo-300 shrink-0" />}
+                  </Link>
+                  <a
+                    href={workspacePath(w.id, "/dashboard")}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    title="Open in new tab"
+                    className="px-2.5 py-2 text-zinc-600 hover:text-zinc-300 opacity-0 group-hover:opacity-100 transition-opacity"
+                  >
+                    <ExternalLink className="w-3.5 h-3.5" />
+                  </a>
+                </div>
+              );
+            })}
+            <div className="mt-1 border-t border-white/[0.05] pt-1">
+              <button
+                onClick={handleCreate}
+                disabled={creating}
+                className="flex items-center gap-2 w-full px-3 py-2 text-[12.5px] text-zinc-400 hover:text-zinc-200 transition-colors disabled:opacity-60"
+              >
+                {creating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
+                Add brand
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 function RailContent({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
   const { data: health } = useSyncHealth();
+  const ws = pathname.match(/^\/w\/([^/]+)/)?.[1] ?? null;
+  const link = (suffix: string) => workspacePath(ws, suffix);
 
   async function handleLogout() {
-    await fetch("/api/auth/logout", { method: "POST", credentials: "include" });
+    await apiFetch("/api/auth/logout", { method: "POST", credentials: "include" });
     window.location.href = "/login";
   }
 
   return (
     <div className="flex flex-col h-full surface-rail">
-      {/* Brand */}
-      <div className="px-4 py-4 border-b border-white/[0.05]">
-        <div className="flex items-center gap-2">
-          <span className="grid place-items-center w-7 h-7 rounded-lg bg-indigo-500/15 border border-indigo-400/20 text-indigo-300 text-sm">
-            ◆
-          </span>
-          <div className="min-w-0">
-            <div className="text-[13px] font-semibold tracking-tight text-zinc-100 truncate">
-              Vinayak Brain OS
-            </div>
-            <div className="text-[10.5px] text-zinc-500 truncate">KBrushes · TranzAct</div>
-          </div>
-        </div>
-      </div>
+      {/* Brand switcher */}
+      <WorkspaceSwitcher ws={ws} onNavigate={onNavigate} />
 
       {/* Nav */}
       <nav className="flex-1 overflow-y-auto py-3 space-y-5">
@@ -82,11 +202,12 @@ function RailContent({ onNavigate }: { onNavigate?: () => void }) {
             <div className="px-2 space-y-0.5">
               {section.items.map((item) => {
                 const Icon = item.icon;
-                const active = pathname === item.href;
+                const href = link(item.href);
+                const active = pathname === href;
                 return (
                   <Link
                     key={item.href}
-                    href={item.href}
+                    href={href}
                     onClick={onNavigate}
                     className={cn(
                       "relative flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-[12.5px] transition-all duration-150",
@@ -111,7 +232,7 @@ function RailContent({ onNavigate }: { onNavigate?: () => void }) {
       {/* Sync health indicator */}
       <div className="px-4 py-3 border-t border-white/[0.05]">
         <Link
-          href="/dashboard/sync"
+          href={link("/dashboard/sync")}
           onClick={onNavigate}
           className="flex items-center gap-2 text-[11px] text-zinc-500 hover:text-zinc-300 transition-colors"
         >
@@ -136,7 +257,7 @@ function RailContent({ onNavigate }: { onNavigate?: () => void }) {
       {/* Settings + Logout */}
       <div className="px-4 py-3 border-t border-white/[0.05] space-y-2">
         <Link
-          href="/dashboard/settings"
+          href={link("/dashboard/settings")}
           onClick={onNavigate}
           className="flex items-center gap-2 text-[11px] text-zinc-500 hover:text-zinc-300 transition-colors"
         >

@@ -76,12 +76,13 @@ class ProcessRoutingPipeline(BasePipeline):
     def _get_filters(self, from_date: str, to_date: str) -> dict:
         return {"filters": {"from_date": from_date, "to_date": to_date}}
 
-    def _upsert(self, conn, rows: list[ProcessRoutingRow]) -> int:
+    def _upsert(self, conn, rows: list[ProcessRoutingRow], company_id: str) -> int:
         if not rows:
             return 0
 
         records = [
             (
+                company_id,
                 r.raw_id,
                 r.sku_code,
                 r.sku_name,
@@ -95,10 +96,10 @@ class ProcessRoutingPipeline(BasePipeline):
 
         sql = """
             INSERT INTO tz_process_routing (
-                raw_id, sku_code, sku_name, process_name,
+                company_id, raw_id, sku_code, sku_name, process_name,
                 sequence_number, standard_hours, machine_centre
             ) VALUES %s
-            ON CONFLICT (raw_id) DO UPDATE SET
+            ON CONFLICT (company_id, raw_id) DO UPDATE SET
                 sku_code        = EXCLUDED.sku_code,
                 sku_name        = EXCLUDED.sku_name,
                 process_name    = EXCLUDED.process_name,

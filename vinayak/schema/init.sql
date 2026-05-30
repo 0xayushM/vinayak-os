@@ -13,25 +13,22 @@
 
 -- ── Companies (multi-tenant root) ───────────────────────────
 CREATE TABLE IF NOT EXISTS companies (
-    id          TEXT PRIMARY KEY,          -- e.g. 'kbrushes'
+    id          TEXT PRIMARY KEY,
     name        TEXT NOT NULL,
+    owner_id    TEXT,                      -- email of the owner; NULL = accessible to all admins
     created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- Seed KBrushes as the first tenant
-INSERT INTO companies (id, name)
-VALUES ('kbrushes', 'KBrushes')
-ON CONFLICT (id) DO NOTHING;
-
 -- ── Users ────────────────────────────────────────────────────
--- Phase 1: single admin user, password checked via env var.
--- Phase 2: add bcrypt_hash column + proper user table.
+-- Passwords are bcrypt-hashed (passlib). company_id is nullable so a global
+-- admin (owner of multiple brands) does not have to belong to one brand.
 CREATE TABLE IF NOT EXISTS users (
-    id          SERIAL PRIMARY KEY,
-    company_id  TEXT NOT NULL REFERENCES companies(id),
-    email       TEXT NOT NULL UNIQUE,
-    role        TEXT NOT NULL DEFAULT 'admin',
-    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    id            SERIAL PRIMARY KEY,
+    company_id    TEXT REFERENCES companies(id),
+    email         TEXT NOT NULL UNIQUE,
+    role          TEXT NOT NULL DEFAULT 'admin',
+    password_hash TEXT,
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 -- ── ERP Tool Connections ─────────────────────────────────────
@@ -59,7 +56,7 @@ CREATE INDEX IF NOT EXISTS idx_tc_company ON tool_connections (company_id);
 
 CREATE TABLE IF NOT EXISTS tz_sync_runs (
     id              SERIAL PRIMARY KEY,
-    company_id      TEXT NOT NULL DEFAULT 'kbrushes',
+    company_id      TEXT NOT NULL,
     pipeline_name   TEXT NOT NULL,
     report_id       INTEGER NOT NULL,
     started_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -85,7 +82,7 @@ CREATE INDEX IF NOT EXISTS idx_sync_runs_pipeline_time
 --                         (NULL = use the job's default floor).
 
 CREATE TABLE IF NOT EXISTS tz_backfill_state (
-    company_id           TEXT NOT NULL DEFAULT 'kbrushes',
+    company_id           TEXT NOT NULL,
     pipeline_name        TEXT NOT NULL,
     oldest_fetched_date  DATE,
     floor_date           DATE,
@@ -334,6 +331,57 @@ CREATE TABLE IF NOT EXISTS tz_process_details (
 
 CREATE INDEX IF NOT EXISTS idx_pd_date ON tz_process_details (production_date DESC);
 CREATE INDEX IF NOT EXISTS idx_pd_status ON tz_process_details (status);
+
+-- ── Multi-tenant isolation (idempotent) ─────────────────────
+-- Mirrors migrations/001_multitenant.sql so a fresh setup_db run
+-- produces the multi-tenant shape directly. Adds company_id (the
+-- workspace / brand key) + a (company_id, raw_id) primary key to
+-- every tz_ data table. Safe to re-run.
+
+ALTER TABLE companies ADD COLUMN IF NOT EXISTS owner_id TEXT;
+
+INSERT INTO companies (id, name)
+VALUES ('protegere', 'Protegere')
+ON CONFLICT (id) DO NOTHING;
+
+DO $$
+DECLARE
+    tbl  TEXT;
+    tbls TEXT[] := ARRAY[
+        'tz_sales_invoices', 'tz_ar_aging', 'tz_sales_orders',
+        'tz_purchase_invoices', 'tz_purchase_orders', 'tz_grn_qir',
+        'tz_sales_quotations', 'tz_inventory_valuation',
+        'tz_process_routing', 'tz_process_details'
+    ];
+BEGIN
+    FOREACH tbl IN ARRAY tbls LOOP
+        EXECUTE format('ALTER TABLE %I ADD COLUMN IF NOT EXISTS company_id TEXT', tbl);
+        EXECUTE format('UPDATE %I SET company_id = ''protegere'' WHERE company_id IS NULL', tbl);
+        EXECUTE format('ALTER TABLE %I ALTER COLUMN company_id SET DEFAULT ''protegere''', tbl);
+        EXECUTE format('ALTER TABLE %I ALTER COLUMN company_id SET NOT NULL', tbl);
+        EXECUTE format('ALTER TABLE %I DROP CONSTRAINT IF EXISTS %I', tbl, tbl || '_pkey');
+        EXECUTE format('ALTER TABLE %I ADD CONSTRAINT %I PRIMARY KEY (company_id, raw_id)', tbl, tbl || '_pkey');
+        EXECUTE format('CREATE INDEX IF NOT EXISTS %I ON %I (company_id)', 'idx_' || tbl || '_company', tbl);
+    END LOOP;
+END $$;
+
+CREATE INDEX IF NOT EXISTS idx_si_company_date  ON tz_sales_invoices   (company_id, invoice_date DESC);
+CREATE INDEX IF NOT EXISTS idx_pi_company_date  ON tz_purchase_invoices(company_id, invoice_date DESC);
+CREATE INDEX IF NOT EXISTS idx_so_company_delivery ON tz_sales_orders  (company_id, delivery_date);
+CREATE INDEX IF NOT EXISTS idx_po_company_expected ON tz_purchase_orders (company_id, expected_date);
+CREATE INDEX IF NOT EXISTS idx_grn_company_date ON tz_grn_qir          (company_id, grn_date DESC);
+CREATE INDEX IF NOT EXISTS idx_quote_company_date ON tz_sales_quotations (company_id, quote_date DESC);
+CREATE INDEX IF NOT EXISTS idx_pd_company_date  ON tz_process_details  (company_id, production_date DESC);
+CREATE INDEX IF NOT EXISTS idx_sync_runs_company_pipeline ON tz_sync_runs (company_id, pipeline_name, completed_at DESC);
+
+-- ── DB-backed admin auth ─────────────────────────────────────
+-- Moves admin credentials out of env vars and into the users table.
+-- password_hash: bcrypt hash produced by passlib.
+-- company_id: made nullable so a global admin (owner of multiple brands)
+--             doesn't have to belong to a single brand.
+
+ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash TEXT;
+ALTER TABLE users ALTER COLUMN company_id DROP NOT NULL;
 
 -- ── Verification query ───────────────────────────────────────
 -- Run this after applying the schema to confirm all 11 tables exist:

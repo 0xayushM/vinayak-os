@@ -262,6 +262,7 @@ export async function GET(
     const res = await fetch(upstream, {
       headers: {
         "X-Internal-Key": API_KEY,
+        "X-Workspace-Id": request.headers.get("x-workspace-id") ?? "",
         Cookie: request.headers.get("cookie") ?? "",
       },
       cache: "no-store",

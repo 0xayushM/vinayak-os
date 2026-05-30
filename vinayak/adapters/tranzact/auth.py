@@ -58,8 +58,21 @@ class _TokenCache:
             self.refresh_expires_at = refresh_expires_at
 
 
-# Module-level singleton
-_cache = _TokenCache()
+# Per-account token caches, keyed by (base_url, email). A single global
+# cache would let one brand's login clobber another's token when two
+# TranzAct accounts sync concurrently, so each account gets its own.
+_caches: dict[tuple[str, str], _TokenCache] = {}
+_caches_lock = threading.Lock()
+
+
+def _cache_for(base_url: str, email: str) -> _TokenCache:
+    key = (base_url, email.lower())
+    with _caches_lock:
+        cache = _caches.get(key)
+        if cache is None:
+            cache = _TokenCache()
+            _caches[key] = cache
+        return cache
 
 
 def _decode_exp(token: str) -> float:
@@ -105,7 +118,7 @@ def _extract_tokens(body: dict) -> tuple[Optional[str], Optional[str]]:
     return access, refresh
 
 
-def _do_login(base_url: str, email: str, password: str) -> None:
+def _do_login(base_url: str, email: str, password: str, cache: _TokenCache) -> None:
     """
     Hit the TranzAct login endpoint and populate the token cache.
     Raises RuntimeError on auth failure.
@@ -136,28 +149,29 @@ def _do_login(base_url: str, email: str, password: str) -> None:
         # login was rejected because the code required status == 1.)
         raise RuntimeError(f"TranzAct login: no access token in response — {str(body)[:400]}")
 
-    _cache.set(
+    cache.set(
         access_token=access_token,
         refresh_token=refresh_token,
         access_expires_at=_decode_exp(access_token),
         refresh_expires_at=_decode_exp(refresh_token) if refresh_token else 0.0,
     )
     logger.info(
-        "TranzAct: login successful, token valid until %s",
-        datetime.fromtimestamp(_cache.access_expires_at, tz=timezone.utc).isoformat(),
+        "TranzAct: login successful for %s, token valid until %s",
+        email,
+        datetime.fromtimestamp(cache.access_expires_at, tz=timezone.utc).isoformat(),
     )
 
 
-def _do_refresh(base_url: str) -> bool:
+def _do_refresh(base_url: str, cache: _TokenCache) -> bool:
     """
     Use the refresh_token to obtain a new access_token.
     Returns True on success, False if refresh itself has expired (need re-login).
     """
-    if not _cache.refresh_token or time.time() >= _cache.refresh_expires_at:
+    if not cache.refresh_token or time.time() >= cache.refresh_expires_at:
         return False
 
     url = f"{base_url}/main/login/token/refresh/"
-    payload = {"refresh": _cache.refresh_token}
+    payload = {"refresh": cache.refresh_token}
 
     try:
         response = requests.post(url, json=payload, timeout=30)
@@ -166,11 +180,11 @@ def _do_refresh(base_url: str) -> bool:
         new_access, _ = _extract_tokens(body)
         if not new_access:
             return False
-        _cache.set(
+        cache.set(
             access_token=new_access,
-            refresh_token=_cache.refresh_token,
+            refresh_token=cache.refresh_token,
             access_expires_at=_decode_exp(new_access),
-            refresh_expires_at=_cache.refresh_expires_at,
+            refresh_expires_at=cache.refresh_expires_at,
         )
         logger.info("TranzAct: access token refreshed via refresh_token")
         return True
@@ -186,7 +200,10 @@ def get_access_token(
     force_refresh: bool = False,
 ) -> str:
     """
-    Return a valid TranzAct access token.
+    Return a valid TranzAct access token for the given account.
+
+    Each (base_url, email) account has its own token cache, so multiple
+    brands can hold valid tokens simultaneously without clobbering.
 
     Strategy:
       1. Return cached token if still valid (> 2 min remaining).
@@ -202,13 +219,15 @@ def get_access_token(
     Returns:
         A valid JWT access token string.
     """
-    if not force_refresh and _cache.is_access_valid():
-        return _cache.access_token  # type: ignore[return-value]
+    cache = _cache_for(base_url, email)
+
+    if not force_refresh and cache.is_access_valid():
+        return cache.access_token  # type: ignore[return-value]
 
     # Try cheap refresh first
-    if _do_refresh(base_url):
-        return _cache.access_token  # type: ignore[return-value]
+    if _do_refresh(base_url, cache):
+        return cache.access_token  # type: ignore[return-value]
 
     # Full re-login
-    _do_login(base_url, email, password)
-    return _cache.access_token  # type: ignore[return-value]
+    _do_login(base_url, email, password, cache)
+    return cache.access_token  # type: ignore[return-value]

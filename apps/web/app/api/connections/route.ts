@@ -20,6 +20,7 @@ export async function GET(request: NextRequest) {
       headers: {
         "Content-Type":   "application/json",
         "X-Internal-Key": INTERNAL_KEY,
+        "X-Workspace-Id": request.headers.get("x-workspace-id") ?? "",
         Cookie: request.headers.get("cookie") ?? "",
       },
       cache: "no-store",

@@ -85,12 +85,13 @@ class SalesOrdersPipeline(BasePipeline):
     def _get_filters(self, from_date: str, to_date: str) -> dict:
         return {"filters": {"from_date": from_date, "to_date": to_date}}
 
-    def _upsert(self, conn, rows: list[SalesOrderRow]) -> int:
+    def _upsert(self, conn, rows: list[SalesOrderRow], company_id: str) -> int:
         if not rows:
             return 0
 
         records = [
             (
+                company_id,
                 r.raw_id,
                 r.order_date,
                 r.order_number,
@@ -110,11 +111,11 @@ class SalesOrdersPipeline(BasePipeline):
 
         sql = """
             INSERT INTO tz_sales_orders (
-                raw_id, order_date, order_number, customer_name, customer_code,
+                company_id, raw_id, order_date, order_number, customer_name, customer_code,
                 sku_code, sku_name, ordered_qty, dispatched_qty, pending_qty,
                 order_value, delivery_date, status
             ) VALUES %s
-            ON CONFLICT (raw_id) DO UPDATE SET
+            ON CONFLICT (company_id, raw_id) DO UPDATE SET
                 order_date     = EXCLUDED.order_date,
                 order_number   = EXCLUDED.order_number,
                 customer_name  = EXCLUDED.customer_name,
