@@ -1,7 +1,9 @@
 "use client";
 
 import { PageHeader } from "@/components/dashboard/PageHeader";
-import { ArAgingPanel, ArBucketTablePanel } from "@/components/dashboard/panels";
+import {
+  ArAgingPanel, ArBucketTablePanel, ArInvoicesTablePanel,
+} from "@/components/dashboard/panels";
 
 export default function ArPage() {
   return (
@@ -9,6 +11,7 @@ export default function ArPage() {
       <PageHeader title="AR Aging" subtitle="Outstanding receivables and overdue exposure" />
       <ArAgingPanel />
       <ArBucketTablePanel />
+      <ArInvoicesTablePanel />
     </div>
   );
 }

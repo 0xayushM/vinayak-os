@@ -1,7 +1,9 @@
 "use client";
 
 import { PageHeader } from "@/components/dashboard/PageHeader";
-import { InventoryPanel, InventoryCategoryTablePanel } from "@/components/dashboard/panels";
+import {
+  InventoryPanel, InventoryCategoryTablePanel, InventoryTablePanel,
+} from "@/components/dashboard/panels";
 
 export default function InventoryPage() {
   return (
@@ -9,6 +11,7 @@ export default function InventoryPage() {
       <PageHeader title="Inventory" subtitle="Stock valuation and category breakdown" />
       <InventoryPanel />
       <InventoryCategoryTablePanel />
+      <InventoryTablePanel />
     </div>
   );
 }

@@ -1,16 +1,28 @@
 "use client";
 
+import { useState } from "react";
 import { PageHeader } from "@/components/dashboard/PageHeader";
-import { PurchaseSummaryPanel, TopVendorsPanel } from "@/components/dashboard/panels";
+import { DateRangePicker, DateRange } from "@/components/dashboard/DateRangePicker";
+import {
+  PurchaseSummaryPanel, TopVendorsPanel, PurchaseInvoicesTablePanel,
+} from "@/components/dashboard/panels";
+import { usePurchaseInvoices } from "@/hooks/useDashboard";
 
 export default function PurchasesPage() {
+  const [range, setRange] = useState<DateRange>({});
+  const { data } = usePurchaseInvoices(range.start || range.end ? { start: range.start, end: range.end } : {});
+  const cov = data?.data;
+
   return (
     <div className="p-4 sm:p-6 lg:p-8 space-y-6 max-w-[1600px] mx-auto w-full animate-rise">
-      <PageHeader title="Purchases" subtitle="Spend and vendor breakdown · last 30 days" />
+      <PageHeader title="Purchases" subtitle="Spend and vendor breakdown">
+        <DateRangePicker value={range} onChange={setRange} dataFrom={cov?.data_from} dataTo={cov?.data_to} />
+      </PageHeader>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <PurchaseSummaryPanel />
         <TopVendorsPanel />
       </div>
+      <PurchaseInvoicesTablePanel range={range} />
     </div>
   );
 }

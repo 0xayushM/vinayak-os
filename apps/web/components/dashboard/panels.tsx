@@ -10,21 +10,53 @@
  * sidebar pages without any prop wiring.
  */
 
+import { useState } from "react";
 import {
-  BarChart, Bar, PieChart, Pie, Cell,
+  BarChart, Bar, PieChart, Pie, Cell, Area, AreaChart,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from "recharts";
 import { PanelWrapper } from "@/components/dashboard/PanelWrapper";
 import { KpiCard } from "@/components/dashboard/KpiCard";
 import { DataTable } from "@/components/dashboard/DataTable";
+import { FilterableTable, ServerColumn, ServerSort } from "@/components/dashboard/FilterableTable";
+import type { DateRange } from "@/components/dashboard/DateRangePicker";
 import {
-  useRevenueSummary, useRevenueTrend, useCustomerConcentration,
+  useRevenueSummary, useRevenueTrend, useRevenueDaily, useCustomerConcentration,
   useTopSkus, useArSummary, useOpenOrders, useInventorySummary,
   useInventoryByCategory, useProductionSummary, usePurchaseSummary,
   useGrnSummary, useOpenPOs, useQuoteSummary, useBomCoverage,
-  useTopVendors,
+  useTopVendors, useSalesInvoices, useArInvoices,
+  usePurchaseInvoices, useSalesOrders, usePurchaseOrders,
+  useProductionList, useInventoryList,
+  type RangeOpts, type SalesInvoiceRow, type ArInvoiceRow,
+  type PurchaseInvoiceRow, type SalesOrderRow, type PurchaseOrderRow,
+  type ProductionRow, type InventoryRow,
 } from "@/hooks/useDashboard";
 import { formatCurrency, formatNumber } from "@/lib/utils/cn";
+
+// ── Shared helpers ────────────────────────────────────────────────────────────
+/** A page-level date range (start/end) → the hook's RangeOpts shape. */
+function toRangeOpts(range: DateRange | undefined, days: number): RangeOpts {
+  if (range?.start || range?.end) return { start: range.start, end: range.end };
+  return { days };
+}
+
+/** Pretty-print an ISO date (YYYY-MM-DD or full ISO) → "12 Apr 2026". */
+function fmtDate(iso?: string | null): string {
+  if (!iso) return "—";
+  const d = new Date(iso.length <= 10 ? iso + "T00:00:00" : iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
+}
+
+function CoverageNote({ from, to }: { from?: string | null; to?: string | null }) {
+  if (!from && !to) return null;
+  return (
+    <p className="text-[10.5px] text-zinc-600 pt-2">
+      Data in view: {fmtDate(from)} – {fmtDate(to)}
+    </p>
+  );
+}
 
 // ── Chart palette (dark theme) ────────────────────────────────────────────────
 export const COLORS = ["#6366f1", "#818cf8", "#34d399", "#f59e0b", "#a78bfa", "#22d3ee"];
@@ -50,17 +82,59 @@ function fmt(label: string): (v: any) => [string, string] {
 }
 
 // ── Revenue ─────────────────────────────────────────────────────────────────
-export function RevenueKpiPanel() {
-  const { data, error, isLoading } = useRevenueSummary(30);
+export function RevenueKpiPanel({ range }: { range?: DateRange } = {}) {
+  const { data, error, isLoading } = useRevenueSummary(toRangeOpts(range, 30));
   const d = data?.data;
+  const ranged = !!(range?.start || range?.end);
   return (
-    <PanelWrapper title="Revenue Overview" subtitle="Last 30 days" meta={data?.meta} loading={isLoading} error={error}>
+    <PanelWrapper
+      title="Revenue Overview"
+      subtitle={ranged ? "Selected range" : "Latest 30 days of data"}
+      meta={data?.meta}
+      loading={isLoading}
+      error={error}
+    >
       <div className="grid grid-cols-2 gap-4 pt-2">
-        <KpiCard label="Period Total" value={formatCurrency(d?.period_total ?? 0, true)} accent="blue" sub={`${d?.invoice_count ?? 0} invoices`} />
-        <KpiCard label="Monthly Avg" value={formatCurrency(d?.monthly_avg ?? 0, true)} accent="emerald" />
-        <KpiCard label="YTD Total" value={formatCurrency(d?.ytd_total ?? 0, true)} accent="violet" />
-        <KpiCard label="Active Customers" value={formatNumber(d?.customer_count ?? 0)} accent="amber" />
+        <KpiCard label="Period Total" value={formatCurrency(d?.period_total ?? 0, true)} accent="blue" sub={`${formatNumber(d?.invoice_count ?? 0)} invoices`} />
+        <KpiCard label="Avg / Invoice" value={formatCurrency(d?.avg_invoice_value ?? 0, true)} accent="emerald" />
+        <KpiCard label="Monthly Avg (12mo)" value={formatCurrency(d?.monthly_avg ?? 0, true)} accent="violet" />
+        <KpiCard label={`YTD ${d?.ytd_year ?? ""}`} value={formatCurrency(d?.ytd_total ?? 0, true)} accent="amber" sub={`${formatNumber(d?.customer_count ?? 0)} customers`} />
       </div>
+      <CoverageNote from={d?.data_from} to={d?.data_to} />
+    </PanelWrapper>
+  );
+}
+
+// Daily revenue line/area chart — the analytics centerpiece.
+export function RevenueDailyPanel({ range }: { range?: DateRange } = {}) {
+  const { data, error, isLoading } = useRevenueDaily(toRangeOpts(range, 90));
+  const days = data?.data?.days ?? [];
+  const ranged = !!(range?.start || range?.end);
+  return (
+    <PanelWrapper
+      title="Daily Revenue"
+      subtitle={ranged ? "Selected range" : "Latest 90 days of data"}
+      meta={data?.meta}
+      loading={isLoading}
+      error={error}
+    >
+      <ResponsiveContainer width="100%" height={220}>
+        <AreaChart data={days} margin={{ top: 6, right: 8, left: -16, bottom: 0 }}>
+          <defs>
+            <linearGradient id="revFill" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#6366f1" stopOpacity={0.35} />
+              <stop offset="100%" stopColor="#6366f1" stopOpacity={0} />
+            </linearGradient>
+          </defs>
+          <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
+          <XAxis dataKey="date" tick={{ fill: "#71717a", fontSize: 9 }} axisLine={false} tickLine={false} minTickGap={32}
+            tickFormatter={(v) => { const d = new Date(v + "T00:00:00"); return Number.isNaN(d.getTime()) ? v : d.toLocaleDateString("en-IN", { day: "2-digit", month: "short" }); }} />
+          <YAxis tick={{ fill: "#71717a", fontSize: 9 }} axisLine={false} tickLine={false} tickFormatter={(v) => formatCurrency(v, true)} />
+          <Tooltip {...tooltipStyle} formatter={fmt("Revenue")} labelFormatter={(l) => fmtDate(String(l))} />
+          <Area type="monotone" dataKey="revenue" stroke={BLUE} strokeWidth={2} fill="url(#revFill)" />
+        </AreaChart>
+      </ResponsiveContainer>
+      <CoverageNote from={data?.data?.data_from} to={data?.data?.data_to} />
     </PanelWrapper>
   );
 }
@@ -83,8 +157,8 @@ export function RevenueTrendPanel() {
   );
 }
 
-export function CustomerConcentrationPanel() {
-  const { data, error, isLoading } = useCustomerConcentration(30);
+export function CustomerConcentrationPanel({ range }: { range?: DateRange } = {}) {
+  const { data, error, isLoading } = useCustomerConcentration(toRangeOpts(range, 30));
   const slices = data?.data?.slices ?? [];
   return (
     <PanelWrapper title="Customer Concentration" subtitle="Top 5 + Others" meta={data?.meta} loading={isLoading} error={error}>
@@ -115,12 +189,13 @@ export function CustomerConcentrationPanel() {
   );
 }
 
-export function TopSkusPanel() {
-  const { data, error, isLoading } = useTopSkus(30);
+export function TopSkusPanel({ range }: { range?: DateRange } = {}) {
+  const { data, error, isLoading } = useTopSkus(toRangeOpts(range, 30));
   const skus = data?.data?.skus ?? [];
   const max  = skus[0]?.revenue ?? 1;
+  const ranged = !!(range?.start || range?.end);
   return (
-    <PanelWrapper title="Top SKUs by Revenue" subtitle="Last 30 days" meta={data?.meta} loading={isLoading} error={error}>
+    <PanelWrapper title="Top SKUs by Revenue" subtitle={ranged ? "Selected range" : "Latest 30 days of data"} meta={data?.meta} loading={isLoading} error={error}>
       <div className="space-y-2 pt-1">
         {skus.slice(0, 8).map((s) => (
           <div key={s.sku_code} className="flex items-center gap-2 text-xs">
@@ -133,17 +208,18 @@ export function TopSkusPanel() {
         ))}
         {skus.length === 0 && <p className="text-xs text-zinc-600 pt-3">No SKU sales in this period.</p>}
       </div>
+      <CoverageNote from={data?.data?.data_from} to={data?.data?.data_to} />
     </PanelWrapper>
   );
 }
 
 // Detailed Top-SKU table (used on the SKUs page) — sortable + paginated.
-export function TopSkusTablePanel() {
-  const { data, error, isLoading } = useTopSkus(30);
+export function TopSkusTablePanel({ range }: { range?: DateRange } = {}) {
+  const { data, error, isLoading } = useTopSkus(toRangeOpts(range, 30));
   const skus = data?.data?.skus ?? [];
   type Sku = (typeof skus)[number];
   return (
-    <PanelWrapper title="Top SKUs — detail" subtitle="Quantity & revenue, last 30 days" meta={data?.meta} loading={isLoading} error={error}>
+    <PanelWrapper title="Top SKUs — detail" subtitle="Quantity & revenue" meta={data?.meta} loading={isLoading} error={error}>
       <DataTable<Sku>
         rows={skus}
         rowKey={(s) => s.sku_code}
@@ -474,6 +550,345 @@ export function ProductionPanel() {
         <KpiCard label="Completed" value={formatNumber(d?.completed_count ?? 0)} accent="emerald" />
         <KpiCard label="Avg Cycle Time" value={`${(d?.avg_cycle_days ?? 0).toFixed(1)}d`} accent="amber" />
       </div>
+    </PanelWrapper>
+  );
+}
+
+// ── Row-level detail tables (server-side search / date filter / pagination) ───
+
+const PAGE_SIZE = 25;
+
+const statusPill: Record<string, string> = {
+  paid:    "bg-emerald-500/10 text-emerald-300 border-emerald-500/20",
+  unpaid:  "bg-amber-500/10 text-amber-300 border-amber-500/20",
+  partial: "bg-blue-500/10 text-blue-300 border-blue-500/20",
+};
+
+function StatusBadge({ status }: { status: string | null }) {
+  if (!status) return <span className="text-zinc-600">—</span>;
+  const cls = statusPill[status.toLowerCase()] ?? "bg-white/[0.05] text-zinc-400 border-white/[0.08]";
+  return <span className={`text-[10px] px-1.5 py-0.5 rounded-full border ${cls}`}>{status}</span>;
+}
+
+// Sales invoice line items — searchable, date-filterable, server-paginated.
+export function SalesInvoicesTablePanel({ range }: { range?: DateRange } = {}) {
+  const [search, setSearch] = useState("");
+  const [page, setPage] = useState(0);
+  const [sort, setSort] = useState<ServerSort>({ sort: "invoice_date", direction: "desc" });
+
+  const { data, error, isLoading } = useSalesInvoices({
+    start: range?.start, end: range?.end, search: search || undefined,
+    page, page_size: PAGE_SIZE, sort: sort.sort, direction: sort.direction,
+  });
+  const d = data?.data;
+  const rows = d?.rows ?? [];
+
+  const columns: ServerColumn<SalesInvoiceRow>[] = [
+    { key: "invoice_date", header: "Date", sortKey: "invoice_date",
+      cell: (r) => <span className="text-zinc-400 whitespace-nowrap">{fmtDate(r.invoice_date)}</span> },
+    { key: "invoice_number", header: "Invoice #",
+      cell: (r) => <span className="font-mono text-zinc-400">{r.invoice_number}</span> },
+    { key: "customer_name", header: "Customer", sortKey: "customer_name",
+      cell: (r) => <span className="block truncate max-w-[180px]">{r.customer_name}</span> },
+    { key: "sku", header: "SKU",
+      cell: (r) => <span className="block truncate max-w-[160px]"><span className="font-mono text-zinc-500">{r.sku_code}</span>{r.sku_name ? ` · ${r.sku_name}` : ""}</span> },
+    { key: "quantity", header: "Qty", align: "right", sortKey: "quantity",
+      cell: (r) => formatNumber(r.quantity) },
+    { key: "line_total", header: "Line total", align: "right", sortKey: "line_total",
+      cell: (r) => formatCurrency(r.line_total, true) },
+    { key: "invoice_total", header: "Invoice total", align: "right", sortKey: "invoice_total",
+      cell: (r) => <span className="text-zinc-200">{formatCurrency(r.invoice_total, true)}</span> },
+    { key: "payment_status", header: "Status", align: "center",
+      cell: (r) => <StatusBadge status={r.payment_status} /> },
+  ];
+
+  return (
+    <PanelWrapper title="Sales invoices — line items" subtitle="Search, sort and page through every invoice line" meta={data?.meta} error={error}>
+      <FilterableTable<SalesInvoiceRow>
+        columns={columns}
+        rows={rows}
+        rowKey={(r) => `${r.invoice_number}-${r.sku_code ?? ""}-${r.line_total}`}
+        page={d?.page ?? 0}
+        pageCount={d?.page_count ?? 1}
+        filteredTotal={d?.filtered_total ?? 0}
+        pageSize={d?.page_size ?? PAGE_SIZE}
+        sort={sort}
+        loading={isLoading}
+        search={search}
+        onSearchChange={(s) => { setSearch(s); setPage(0); }}
+        onSortChange={setSort}
+        onPageChange={setPage}
+        searchPlaceholder="Search customer, invoice #, SKU…"
+        emptyMessage="No invoices match these filters."
+      />
+      <CoverageNote from={d?.data_from} to={d?.data_to} />
+    </PanelWrapper>
+  );
+}
+
+// AR invoice line items — searchable, bucket/overdue filterable, server-paginated.
+export function ArInvoicesTablePanel() {
+  const [search, setSearch] = useState("");
+  const [page, setPage] = useState(0);
+  const [overdueOnly, setOverdueOnly] = useState(false);
+  const [sort, setSort] = useState<ServerSort>({ sort: "outstanding_amount", direction: "desc" });
+
+  const { data, error, isLoading } = useArInvoices({
+    search: search || undefined, overdue_only: overdueOnly,
+    page, page_size: PAGE_SIZE, sort: sort.sort, direction: sort.direction,
+  });
+  const d = data?.data;
+  const rows = d?.rows ?? [];
+
+  const columns: ServerColumn<ArInvoiceRow>[] = [
+    { key: "customer_name", header: "Customer", sortKey: "customer_name",
+      cell: (r) => <span className="block truncate max-w-[200px]">{r.customer_name}</span> },
+    { key: "invoice_number", header: "Invoice #",
+      cell: (r) => <span className="font-mono text-zinc-400">{r.invoice_number}</span> },
+    { key: "invoice_date", header: "Invoiced", sortKey: "invoice_date",
+      cell: (r) => <span className="text-zinc-400 whitespace-nowrap">{fmtDate(r.invoice_date)}</span> },
+    { key: "due_date", header: "Due", sortKey: "due_date",
+      cell: (r) => <span className="text-zinc-400 whitespace-nowrap">{fmtDate(r.due_date)}</span> },
+    { key: "invoice_amount", header: "Amount", align: "right", sortKey: "invoice_amount",
+      cell: (r) => formatCurrency(r.invoice_amount, true) },
+    { key: "outstanding_amount", header: "Outstanding", align: "right", sortKey: "outstanding_amount",
+      cell: (r) => <span className="text-zinc-200">{formatCurrency(r.outstanding_amount, true)}</span> },
+    { key: "days_overdue", header: "Overdue", align: "right", sortKey: "days_overdue",
+      cell: (r) => r.days_overdue == null ? "—" : <span className={r.days_overdue > 0 ? "text-amber-300" : "text-zinc-400"}>{r.days_overdue}d</span> },
+    { key: "aging_bucket", header: "Bucket", align: "center",
+      cell: (r) => <span className="text-zinc-400">{r.aging_bucket ?? "—"}</span> },
+  ];
+
+  return (
+    <PanelWrapper title="AR invoices — line items" subtitle="Outstanding receivables, invoice by invoice" meta={data?.meta} error={error}>
+      <FilterableTable<ArInvoiceRow>
+        columns={columns}
+        rows={rows}
+        rowKey={(r) => `${r.invoice_number}-${r.customer_name}`}
+        page={d?.page ?? 0}
+        pageCount={d?.page_count ?? 1}
+        filteredTotal={d?.filtered_total ?? 0}
+        pageSize={d?.page_size ?? PAGE_SIZE}
+        sort={sort}
+        loading={isLoading}
+        search={search}
+        onSearchChange={(s) => { setSearch(s); setPage(0); }}
+        onSortChange={setSort}
+        onPageChange={setPage}
+        searchPlaceholder="Search customer or invoice #…"
+        emptyMessage="No receivables match these filters."
+        toolbar={
+          <button
+            onClick={() => { setOverdueOnly((v) => !v); setPage(0); }}
+            className={`text-[11px] rounded-lg px-2.5 py-2 border transition-colors shrink-0 ${
+              overdueOnly
+                ? "bg-amber-500/10 text-amber-300 border-amber-500/20"
+                : "text-zinc-400 border-white/[0.08] hover:text-zinc-200"
+            }`}
+          >
+            Overdue only
+          </button>
+        }
+      />
+    </PanelWrapper>
+  );
+}
+
+// Status-filter dropdown shared by order/PO/production tables.
+function StatusFilter({ value, options, onChange }: {
+  value: string; options: string[]; onChange: (v: string) => void;
+}) {
+  return (
+    <select
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      className="bg-[var(--bg-elevated)] text-zinc-300 text-[11px] rounded-lg px-2 py-2 border border-white/[0.08] focus:border-indigo-500 focus:outline-none shrink-0 [color-scheme:dark]"
+    >
+      <option value="">All statuses</option>
+      {options.map((o) => <option key={o} value={o}>{o}</option>)}
+    </select>
+  );
+}
+
+// Purchase invoice line items.
+export function PurchaseInvoicesTablePanel({ range }: { range?: DateRange } = {}) {
+  const [search, setSearch] = useState("");
+  const [page, setPage] = useState(0);
+  const [sort, setSort] = useState<ServerSort>({ sort: "invoice_date", direction: "desc" });
+  const { data, error, isLoading } = usePurchaseInvoices({
+    start: range?.start, end: range?.end, search: search || undefined,
+    page, page_size: PAGE_SIZE, sort: sort.sort, direction: sort.direction,
+  });
+  const d = data?.data;
+  const columns: ServerColumn<PurchaseInvoiceRow>[] = [
+    { key: "invoice_date", header: "Date", sortKey: "invoice_date",
+      cell: (r) => <span className="text-zinc-400 whitespace-nowrap">{fmtDate(r.invoice_date)}</span> },
+    { key: "invoice_number", header: "Invoice #", cell: (r) => <span className="font-mono text-zinc-400">{r.invoice_number}</span> },
+    { key: "vendor_name", header: "Vendor", sortKey: "vendor_name", cell: (r) => <span className="block truncate max-w-[180px]">{r.vendor_name}</span> },
+    { key: "item", header: "Item", cell: (r) => <span className="block truncate max-w-[160px]"><span className="font-mono text-zinc-500">{r.item_code}</span>{r.item_name ? ` · ${r.item_name}` : ""}</span> },
+    { key: "quantity", header: "Qty", align: "right", sortKey: "quantity", cell: (r) => formatNumber(r.quantity) },
+    { key: "line_total", header: "Line total", align: "right", sortKey: "line_total", cell: (r) => formatCurrency(r.line_total, true) },
+    { key: "invoice_total", header: "Invoice total", align: "right", sortKey: "invoice_total", cell: (r) => <span className="text-zinc-200">{formatCurrency(r.invoice_total, true)}</span> },
+  ];
+  return (
+    <PanelWrapper title="Purchase invoices — line items" subtitle="Search, sort and page through every purchase line" meta={data?.meta} error={error}>
+      <FilterableTable<PurchaseInvoiceRow>
+        columns={columns} rows={d?.rows ?? []}
+        rowKey={(r) => `${r.invoice_number}-${r.item_code ?? ""}-${r.line_total}`}
+        page={d?.page ?? 0} pageCount={d?.page_count ?? 1} filteredTotal={d?.filtered_total ?? 0}
+        pageSize={d?.page_size ?? PAGE_SIZE} sort={sort} loading={isLoading}
+        search={search} onSearchChange={(s) => { setSearch(s); setPage(0); }}
+        onSortChange={setSort} onPageChange={setPage}
+        searchPlaceholder="Search vendor, invoice #, item…" emptyMessage="No purchase invoices match these filters."
+      />
+      <CoverageNote from={d?.data_from} to={d?.data_to} />
+    </PanelWrapper>
+  );
+}
+
+// Sales order line items.
+export function SalesOrdersTablePanel({ range }: { range?: DateRange } = {}) {
+  const [search, setSearch] = useState("");
+  const [status, setStatus] = useState("");
+  const [page, setPage] = useState(0);
+  const [sort, setSort] = useState<ServerSort>({ sort: "order_date", direction: "desc" });
+  const { data, error, isLoading } = useSalesOrders({
+    start: range?.start, end: range?.end, search: search || undefined, status: status || undefined,
+    page, page_size: PAGE_SIZE, sort: sort.sort, direction: sort.direction,
+  });
+  const d = data?.data;
+  const columns: ServerColumn<SalesOrderRow>[] = [
+    { key: "order_date", header: "Ordered", sortKey: "order_date", cell: (r) => <span className="text-zinc-400 whitespace-nowrap">{fmtDate(r.order_date)}</span> },
+    { key: "order_number", header: "Order #", cell: (r) => <span className="font-mono text-zinc-400">{r.order_number}</span> },
+    { key: "customer_name", header: "Customer", sortKey: "customer_name", cell: (r) => <span className="block truncate max-w-[160px]">{r.customer_name}</span> },
+    { key: "sku", header: "SKU", cell: (r) => <span className="block truncate max-w-[150px]"><span className="font-mono text-zinc-500">{r.sku_code}</span>{r.sku_name ? ` · ${r.sku_name}` : ""}</span> },
+    { key: "pending_qty", header: "Pending", align: "right", sortKey: "pending_qty", cell: (r) => formatNumber(r.pending_qty) },
+    { key: "order_value", header: "Value", align: "right", sortKey: "order_value", cell: (r) => <span className="text-zinc-200">{formatCurrency(r.order_value, true)}</span> },
+    { key: "delivery_date", header: "Delivery", sortKey: "delivery_date", cell: (r) => <span className="text-zinc-400 whitespace-nowrap">{fmtDate(r.delivery_date)}</span> },
+    { key: "status", header: "Status", align: "center", cell: (r) => <StatusBadge status={r.status} /> },
+  ];
+  return (
+    <PanelWrapper title="Sales orders — line items" subtitle="Open and historical order book" meta={data?.meta} error={error}>
+      <FilterableTable<SalesOrderRow>
+        columns={columns} rows={d?.rows ?? []}
+        rowKey={(r) => `${r.order_number}-${r.sku_code ?? ""}-${r.order_value}`}
+        page={d?.page ?? 0} pageCount={d?.page_count ?? 1} filteredTotal={d?.filtered_total ?? 0}
+        pageSize={d?.page_size ?? PAGE_SIZE} sort={sort} loading={isLoading}
+        search={search} onSearchChange={(s) => { setSearch(s); setPage(0); }}
+        onSortChange={setSort} onPageChange={setPage}
+        searchPlaceholder="Search customer, order #, SKU…" emptyMessage="No sales orders match these filters."
+        toolbar={<StatusFilter value={status} options={["Open", "Partial", "Closed", "Cancelled"]} onChange={(v) => { setStatus(v); setPage(0); }} />}
+      />
+      <CoverageNote from={d?.data_from} to={d?.data_to} />
+    </PanelWrapper>
+  );
+}
+
+// Purchase order line items.
+export function PurchaseOrdersTablePanel({ range }: { range?: DateRange } = {}) {
+  const [search, setSearch] = useState("");
+  const [status, setStatus] = useState("");
+  const [page, setPage] = useState(0);
+  const [sort, setSort] = useState<ServerSort>({ sort: "po_date", direction: "desc" });
+  const { data, error, isLoading } = usePurchaseOrders({
+    start: range?.start, end: range?.end, search: search || undefined, status: status || undefined,
+    page, page_size: PAGE_SIZE, sort: sort.sort, direction: sort.direction,
+  });
+  const d = data?.data;
+  const columns: ServerColumn<PurchaseOrderRow>[] = [
+    { key: "po_date", header: "PO date", sortKey: "po_date", cell: (r) => <span className="text-zinc-400 whitespace-nowrap">{fmtDate(r.po_date)}</span> },
+    { key: "po_number", header: "PO #", cell: (r) => <span className="font-mono text-zinc-400">{r.po_number}</span> },
+    { key: "vendor_name", header: "Vendor", sortKey: "vendor_name", cell: (r) => <span className="block truncate max-w-[160px]">{r.vendor_name}</span> },
+    { key: "item", header: "Item", cell: (r) => <span className="block truncate max-w-[150px]"><span className="font-mono text-zinc-500">{r.item_code}</span>{r.item_name ? ` · ${r.item_name}` : ""}</span> },
+    { key: "pending_qty", header: "Pending", align: "right", sortKey: "pending_qty", cell: (r) => formatNumber(r.pending_qty) },
+    { key: "po_value", header: "Value", align: "right", sortKey: "po_value", cell: (r) => <span className="text-zinc-200">{formatCurrency(r.po_value, true)}</span> },
+    { key: "expected_date", header: "Expected", sortKey: "expected_date", cell: (r) => <span className="text-zinc-400 whitespace-nowrap">{fmtDate(r.expected_date)}</span> },
+    { key: "status", header: "Status", align: "center", cell: (r) => <StatusBadge status={r.status} /> },
+  ];
+  return (
+    <PanelWrapper title="Purchase orders — line items" subtitle="Open and historical PO book" meta={data?.meta} error={error}>
+      <FilterableTable<PurchaseOrderRow>
+        columns={columns} rows={d?.rows ?? []}
+        rowKey={(r) => `${r.po_number}-${r.item_code ?? ""}-${r.po_value}`}
+        page={d?.page ?? 0} pageCount={d?.page_count ?? 1} filteredTotal={d?.filtered_total ?? 0}
+        pageSize={d?.page_size ?? PAGE_SIZE} sort={sort} loading={isLoading}
+        search={search} onSearchChange={(s) => { setSearch(s); setPage(0); }}
+        onSortChange={setSort} onPageChange={setPage}
+        searchPlaceholder="Search vendor, PO #, item…" emptyMessage="No purchase orders match these filters."
+        toolbar={<StatusFilter value={status} options={["Open", "Partial", "Closed", "Cancelled"]} onChange={(v) => { setStatus(v); setPage(0); }} />}
+      />
+      <CoverageNote from={d?.data_from} to={d?.data_to} />
+    </PanelWrapper>
+  );
+}
+
+// Production process records.
+export function ProductionTablePanel({ range }: { range?: DateRange } = {}) {
+  const [search, setSearch] = useState("");
+  const [status, setStatus] = useState("");
+  const [page, setPage] = useState(0);
+  const [sort, setSort] = useState<ServerSort>({ sort: "production_date", direction: "desc" });
+  const { data, error, isLoading } = useProductionList({
+    start: range?.start, end: range?.end, search: search || undefined, status: status || undefined,
+    page, page_size: PAGE_SIZE, sort: sort.sort, direction: sort.direction,
+  });
+  const d = data?.data;
+  const columns: ServerColumn<ProductionRow>[] = [
+    { key: "production_date", header: "Date", sortKey: "production_date", cell: (r) => <span className="text-zinc-400 whitespace-nowrap">{fmtDate(r.production_date)}</span> },
+    { key: "work_order_number", header: "Work order", sortKey: "work_order_number", cell: (r) => <span className="font-mono text-zinc-400">{r.work_order_number}</span> },
+    { key: "sku", header: "SKU", cell: (r) => <span className="block truncate max-w-[150px]"><span className="font-mono text-zinc-500">{r.sku_code}</span>{r.sku_name ? ` · ${r.sku_name}` : ""}</span> },
+    { key: "process_name", header: "Process", cell: (r) => <span className="block truncate max-w-[130px]">{r.process_name}</span> },
+    { key: "planned_qty", header: "Planned", align: "right", sortKey: "planned_qty", cell: (r) => formatNumber(r.planned_qty) },
+    { key: "produced_qty", header: "Produced", align: "right", sortKey: "produced_qty", cell: (r) => <span className="text-zinc-200">{formatNumber(r.produced_qty)}</span> },
+    { key: "rejected_qty", header: "Rejected", align: "right", sortKey: "rejected_qty", cell: (r) => <span className={r.rejected_qty > 0 ? "text-amber-300" : "text-zinc-400"}>{formatNumber(r.rejected_qty)}</span> },
+    { key: "status", header: "Status", align: "center", cell: (r) => <StatusBadge status={r.status} /> },
+  ];
+  return (
+    <PanelWrapper title="Production — process records" subtitle="Work orders, output and rejects" meta={data?.meta} error={error}>
+      <FilterableTable<ProductionRow>
+        columns={columns} rows={d?.rows ?? []}
+        rowKey={(r) => `${r.work_order_number}-${r.process_name ?? ""}-${r.produced_qty}`}
+        page={d?.page ?? 0} pageCount={d?.page_count ?? 1} filteredTotal={d?.filtered_total ?? 0}
+        pageSize={d?.page_size ?? PAGE_SIZE} sort={sort} loading={isLoading}
+        search={search} onSearchChange={(s) => { setSearch(s); setPage(0); }}
+        onSortChange={setSort} onPageChange={setPage}
+        searchPlaceholder="Search work order, SKU, process…" emptyMessage="No production records match these filters."
+        toolbar={<StatusFilter value={status} options={["Planned", "In Progress", "Completed", "On Hold"]} onChange={(v) => { setStatus(v); setPage(0); }} />}
+      />
+      <CoverageNote from={d?.data_from} to={d?.data_to} />
+    </PanelWrapper>
+  );
+}
+
+// Inventory valuation rows (snapshot — no date window).
+export function InventoryTablePanel() {
+  const [search, setSearch] = useState("");
+  const [page, setPage] = useState(0);
+  const [sort, setSort] = useState<ServerSort>({ sort: "total_value", direction: "desc" });
+  const { data, error, isLoading } = useInventoryList({
+    search: search || undefined, page, page_size: PAGE_SIZE, sort: sort.sort, direction: sort.direction,
+  });
+  const d = data?.data;
+  const columns: ServerColumn<InventoryRow>[] = [
+    { key: "sku_code", header: "SKU", cell: (r) => <span className="font-mono text-zinc-400">{r.sku_code}</span> },
+    { key: "sku_name", header: "Name", sortKey: "sku_name", cell: (r) => <span className="block truncate max-w-[200px]">{r.sku_name}</span> },
+    { key: "category", header: "Category", sortKey: "category", cell: (r) => <span className="text-zinc-400">{r.category ?? "—"}</span> },
+    { key: "warehouse", header: "Warehouse", cell: (r) => <span className="text-zinc-400 truncate max-w-[120px] block">{r.warehouse ?? "—"}</span> },
+    { key: "quantity", header: "Qty", align: "right", sortKey: "quantity", cell: (r) => <span className={r.is_negative_stock ? "text-red-400" : ""}>{formatNumber(r.quantity)}</span> },
+    { key: "unit_cost", header: "Unit cost", align: "right", sortKey: "unit_cost", cell: (r) => formatCurrency(r.unit_cost, true) },
+    { key: "total_value", header: "Value", align: "right", sortKey: "total_value", cell: (r) => <span className="text-zinc-200">{formatCurrency(r.total_value, true)}</span> },
+  ];
+  return (
+    <PanelWrapper title="Inventory — valuation detail" subtitle="Every SKU, searchable and sortable" meta={data?.meta} error={error}>
+      <FilterableTable<InventoryRow>
+        columns={columns} rows={d?.rows ?? []}
+        rowKey={(r) => `${r.sku_code}-${r.warehouse ?? ""}`}
+        page={d?.page ?? 0} pageCount={d?.page_count ?? 1} filteredTotal={d?.filtered_total ?? 0}
+        pageSize={d?.page_size ?? PAGE_SIZE} sort={sort} loading={isLoading}
+        search={search} onSearchChange={(s) => { setSearch(s); setPage(0); }}
+        onSortChange={setSort} onPageChange={setPage}
+        searchPlaceholder="Search SKU, name, category, warehouse…" emptyMessage="No stock rows match these filters."
+      />
     </PanelWrapper>
   );
 }

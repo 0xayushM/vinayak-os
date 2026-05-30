@@ -62,11 +62,16 @@ def _envelope(data: dict, report_id: int) -> dict:
 # ════════════════════════════════════════════════════════════════════════════
 
 @router.get("/revenue/summary")
-def revenue_summary(period_days: int = Query(default=30, ge=7, le=365), company_id: str = Depends(require_workspace)):
-    """S1 — Revenue KPIs for the selected period."""
+def revenue_summary(
+    period_days: int = Query(default=30, ge=7, le=365),
+    start: str | None = Query(default=None),
+    end: str | None = Query(default=None),
+    company_id: str = Depends(require_workspace),
+):
+    """S1 — Revenue KPIs for the selected period (latest-anchored, or explicit range)."""
     conn = _conn()
     try:
-        data = queries.get_revenue_summary(conn, company_id, period_days)
+        data = queries.get_revenue_summary(conn, company_id, period_days, start, end)
     finally:
         conn.close()
     return _envelope(data, report_id=29)
@@ -83,37 +88,242 @@ def revenue_trend(months: int = Query(default=6, ge=1, le=24), company_id: str =
     return _envelope(data, report_id=29)
 
 
+@router.get("/revenue/daily")
+def revenue_daily(
+    period_days: int = Query(default=90, ge=7, le=400),
+    start: str | None = Query(default=None),
+    end: str | None = Query(default=None),
+    company_id: str = Depends(require_workspace),
+):
+    """S2b — Daily revenue series (line chart data)."""
+    conn = _conn()
+    try:
+        data = queries.get_revenue_daily(conn, company_id, period_days, start, end)
+    finally:
+        conn.close()
+    return _envelope(data, report_id=29)
+
+
 @router.get("/revenue/concentration")
-def customer_concentration(period_days: int = Query(default=30, ge=7, le=365), company_id: str = Depends(require_workspace)):
+def customer_concentration(
+    period_days: int = Query(default=30, ge=7, le=365),
+    start: str | None = Query(default=None),
+    end: str | None = Query(default=None),
+    company_id: str = Depends(require_workspace),
+):
     """S3 — Customer revenue concentration (doughnut chart)."""
     conn = _conn()
     try:
-        data = queries.get_customer_concentration(conn, company_id, period_days)
+        data = queries.get_customer_concentration(conn, company_id, period_days, start, end)
     finally:
         conn.close()
     return _envelope(data, report_id=29)
 
 
 @router.get("/revenue/customers")
-def top_customers_revenue(period_days: int = Query(default=30, ge=7, le=365), company_id: str = Depends(require_workspace)):
+def top_customers_revenue(
+    period_days: int = Query(default=30, ge=7, le=365),
+    start: str | None = Query(default=None),
+    end: str | None = Query(default=None),
+    company_id: str = Depends(require_workspace),
+):
     """S4 — Top customers by revenue."""
     conn = _conn()
     try:
-        data = queries.get_top_customers_revenue(conn, company_id, period_days)
+        data = queries.get_top_customers_revenue(conn, company_id, period_days, start, end)
     finally:
         conn.close()
     return _envelope(data, report_id=29)
 
 
 @router.get("/revenue/skus")
-def top_skus_revenue(period_days: int = Query(default=30, ge=7, le=365), company_id: str = Depends(require_workspace)):
+def top_skus_revenue(
+    period_days: int = Query(default=30, ge=7, le=365),
+    start: str | None = Query(default=None),
+    end: str | None = Query(default=None),
+    company_id: str = Depends(require_workspace),
+):
     """S5 — Top SKUs by revenue."""
     conn = _conn()
     try:
-        data = queries.get_top_skus_revenue(conn, company_id, period_days)
+        data = queries.get_top_skus_revenue(conn, company_id, period_days, start, end)
     finally:
         conn.close()
     return _envelope(data, report_id=29)
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# ROW-LEVEL DETAIL LISTS (server-side search / date-filter / pagination)
+# ════════════════════════════════════════════════════════════════════════════
+
+@router.get("/sales/invoices")
+def sales_invoices_list(
+    start: str | None = Query(default=None),
+    end: str | None = Query(default=None),
+    search: str | None = Query(default=None),
+    page: int = Query(default=0, ge=0),
+    page_size: int = Query(default=25, ge=1, le=100),
+    sort: str = Query(default="invoice_date"),
+    direction: str = Query(default="desc"),
+    company_id: str = Depends(require_workspace),
+):
+    """Paginated, searchable, date-filterable sales invoice line items."""
+    conn = _conn()
+    try:
+        data = queries.get_sales_invoices_list(
+            conn, company_id,
+            start=start, end=end, search=search,
+            page=page, page_size=page_size, sort=sort, direction=direction,
+        )
+    finally:
+        conn.close()
+    return _envelope(data, report_id=29)
+
+
+@router.get("/ar/invoices")
+def ar_invoices_list(
+    search: str | None = Query(default=None),
+    bucket: str | None = Query(default=None),
+    overdue_only: bool = Query(default=False),
+    page: int = Query(default=0, ge=0),
+    page_size: int = Query(default=25, ge=1, le=100),
+    sort: str = Query(default="outstanding_amount"),
+    direction: str = Query(default="desc"),
+    company_id: str = Depends(require_workspace),
+):
+    """Paginated, searchable AR invoice line items with bucket / overdue filters."""
+    conn = _conn()
+    try:
+        data = queries.get_ar_invoices_list(
+            conn, company_id,
+            search=search, bucket=bucket, overdue_only=overdue_only,
+            page=page, page_size=page_size, sort=sort, direction=direction,
+        )
+    finally:
+        conn.close()
+    return _envelope(data, report_id=102)
+
+
+@router.get("/purchases/invoices")
+def purchase_invoices_list(
+    start: str | None = Query(default=None),
+    end: str | None = Query(default=None),
+    search: str | None = Query(default=None),
+    page: int = Query(default=0, ge=0),
+    page_size: int = Query(default=25, ge=1, le=100),
+    sort: str = Query(default="invoice_date"),
+    direction: str = Query(default="desc"),
+    company_id: str = Depends(require_workspace),
+):
+    """Paginated, searchable, date-filterable purchase invoice line items."""
+    conn = _conn()
+    try:
+        data = queries.get_purchase_invoices_list(
+            conn, company_id,
+            start=start, end=end, search=search,
+            page=page, page_size=page_size, sort=sort, direction=direction,
+        )
+    finally:
+        conn.close()
+    return _envelope(data, report_id=77)
+
+
+@router.get("/orders/list")
+def sales_orders_list(
+    start: str | None = Query(default=None),
+    end: str | None = Query(default=None),
+    search: str | None = Query(default=None),
+    status: str | None = Query(default=None),
+    page: int = Query(default=0, ge=0),
+    page_size: int = Query(default=25, ge=1, le=100),
+    sort: str = Query(default="order_date"),
+    direction: str = Query(default="desc"),
+    company_id: str = Depends(require_workspace),
+):
+    """Paginated, searchable sales-order line items with status filter."""
+    conn = _conn()
+    try:
+        data = queries.get_sales_orders_list(
+            conn, company_id,
+            start=start, end=end, search=search, status=status,
+            page=page, page_size=page_size, sort=sort, direction=direction,
+        )
+    finally:
+        conn.close()
+    return _envelope(data, report_id=2)
+
+
+@router.get("/purchases/po-list")
+def purchase_orders_list(
+    start: str | None = Query(default=None),
+    end: str | None = Query(default=None),
+    search: str | None = Query(default=None),
+    status: str | None = Query(default=None),
+    page: int = Query(default=0, ge=0),
+    page_size: int = Query(default=25, ge=1, le=100),
+    sort: str = Query(default="po_date"),
+    direction: str = Query(default="desc"),
+    company_id: str = Depends(require_workspace),
+):
+    """Paginated, searchable purchase-order line items with status filter."""
+    conn = _conn()
+    try:
+        data = queries.get_purchase_orders_list(
+            conn, company_id,
+            start=start, end=end, search=search, status=status,
+            page=page, page_size=page_size, sort=sort, direction=direction,
+        )
+    finally:
+        conn.close()
+    return _envelope(data, report_id=3)
+
+
+@router.get("/production/list")
+def production_list(
+    start: str | None = Query(default=None),
+    end: str | None = Query(default=None),
+    search: str | None = Query(default=None),
+    status: str | None = Query(default=None),
+    page: int = Query(default=0, ge=0),
+    page_size: int = Query(default=25, ge=1, le=100),
+    sort: str = Query(default="production_date"),
+    direction: str = Query(default="desc"),
+    company_id: str = Depends(require_workspace),
+):
+    """Paginated, searchable production process records with status filter."""
+    conn = _conn()
+    try:
+        data = queries.get_production_list(
+            conn, company_id,
+            start=start, end=end, search=search, status=status,
+            page=page, page_size=page_size, sort=sort, direction=direction,
+        )
+    finally:
+        conn.close()
+    return _envelope(data, report_id=25)
+
+
+@router.get("/inventory/list")
+def inventory_list(
+    search: str | None = Query(default=None),
+    category: str | None = Query(default=None),
+    page: int = Query(default=0, ge=0),
+    page_size: int = Query(default=25, ge=1, le=100),
+    sort: str = Query(default="total_value"),
+    direction: str = Query(default="desc"),
+    company_id: str = Depends(require_workspace),
+):
+    """Paginated, searchable inventory valuation rows with category filter."""
+    conn = _conn()
+    try:
+        data = queries.get_inventory_list(
+            conn, company_id,
+            search=search, category=category,
+            page=page, page_size=page_size, sort=sort, direction=direction,
+        )
+    finally:
+        conn.close()
+    return _envelope(data, report_id=9)
 
 
 @router.get("/inventory/summary")
