@@ -4,6 +4,7 @@ import { useState } from "react";
 import useSWR from "swr";
 import { History, Loader2, Download, CheckCircle } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
+import { apiFetch } from "@/lib/api";
 
 interface CoverageItem {
   key: string;
@@ -16,7 +17,7 @@ interface HistoryState {
 }
 
 async function fetcher(url: string): Promise<HistoryState> {
-  const res = await fetch(url, { credentials: "include" });
+  const res = await apiFetch(url, { credentials: "include" });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json();
 }
@@ -55,7 +56,7 @@ export function HistoryBackfill({ mode = "full" }: Props) {
     setPending(true);
     setNote("");
     try {
-      const res = await fetch("/api/connections/tranzact/history", {
+      const res = await apiFetch("/api/connections/tranzact/history", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",

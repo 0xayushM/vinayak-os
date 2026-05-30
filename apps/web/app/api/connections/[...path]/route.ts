@@ -20,6 +20,7 @@ async function proxy(request: NextRequest, segments: string[]) {
       headers: {
         "Content-Type":   "application/json",
         "X-Internal-Key": INTERNAL_KEY,
+        "X-Workspace-Id": request.headers.get("x-workspace-id") ?? "",
         Cookie: request.headers.get("cookie") ?? "",
       },
       body: body || undefined,

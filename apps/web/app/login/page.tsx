@@ -31,8 +31,9 @@ export default function LoginPage() {
         return;
       }
 
-      // httpOnly cookie is now set — redirect into the app
-      router.replace("/dashboard");
+      // httpOnly cookie is now set — go to the brand resolver, which lands on
+      // /w/{brand}/dashboard (or prompts to create the first brand).
+      router.replace("/");
     } catch {
       setError("Could not reach the server. Make sure the backend is running.");
     } finally {

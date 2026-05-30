@@ -22,9 +22,13 @@ import time
 from datetime import datetime, timezone
 from typing import Optional
 
+import psycopg2
 from fastapi import APIRouter, Cookie, HTTPException, Request, Response, status
+from passlib.context import CryptContext
 from pydantic import BaseModel
 from jose import JWTError, jwt
+
+from vinayak.config import DATABASE_URL
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +45,8 @@ JWT_TTL_SECS  = 60 * 60 * 8  # 8 hours
 INTERNAL_KEY = os.environ.get("INTERNAL_API_KEY", "")
 
 COOKIE_NAME = "vb_access_token"
+
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 
 # ── Schemas ───────────────────────────────────────────────────────────────────
@@ -103,26 +109,35 @@ def require_internal_key(request: Request) -> None:
 @router.post("/login", summary="Issue platform JWT as httpOnly cookie")
 def login(req: LoginRequest, response: Response):
     """
-    Phase 1: validate against a single env-var admin credential.
-    Phase 2: replace with DB user lookup + bcrypt verify.
+    Validates email + password against the users table (bcrypt hash).
+    Run `python -m vinayak.scripts.setup_db` to create the initial admin user.
     """
-    admin_email    = os.environ.get("ADMIN_EMAIL", "admin@vinayak.com")
-    admin_password = os.environ.get("ADMIN_PASSWORD", "")
-    company_id     = os.environ.get("DEFAULT_COMPANY_ID", "kbrushes")
+    conn = psycopg2.connect(DATABASE_URL)
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT password_hash, company_id FROM users WHERE LOWER(email) = LOWER(%s)",
+                (req.email,),
+            )
+            row = cur.fetchone()
+    finally:
+        conn.close()
 
-    if not admin_password:
-        logger.warning("ADMIN_PASSWORD not set — rejecting all logins")
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Auth not configured",
-        )
-
-    if req.email.lower() != admin_email.lower() or req.password != admin_password:
+    if not row or not row[0]:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid email or password",
         )
 
+    password_hash, company_id = row
+
+    if not pwd_context.verify(req.password, password_hash):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid email or password",
+        )
+
+    company_id = company_id or ""  # empty = global admin; workspace resolved from X-Workspace-Id header
     token = _issue_jwt(req.email, company_id)
 
     response.set_cookie(

@@ -36,26 +36,36 @@ from pydantic import BaseModel
 
 from vinayak.config import DATABASE_URL, TRANZACT_BASE_URL
 from vinayak.api.routes.auth import get_current_user, TokenPayload
+from vinayak.api.routes.workspaces import require_workspace
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
 # ── Full-sync orchestration (initial data pull after connecting) ──────────────
-# A single background worker runs all 10 pipelines once, in rate-limit-safe
-# order. State is process-local; the frontend polls /dashboard/sync/health to
-# render progress.
-_sync_lock = threading.Lock()
-_sync_state = {
-    "running": False,
-    "started_at": None,
-    "finished_at": None,
-    "error": None,
-    "total": 0,
-    "completed": 0,
-    "current": None,
-    "pipelines": [],   # [{"key", "label", "status", "rows", "error"}]
-}
+# Per-company sync state so brand A's sync never leaks into brand B's status.
+# Each company gets its own lock + state dict created on first use.
+_sync_states: dict[str, dict] = {}
+_sync_locks:  dict[str, threading.Lock] = {}
+_sync_meta_lock = threading.Lock()  # guards the dicts themselves
+
+
+def _company_sync(company_id: str) -> tuple[threading.Lock, dict]:
+    """Return (lock, state) for this company, creating them if needed."""
+    with _sync_meta_lock:
+        if company_id not in _sync_states:
+            _sync_locks[company_id] = threading.Lock()
+            _sync_states[company_id] = {
+                "running":     False,
+                "started_at":  None,
+                "finished_at": None,
+                "error":       None,
+                "total":       0,
+                "completed":   0,
+                "current":     None,
+                "pipelines":   [],
+            }
+        return _sync_locks[company_id], _sync_states[company_id]
 
 
 # Wall-clock cap per pipeline during the initial sync. A report either finishes
@@ -97,54 +107,38 @@ def _full_sync_plan():
     ]
 
 
-def _run_full_sync(email: str, password: str) -> None:
-    """Prime the token cache with the user's stored credentials, then run
-    every pipeline once.  For each pipeline the window is computed as:
-
-      • First ever run  → today minus the default days_back window
-      • Subsequent runs → last successful completed_at date (with 1-day
-                          overlap to catch late-arriving records), capped at
-                          the default window so we never regress too far back.
-
-    Per-pipeline failures are logged (recorded in tz_sync_runs by BasePipeline)
-    but never abort the whole run."""
-    global _sync_state
+def _run_full_sync(email: str, password: str, company_id: str) -> None:
+    """Run every pipeline once for this company.  State is scoped to
+    company_id so two brands can sync concurrently without clobbering."""
     import datetime as _dt
+    lock, state = _company_sync(company_id)
     plan = _full_sync_plan()
 
-    # Seed the per-pipeline checklist up front so the UI can render all rows.
-    with _sync_lock:
-        _sync_state["total"] = len(plan)
-        _sync_state["completed"] = 0
-        _sync_state["current"] = None
-        _sync_state["pipelines"] = [
+    with lock:
+        state["total"]     = len(plan)
+        state["completed"] = 0
+        state["current"]   = None
+        state["pipelines"] = [
             {"key": key, "label": label, "status": "pending", "rows": None, "error": None}
             for _, _, key, label in plan
         ]
 
     def _set(key, **fields):
-        with _sync_lock:
-            for p in _sync_state["pipelines"]:
+        with lock:
+            for p in state["pipelines"]:
                 if p["key"] == key:
                     p.update(fields)
                     break
 
     def _incremental_from(PipelineCls, days_back: int, today: date) -> date:
-        """Return the from_date for an incremental run.
-
-        Uses the last successful sync date (minus 1 day overlap) when available,
-        otherwise falls back to the full default window.
-        """
         default_from = today - timedelta(days=days_back)
         try:
             db = psycopg2.connect(DATABASE_URL)
             try:
-                last = PipelineCls.get_last_success_date(db)
+                last = PipelineCls.get_last_success_date(db, company_id)
             finally:
                 db.close()
             if last is not None:
-                # Re-fetch from 1 day before last success to cover edge cases,
-                # but never go further back than the default window.
                 incremental = max(last - timedelta(days=1), default_from)
                 logger.info(
                     "%s: incremental sync from %s (last success: %s)",
@@ -156,41 +150,37 @@ def _run_full_sync(email: str, password: str) -> None:
         return default_from
 
     try:
-        # Prime the in-memory token cache using the credentials the user just
-        # connected with, so the whole sync is driven by THEIR account.
-        from vinayak.adapters.tranzact.auth import get_access_token
-        get_access_token(
-            base_url=TRANZACT_BASE_URL,
-            email=email,
-            password=password,
-            force_refresh=True,
-        )
+        from vinayak.adapters.tranzact.client import TranzactCreds
+        creds = TranzactCreds(email=email, password=password, base_url=TRANZACT_BASE_URL)
         today = date.today()
         for PipelineCls, days_back, key, _label in plan:
-            with _sync_lock:
-                _sync_state["current"] = key
+            with lock:
+                state["current"] = key
             _set(key, status="running")
             try:
                 from_date = _incremental_from(PipelineCls, days_back, today)
                 rows = PipelineCls().run(
-                    from_date, today, max_seconds=PIPELINE_TIME_CAP_SECONDS
+                    from_date, today,
+                    company_id=company_id,
+                    max_seconds=PIPELINE_TIME_CAP_SECONDS,
+                    creds=creds,
                 )
                 _set(key, status="success", rows=rows)
             except Exception as exc:  # noqa: BLE001
                 logger.error("Full sync: %s failed: %s", PipelineCls.__name__, exc)
                 _set(key, status="failed", error=str(exc))
             finally:
-                with _sync_lock:
-                    _sync_state["completed"] += 1
+                with lock:
+                    state["completed"] += 1
     except Exception as exc:  # noqa: BLE001
-        logger.error("Full sync aborted: %s", exc)
-        with _sync_lock:
-            _sync_state["error"] = str(exc)
+        logger.error("Full sync aborted for %s: %s", company_id, exc)
+        with lock:
+            state["error"] = str(exc)
     finally:
-        with _sync_lock:
-            _sync_state["running"] = False
-            _sync_state["current"] = None
-            _sync_state["finished_at"] = _dt.datetime.now(_dt.timezone.utc).isoformat()
+        with lock:
+            state["running"]     = False
+            state["current"]     = None
+            state["finished_at"] = _dt.datetime.now(_dt.timezone.utc).isoformat()
 
 # ── Fernet encryption ─────────────────────────────────────────────────────────
 _fernet = None
@@ -257,7 +247,7 @@ class TranzActCredentials(BaseModel):
 
 # ── Routes ────────────────────────────────────────────────────────────────────
 @router.get("/", summary="List all tool connections for this company")
-def list_connections(user: TokenPayload = Depends(get_current_user)):
+def list_connections(company_id: str = Depends(require_workspace)):
     conn = _conn()
     try:
         with conn.cursor() as cur:
@@ -269,7 +259,7 @@ def list_connections(user: TokenPayload = Depends(get_current_user)):
                 WHERE company_id = %s
                 ORDER BY created_at
                 """,
-                (user.company_id,),
+                (company_id,),
             )
             rows = cur.fetchall()
     except Exception as exc:
@@ -295,7 +285,7 @@ def list_connections(user: TokenPayload = Depends(get_current_user)):
 @router.post("/tranzact", summary="Save TranzAct credentials (encrypted)")
 def save_tranzact(
     creds: TranzActCredentials,
-    user: TokenPayload = Depends(get_current_user),
+    company_id: str = Depends(require_workspace),
 ):
     """
     Encrypts email+password and upserts into tool_connections.
@@ -318,7 +308,7 @@ def save_tranzact(
                     is_active             = TRUE,
                     updated_at            = NOW()
                 """,
-                (user.company_id, encrypted),
+                (company_id, encrypted),
             )
         conn.commit()
     except Exception as exc:
@@ -328,12 +318,12 @@ def save_tranzact(
     finally:
         conn.close()
 
-    logger.info("Saved TranzAct credentials for company %s", user.company_id)
+    logger.info("Saved TranzAct credentials for company %s", company_id)
     return {"status": "ok", "tool_name": "tranzact", "message": "Credentials saved"}
 
 
 @router.post("/tranzact/test", summary="Test TranzAct auth with stored credentials")
-def test_tranzact(user: TokenPayload = Depends(get_current_user)):
+def test_tranzact(company_id: str = Depends(require_workspace)):
     """
     Decrypts stored credentials and attempts a TranzAct login.
     Returns ok=True if the bearer token was obtained successfully.
@@ -347,7 +337,7 @@ def test_tranzact(user: TokenPayload = Depends(get_current_user)):
                 SELECT encrypted_credentials FROM tool_connections
                 WHERE company_id = %s AND tool_name = 'tranzact' AND is_active = TRUE
                 """,
-                (user.company_id,),
+                (company_id,),
             )
             row = cur.fetchone()
     except Exception as exc:
@@ -380,7 +370,7 @@ def test_tranzact(user: TokenPayload = Depends(get_current_user)):
                     """UPDATE tool_connections
                        SET last_verified_at = NOW()
                        WHERE company_id = %s AND tool_name = 'tranzact'""",
-                    (user.company_id,),
+                    (company_id,),
                 )
             db.commit()
         finally:
@@ -394,7 +384,7 @@ def test_tranzact(user: TokenPayload = Depends(get_current_user)):
             "message": "Authentication successful",
         }
     except Exception as exc:
-        logger.warning("TranzAct test failed for %s: %s", user.company_id, exc)
+        logger.warning("TranzAct test failed for %s: %s", company_id, exc)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"TranzAct authentication failed: {exc}",
@@ -402,16 +392,16 @@ def test_tranzact(user: TokenPayload = Depends(get_current_user)):
 
 
 @router.post("/tranzact/sync", summary="Run the initial full data sync (all pipelines)")
-def trigger_full_sync(user: TokenPayload = Depends(get_current_user)):
+def trigger_full_sync(company_id: str = Depends(require_workspace)):
     """
     Kick off a one-time pull of all 10 TranzAct reports into the cache tables,
     using the stored (encrypted) credentials. Runs in a background thread and
     returns immediately — poll GET /dashboard/sync/health for progress.
     """
-    global _sync_state
-    with _sync_lock:
-        if _sync_state["running"]:
-            return {"status": "already_running", "started_at": _sync_state["started_at"]}
+    lock, state = _company_sync(company_id)
+    with lock:
+        if state["running"]:
+            return {"status": "already_running", "started_at": state["started_at"]}
 
     conn = _conn()
     try:
@@ -421,7 +411,7 @@ def trigger_full_sync(user: TokenPayload = Depends(get_current_user)):
                 SELECT encrypted_credentials FROM tool_connections
                 WHERE company_id = %s AND tool_name = 'tranzact' AND is_active = TRUE
                 """,
-                (user.company_id,),
+                (company_id,),
             )
             row = cur.fetchone()
     except Exception as exc:
@@ -439,8 +429,8 @@ def trigger_full_sync(user: TokenPayload = Depends(get_current_user)):
     creds = _decrypt(row[0])
 
     import datetime as _dt
-    with _sync_lock:
-        _sync_state.update(
+    with lock:
+        state.update(
             running=True,
             started_at=_dt.datetime.now(_dt.timezone.utc).isoformat(),
             finished_at=None,
@@ -449,26 +439,36 @@ def trigger_full_sync(user: TokenPayload = Depends(get_current_user)):
 
     threading.Thread(
         target=_run_full_sync,
-        args=(creds["email"], creds["password"]),
+        args=(creds["email"], creds["password"], company_id),
         daemon=True,
     ).start()
 
-    logger.info("Full sync started for company %s", user.company_id)
+    logger.info("Full sync started for company %s", company_id)
     return {"status": "started", "pipeline_count": 10}
 
 
 @router.get("/tranzact/sync", summary="Full-sync progress state")
-def full_sync_status(user: TokenPayload = Depends(get_current_user)):
-    with _sync_lock:
-        return dict(_sync_state)
+def full_sync_status(company_id: str = Depends(require_workspace)):
+    lock, state = _company_sync(company_id)
+    with lock:
+        return dict(state)
 
 
 # ── On-demand history backfill ───────────────────────────────────────────────
-# Lets a user reach further into the past than the initial 1-month window.
-# Runs the same backward-backfill step the nightly cron uses, in a background
-# thread. Process-local guard prevents overlapping backfills per process.
-_backfill_lock = threading.Lock()
-_backfill_running = False
+# Per-company backfill state (mirrors the per-company sync state above).
+_backfill_locks:   dict[str, threading.Lock] = {}
+_backfill_running: dict[str, bool] = {}
+_backfill_meta_lock = threading.Lock()
+
+
+def _company_backfill(company_id: str) -> tuple[threading.Lock, dict]:
+    """Return (lock, running_cell) — running_cell is a 1-element list so the
+    worker thread can mutate it by reference."""
+    with _backfill_meta_lock:
+        if company_id not in _backfill_locks:
+            _backfill_locks[company_id] = threading.Lock()
+            _backfill_running[company_id] = False
+        return _backfill_locks[company_id], _backfill_running
 
 
 class HistoryBackfillRequest(BaseModel):
@@ -479,7 +479,7 @@ class HistoryBackfillRequest(BaseModel):
 @router.post("/tranzact/history", summary="Pull older history (backward backfill)")
 def trigger_history_backfill(
     body: HistoryBackfillRequest | None = None,
-    user: TokenPayload = Depends(get_current_user),
+    company_id: str = Depends(require_workspace),
 ):
     """
     Walk each pipeline's history one (or more) months further into the past,
@@ -487,11 +487,11 @@ def trigger_history_backfill(
     runs in a background thread. Safe to call repeatedly — it advances the
     backfill watermark and stops once the floor is reached.
     """
-    global _backfill_running
     req = body or HistoryBackfillRequest()
+    bf_lock, bf_map = _company_backfill(company_id)
 
-    with _backfill_lock:
-        if _backfill_running:
+    with bf_lock:
+        if bf_map[company_id]:
             return {"status": "already_running"}
 
     # Load this company's stored credentials.
@@ -501,7 +501,7 @@ def trigger_history_backfill(
             cur.execute(
                 """SELECT encrypted_credentials FROM tool_connections
                     WHERE company_id = %s AND tool_name = 'tranzact' AND is_active = TRUE""",
-                (user.company_id,),
+                (company_id,),
             )
             row = cur.fetchone()
     except Exception as exc:
@@ -518,35 +518,35 @@ def trigger_history_backfill(
 
     creds = _decrypt(row[0])
 
-    def _worker(company_id: str, email: str, password: str, months: int, floor_months: int):
-        global _backfill_running
+    def _worker(cid: str, email: str, password: str, months: int, floor_months: int):
+        bl, bm = _company_backfill(cid)
         try:
             from vinayak.jobs.backfill import backfill_company
             summary = backfill_company(
-                company_id, email, password, months=months, floor_months=floor_months,
+                cid, email, password, months=months, floor_months=floor_months,
             )
-            logger.info("History backfill done for %s: %s", company_id, summary)
+            logger.info("History backfill done for %s: %s", cid, summary)
         except Exception as exc:  # noqa: BLE001
-            logger.error("History backfill failed for %s: %s", company_id, exc)
+            logger.error("History backfill failed for %s: %s", cid, exc)
         finally:
-            with _backfill_lock:
-                _backfill_running = False
+            with bl:
+                bm[cid] = False
 
-    with _backfill_lock:
-        _backfill_running = True
+    with bf_lock:
+        bf_map[company_id] = True
 
     threading.Thread(
         target=_worker,
-        args=(user.company_id, creds["email"], creds["password"], req.months, req.floor_months),
+        args=(company_id, creds["email"], creds["password"], req.months, req.floor_months),
         daemon=True,
     ).start()
 
-    logger.info("History backfill started for company %s (+%d months)", user.company_id, req.months)
+    logger.info("History backfill started for company %s (+%d months)", company_id, req.months)
     return {"status": "started", "months": req.months, "floor_months": req.floor_months}
 
 
 @router.get("/tranzact/history", summary="History backfill state + coverage")
-def history_backfill_status(user: TokenPayload = Depends(get_current_user)):
+def history_backfill_status(company_id: str = Depends(require_workspace)):
     """Report whether a backfill is running and how far back each pipeline goes."""
     from vinayak.api.routes.connections import _full_sync_plan  # self-import safe
 
@@ -555,7 +555,7 @@ def history_backfill_status(user: TokenPayload = Depends(get_current_user)):
     try:
         for PipelineCls, _d, key, label in _full_sync_plan():
             try:
-                oldest = PipelineCls.get_oldest_fetched_date(conn, user.company_id)
+                oldest = PipelineCls.get_oldest_fetched_date(conn, company_id)
             except Exception:
                 oldest = None
             coverage.append({
@@ -566,15 +566,16 @@ def history_backfill_status(user: TokenPayload = Depends(get_current_user)):
     finally:
         conn.close()
 
-    with _backfill_lock:
-        running = _backfill_running
+    bf_lock, bf_map = _company_backfill(company_id)
+    with bf_lock:
+        running = bf_map.get(company_id, False)
     return {"running": running, "coverage": coverage}
 
 
 @router.delete("/{tool_name}", summary="Remove a tool connection")
 def delete_connection(
     tool_name: str,
-    user: TokenPayload = Depends(get_current_user),
+    company_id: str = Depends(require_workspace),
 ):
     conn = _conn()
     try:
@@ -583,7 +584,7 @@ def delete_connection(
                 """UPDATE tool_connections
                    SET is_active = FALSE, updated_at = NOW()
                    WHERE company_id = %s AND tool_name = %s""",
-                (user.company_id, tool_name),
+                (company_id, tool_name),
             )
             deleted = cur.rowcount
         conn.commit()

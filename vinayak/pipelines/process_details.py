@@ -79,12 +79,13 @@ class ProcessDetailsPipeline(BasePipeline):
     def _get_filters(self, from_date: str, to_date: str) -> dict:
         return {"filters": {"from_date": from_date, "to_date": to_date}}
 
-    def _upsert(self, conn, rows: list[ProcessDetailsRow]) -> int:
+    def _upsert(self, conn, rows: list[ProcessDetailsRow], company_id: str) -> int:
         if not rows:
             return 0
 
         records = [
             (
+                company_id,
                 r.raw_id,
                 r.production_date,
                 r.work_order_number,
@@ -101,10 +102,10 @@ class ProcessDetailsPipeline(BasePipeline):
 
         sql = """
             INSERT INTO tz_process_details (
-                raw_id, production_date, work_order_number, sku_code, sku_name,
+                company_id, raw_id, production_date, work_order_number, sku_code, sku_name,
                 process_name, planned_qty, produced_qty, rejected_qty, status
             ) VALUES %s
-            ON CONFLICT (raw_id) DO UPDATE SET
+            ON CONFLICT (company_id, raw_id) DO UPDATE SET
                 production_date   = EXCLUDED.production_date,
                 work_order_number = EXCLUDED.work_order_number,
                 sku_code          = EXCLUDED.sku_code,

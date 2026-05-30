@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useState, useEffect } from "react";
 import { Plug, X } from "lucide-react";
+import { apiFetch, getWorkspace, workspacePath } from "@/lib/api";
 
 /**
  * Shown on the dashboard when no TranzAct connection exists yet.
@@ -12,7 +13,7 @@ export function NoConnectionBanner() {
   const [show, setShow] = useState(false);
 
   useEffect(() => {
-    fetch("/api/connections/", { credentials: "include" })
+    apiFetch("/api/connections/", { credentials: "include" })
       .then((r) => r.json())
       .then((d) => {
         const active = (d.connections ?? []).filter(
@@ -39,7 +40,7 @@ export function NoConnectionBanner() {
         </p>
       </div>
       <Link
-        href="/dashboard/settings"
+        href={workspacePath(getWorkspace(), "/dashboard/settings")}
         className="shrink-0 text-xs font-semibold bg-blue-600 hover:bg-blue-500 text-white px-3 py-1.5 rounded-lg transition-colors"
       >
         Connect now

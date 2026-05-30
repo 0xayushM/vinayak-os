@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Loader2 } from "lucide-react";
 import ConnectTranzact from "./ConnectTranzact";
+import { apiFetch } from "@/lib/api";
 
 interface Connection {
   tool_name: string;
@@ -24,7 +25,7 @@ export default function OnboardingGate({ children }: { children: React.ReactNode
 
   const check = useCallback(async () => {
     try {
-      const res = await fetch("/api/connections/", { credentials: "include" });
+      const res = await apiFetch("/api/connections/", { credentials: "include" });
       if (!res.ok) {
         setState("disconnected");
         return;

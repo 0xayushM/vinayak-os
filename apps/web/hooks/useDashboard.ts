@@ -8,10 +8,11 @@
  * The FastAPI URL is NEVER present in this file or in the browser network tab.
  */
 import useSWR, { SWRConfiguration } from "swr";
+import { apiFetch } from "@/lib/api";
 
 // ── SWR fetcher ───────────────────────────────────────────────────────────────
 async function fetcher<T>(url: string): Promise<T> {
-  const res = await fetch(url, { credentials: "include" });
+  const res = await apiFetch(url);
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }));
     throw new Error(err.detail ?? `HTTP ${res.status}`);

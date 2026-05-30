@@ -62,19 +62,14 @@ def backfill_company(
     """
     # Imported lazily to avoid importing the FastAPI app at module load.
     from vinayak.api.routes.connections import _full_sync_plan
-    from vinayak.adapters.tranzact.auth import get_access_token
+    from vinayak.adapters.tranzact.client import TranzactCreds
 
     today = date.today()
     floor_default = today - timedelta(days=floor_months * WINDOW_DAYS)
     step = timedelta(days=months * WINDOW_DAYS)
 
-    # Prime the in-memory token cache with THIS company's credentials.
-    get_access_token(
-        base_url=TRANZACT_BASE_URL,
-        email=email,
-        password=password,
-        force_refresh=True,
-    )
+    # Authenticate as — and tag data for — THIS company on every pipeline run.
+    creds = TranzactCreds(email=email, password=password, base_url=TRANZACT_BASE_URL)
 
     summary: dict[str, str] = {}
     conn = psycopg2.connect(DATABASE_URL)
@@ -96,7 +91,8 @@ def backfill_company(
             )
             try:
                 rows = PipelineCls().run(
-                    window_from, window_to, is_backfill=True, company_id=company_id
+                    window_from, window_to, is_backfill=True,
+                    company_id=company_id, creds=creds,
                 )
                 summary[key] = f"fetched {window_from}→{window_to} ({rows} rows)"
             except Exception as exc:  # noqa: BLE001

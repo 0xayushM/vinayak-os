@@ -9,6 +9,13 @@ Rules:
   • Phase 2 AI reads ONLY from these functions — never from raw SQL.
   • Adding a new function requires both builders to agree on the schema.
 
+Multi-tenant scoping:
+  Every public query takes `company_id` (the brand / workspace key) as its
+  first argument after `conn` and filters `WHERE company_id = %s`. Two brands
+  syncing into the same tables therefore never see each other's rows. The
+  company_id filter is always the FIRST predicate so the (company_id, …)
+  composite indexes added in migration 001 are used.
+
 Anti-context-rot guarantee:
   An AI model calling get_ar_summary() receives ~15 keys, not 5,000 rows.
   The pre-aggregation happens in SQL, not in Python, keeping it fast.
@@ -17,7 +24,7 @@ Usage:
     import psycopg2
     from vinayak.schema.queries import get_ar_summary
     conn = psycopg2.connect(DATABASE_URL)
-    data = get_ar_summary(conn)
+    data = get_ar_summary(conn, "protegere")
 """
 from __future__ import annotations
 
@@ -51,13 +58,13 @@ def _is_stale(last_sync: datetime | None) -> bool:
     return (_now_utc() - last_sync).total_seconds() > STALE_HOURS * 3600
 
 
-def _last_sync(conn, pipeline_name: str) -> datetime | None:
-    """Return the most recent successful sync timestamp for a pipeline."""
+def _last_sync(conn, pipeline_name: str, company_id: str) -> datetime | None:
+    """Return the most recent successful sync timestamp for a pipeline + brand."""
     with conn.cursor() as cur:
         cur.execute(
             """SELECT MAX(completed_at) FROM tz_sync_runs
-               WHERE pipeline_name = %s AND status = 'success'""",
-            (pipeline_name,),
+               WHERE company_id = %s AND pipeline_name = %s AND status = 'success'""",
+            (company_id, pipeline_name),
         )
         row = cur.fetchone()
     return row[0] if row else None
@@ -71,7 +78,7 @@ def _fmt(ts: datetime | None) -> str | None:
 # STRATEGIC PANELS (daily cache)
 # ════════════════════════════════════════════════════════════════════════════
 
-def get_revenue_summary(conn, period_days: int = 30) -> dict:
+def get_revenue_summary(conn, company_id: str, period_days: int = 30) -> dict:
     """
     S1 — Revenue KPIs.
     Returns: period_total, monthly_avg, ytd_total, invoice_count,
@@ -86,18 +93,19 @@ def get_revenue_summary(conn, period_days: int = 30) -> dict:
                 COUNT(DISTINCT customer_code)     AS customer_count,
                 COALESCE(SUM(invoice_total), 0) / NULLIF(%s / 30.0, 0) AS monthly_avg
             FROM tz_sales_invoices
-            WHERE invoice_date >= %s
-        """, (period_days, since))
+            WHERE company_id = %s AND invoice_date >= %s
+        """, (period_days, company_id, since))
         row = cur.fetchone()
 
         cur.execute("""
             SELECT COALESCE(SUM(invoice_total), 0)
             FROM tz_sales_invoices
-            WHERE EXTRACT(YEAR FROM invoice_date) = EXTRACT(YEAR FROM CURRENT_DATE)
-        """)
+            WHERE company_id = %s
+              AND EXTRACT(YEAR FROM invoice_date) = EXTRACT(YEAR FROM CURRENT_DATE)
+        """, (company_id,))
         ytd_row = cur.fetchone()
 
-    ls = _last_sync(conn, "sales_invoices")
+    ls = _last_sync(conn, "sales_invoices", company_id)
     return {
         "period_days":    period_days,
         "period_total":   float(row[0] or 0),
@@ -110,7 +118,7 @@ def get_revenue_summary(conn, period_days: int = 30) -> dict:
     }
 
 
-def get_revenue_trend(conn, months: int = 6) -> dict:
+def get_revenue_trend(conn, company_id: str, months: int = 6) -> dict:
     """
     S2 — Monthly revenue trend (bar chart data).
     Returns: months list [{month, revenue, invoice_count}]
@@ -122,12 +130,13 @@ def get_revenue_trend(conn, months: int = 6) -> dict:
                 COALESCE(SUM(invoice_total), 0)  AS revenue,
                 COUNT(DISTINCT invoice_number)   AS invoice_count
             FROM tz_sales_invoices
-            WHERE invoice_date >= (CURRENT_DATE - INTERVAL '%s months')
+            WHERE company_id = %s
+              AND invoice_date >= (CURRENT_DATE - INTERVAL '%s months')
             GROUP BY 1 ORDER BY 1
-        """, (months,))
+        """, (company_id, months))
         rows = cur.fetchall()
 
-    ls = _last_sync(conn, "sales_invoices")
+    ls = _last_sync(conn, "sales_invoices", company_id)
     return {
         "months": [
             {"month": r[0], "revenue": float(r[1]), "invoice_count": int(r[2])}
@@ -138,7 +147,7 @@ def get_revenue_trend(conn, months: int = 6) -> dict:
     }
 
 
-def get_customer_concentration(conn, period_days: int = 30) -> dict:
+def get_customer_concentration(conn, company_id: str, period_days: int = 30) -> dict:
     """
     S3 — Customer revenue concentration (doughnut chart).
     Returns top 5 customers + 'Others' slice.
@@ -148,17 +157,17 @@ def get_customer_concentration(conn, period_days: int = 30) -> dict:
         cur.execute("""
             SELECT customer_name, COALESCE(SUM(invoice_total), 0) AS revenue
             FROM tz_sales_invoices
-            WHERE invoice_date >= %s
+            WHERE company_id = %s AND invoice_date >= %s
             GROUP BY customer_name
             ORDER BY revenue DESC
             LIMIT 5
-        """, (since,))
+        """, (company_id, since))
         top5 = cur.fetchall()
 
         cur.execute("""
             SELECT COALESCE(SUM(invoice_total), 0)
-            FROM tz_sales_invoices WHERE invoice_date >= %s
-        """, (since,))
+            FROM tz_sales_invoices WHERE company_id = %s AND invoice_date >= %s
+        """, (company_id, since))
         total = float(cur.fetchone()[0] or 0)
 
     top5_total = sum(float(r[1]) for r in top5)
@@ -167,7 +176,7 @@ def get_customer_concentration(conn, period_days: int = 30) -> dict:
     if others > 0:
         slices.append({"name": "Others", "value": others})
 
-    ls = _last_sync(conn, "sales_invoices")
+    ls = _last_sync(conn, "sales_invoices", company_id)
     return {
         "total": total,
         "slices": slices,
@@ -176,7 +185,7 @@ def get_customer_concentration(conn, period_days: int = 30) -> dict:
     }
 
 
-def get_top_customers_revenue(conn, period_days: int = 30) -> dict:
+def get_top_customers_revenue(conn, company_id: str, period_days: int = 30) -> dict:
     """
     S4 — Top N customers by revenue.
     Returns: customers list [{customer_name, revenue, invoice_count, pct_of_total}]
@@ -186,7 +195,7 @@ def get_top_customers_revenue(conn, period_days: int = 30) -> dict:
         cur.execute(f"""
             WITH totals AS (
                 SELECT SUM(invoice_total) AS grand_total
-                FROM tz_sales_invoices WHERE invoice_date >= %s
+                FROM tz_sales_invoices WHERE company_id = %s AND invoice_date >= %s
             )
             SELECT
                 customer_name,
@@ -197,14 +206,14 @@ def get_top_customers_revenue(conn, period_days: int = 30) -> dict:
                     1
                 ) AS pct
             FROM tz_sales_invoices
-            WHERE invoice_date >= %s
+            WHERE company_id = %s AND invoice_date >= %s
             GROUP BY customer_name
             ORDER BY revenue DESC
             LIMIT {MAX_CUSTOMERS}
-        """, (since, since))
+        """, (company_id, since, company_id, since))
         rows = cur.fetchall()
 
-    ls = _last_sync(conn, "sales_invoices")
+    ls = _last_sync(conn, "sales_invoices", company_id)
     return {
         "period_days": period_days,
         "customers": [
@@ -217,7 +226,7 @@ def get_top_customers_revenue(conn, period_days: int = 30) -> dict:
     }
 
 
-def get_top_skus_revenue(conn, period_days: int = 30) -> dict:
+def get_top_skus_revenue(conn, company_id: str, period_days: int = 30) -> dict:
     """
     S5 — Top N SKUs by revenue.
     Returns: skus list [{sku_code, sku_name, revenue, quantity, invoice_count}]
@@ -232,14 +241,14 @@ def get_top_skus_revenue(conn, period_days: int = 30) -> dict:
                 COALESCE(SUM(quantity), 0)   AS quantity,
                 COUNT(DISTINCT invoice_number) AS invoice_count
             FROM tz_sales_invoices
-            WHERE invoice_date >= %s
+            WHERE company_id = %s AND invoice_date >= %s
             GROUP BY sku_code
             ORDER BY revenue DESC
             LIMIT {MAX_SKUS}
-        """, (since,))
+        """, (company_id, since))
         rows = cur.fetchall()
 
-    ls = _last_sync(conn, "sales_invoices")
+    ls = _last_sync(conn, "sales_invoices", company_id)
     return {
         "period_days": period_days,
         "skus": [
@@ -252,7 +261,7 @@ def get_top_skus_revenue(conn, period_days: int = 30) -> dict:
     }
 
 
-def get_inventory_summary(conn) -> dict:
+def get_inventory_summary(conn, company_id: str) -> dict:
     """
     S6 — Inventory KPIs.
     Returns: total_value, total_skus, negative_stock_count, warehouse_count
@@ -265,10 +274,11 @@ def get_inventory_summary(conn) -> dict:
                 COUNT(*) FILTER (WHERE quantity < 0) AS negative_stock_count,
                 COUNT(DISTINCT warehouse)     AS warehouse_count
             FROM tz_inventory_valuation
-        """)
+            WHERE company_id = %s
+        """, (company_id,))
         row = cur.fetchone()
 
-    ls = _last_sync(conn, "inventory_valuation")
+    ls = _last_sync(conn, "inventory_valuation", company_id)
     return {
         "total_value":          float(row[0] or 0),
         "total_skus":           int(row[1] or 0),
@@ -279,7 +289,7 @@ def get_inventory_summary(conn) -> dict:
     }
 
 
-def get_inventory_by_category(conn) -> dict:
+def get_inventory_by_category(conn, company_id: str) -> dict:
     """
     S7 — Stock value by product category.
     Returns: categories list [{category, total_value, sku_count}]
@@ -291,13 +301,14 @@ def get_inventory_by_category(conn) -> dict:
                 COALESCE(SUM(total_value), 0)        AS total_value,
                 COUNT(DISTINCT sku_code)             AS sku_count
             FROM tz_inventory_valuation
+            WHERE company_id = %s
             GROUP BY 1
             ORDER BY total_value DESC
             LIMIT {MAX_CATEGORIES}
-        """)
+        """, (company_id,))
         rows = cur.fetchall()
 
-    ls = _last_sync(conn, "inventory_valuation")
+    ls = _last_sync(conn, "inventory_valuation", company_id)
     return {
         "categories": [
             {"category": r[0], "total_value": float(r[1]), "sku_count": int(r[2])}
@@ -308,7 +319,7 @@ def get_inventory_by_category(conn) -> dict:
     }
 
 
-def get_top_stock_holdings(conn) -> dict:
+def get_top_stock_holdings(conn, company_id: str) -> dict:
     """
     S8 — Highest-value SKUs in stock (potential working-capital lock-up).
     Returns: skus list [{sku_code, sku_name, category, quantity, total_value}]
@@ -317,13 +328,13 @@ def get_top_stock_holdings(conn) -> dict:
         cur.execute(f"""
             SELECT sku_code, sku_name, category, quantity, total_value
             FROM tz_inventory_valuation
-            WHERE quantity > 0
+            WHERE company_id = %s AND quantity > 0
             ORDER BY total_value DESC
             LIMIT {MAX_SKUS}
-        """)
+        """, (company_id,))
         rows = cur.fetchall()
 
-    ls = _last_sync(conn, "inventory_valuation")
+    ls = _last_sync(conn, "inventory_valuation", company_id)
     return {
         "skus": [
             {"sku_code": r[0], "sku_name": r[1], "category": r[2],
@@ -335,7 +346,7 @@ def get_top_stock_holdings(conn) -> dict:
     }
 
 
-def get_purchases_summary(conn, period_days: int = 30) -> dict:
+def get_purchases_summary(conn, company_id: str, period_days: int = 30) -> dict:
     """
     S9 — Purchase KPIs.
     Returns: period_spend, vendor_count, invoice_count, overdue_po_count
@@ -348,18 +359,19 @@ def get_purchases_summary(conn, period_days: int = 30) -> dict:
                 COUNT(DISTINCT vendor_code)     AS vendor_count,
                 COUNT(DISTINCT invoice_number)  AS invoice_count
             FROM tz_purchase_invoices
-            WHERE invoice_date >= %s
-        """, (since,))
+            WHERE company_id = %s AND invoice_date >= %s
+        """, (company_id, since))
         row = cur.fetchone()
 
         cur.execute("""
             SELECT COUNT(*) FROM tz_purchase_orders
-            WHERE expected_date < CURRENT_DATE
-            AND status NOT IN ('received', 'cancelled')
-        """)
+            WHERE company_id = %s
+              AND expected_date < CURRENT_DATE
+              AND status NOT IN ('received', 'cancelled')
+        """, (company_id,))
         overdue_pos = cur.fetchone()[0]
 
-    ls = _last_sync(conn, "purchase_invoices")
+    ls = _last_sync(conn, "purchase_invoices", company_id)
     return {
         "period_days":    period_days,
         "period_spend":   float(row[0] or 0),
@@ -371,7 +383,7 @@ def get_purchases_summary(conn, period_days: int = 30) -> dict:
     }
 
 
-def get_top_vendors_spend(conn, period_days: int = 30) -> dict:
+def get_top_vendors_spend(conn, company_id: str, period_days: int = 30) -> dict:
     """
     S10 — Top N vendors by purchase spend.
     Returns: vendors list [{vendor_name, spend, invoice_count, pct_of_total}]
@@ -381,7 +393,7 @@ def get_top_vendors_spend(conn, period_days: int = 30) -> dict:
         cur.execute(f"""
             WITH totals AS (
                 SELECT SUM(invoice_total) AS grand_total
-                FROM tz_purchase_invoices WHERE invoice_date >= %s
+                FROM tz_purchase_invoices WHERE company_id = %s AND invoice_date >= %s
             )
             SELECT
                 vendor_name,
@@ -392,14 +404,14 @@ def get_top_vendors_spend(conn, period_days: int = 30) -> dict:
                     1
                 ) AS pct
             FROM tz_purchase_invoices
-            WHERE invoice_date >= %s
+            WHERE company_id = %s AND invoice_date >= %s
             GROUP BY vendor_name
             ORDER BY spend DESC
             LIMIT {MAX_VENDORS}
-        """, (since, since))
+        """, (company_id, since, company_id, since))
         rows = cur.fetchall()
 
-    ls = _last_sync(conn, "purchase_invoices")
+    ls = _last_sync(conn, "purchase_invoices", company_id)
     return {
         "period_days": period_days,
         "vendors": [
@@ -412,7 +424,7 @@ def get_top_vendors_spend(conn, period_days: int = 30) -> dict:
     }
 
 
-def get_production_summary(conn, period_days: int = 30) -> dict:
+def get_production_summary(conn, company_id: str, period_days: int = 30) -> dict:
     """
     S11 — Production KPIs.
     Returns: fg_produced, rejected, reject_rate_pct, wip_count, completed_count
@@ -426,15 +438,15 @@ def get_production_summary(conn, period_days: int = 30) -> dict:
                 COUNT(*) FILTER (WHERE status = 'wip')       AS wip_count,
                 COUNT(*) FILTER (WHERE status = 'completed') AS completed_count
             FROM tz_process_details
-            WHERE production_date >= %s
-        """, (since,))
+            WHERE company_id = %s AND production_date >= %s
+        """, (company_id, since))
         row = cur.fetchone()
 
     fg = float(row[0] or 0)
     rej = float(row[1] or 0)
     reject_rate = round(100.0 * rej / (fg + rej), 2) if (fg + rej) > 0 else 0.0
 
-    ls = _last_sync(conn, "process_details")
+    ls = _last_sync(conn, "process_details", company_id)
     return {
         "period_days":      period_days,
         "fg_produced":      fg,
@@ -447,7 +459,7 @@ def get_production_summary(conn, period_days: int = 30) -> dict:
     }
 
 
-def get_order_book_summary(conn) -> dict:
+def get_order_book_summary(conn, company_id: str) -> dict:
     """
     S12 — Sales order book KPIs.
     Returns: open_order_count, open_order_value, dispatched_pct, overdue_count
@@ -464,14 +476,15 @@ def get_order_book_summary(conn) -> dict:
                     AND status NOT IN ('dispatched', 'cancelled')
                 ) AS overdue_count
             FROM tz_sales_orders
-        """)
+            WHERE company_id = %s
+        """, (company_id,))
         row = cur.fetchone()
 
     total = int(row[3] or 0)
     dispatched = int(row[2] or 0)
     dispatched_pct = round(100.0 * dispatched / total, 1) if total > 0 else 0.0
 
-    ls = _last_sync(conn, "sales_orders")
+    ls = _last_sync(conn, "sales_orders", company_id)
     return {
         "open_order_count":  int(row[0] or 0),
         "open_order_value":  float(row[1] or 0),
@@ -486,7 +499,7 @@ def get_order_book_summary(conn) -> dict:
 # OPERATIONAL PANELS (hourly cache — Sandeep's morning alerts)
 # ════════════════════════════════════════════════════════════════════════════
 
-def get_ar_summary(conn) -> dict:
+def get_ar_summary(conn, company_id: str) -> dict:
     """
     O1 — AR aging buckets + overdue invoice list.
     Returns: aging_buckets, overdue_count, overdue_value, top_exposures
@@ -498,9 +511,10 @@ def get_ar_summary(conn) -> dict:
                 COUNT(*)                            AS count,
                 COALESCE(SUM(outstanding_amount), 0) AS value
             FROM tz_ar_aging
+            WHERE company_id = %s
             GROUP BY aging_bucket
             ORDER BY aging_bucket
-        """)
+        """, (company_id,))
         buckets = cur.fetchall()
 
         cur.execute("""
@@ -509,7 +523,8 @@ def get_ar_summary(conn) -> dict:
                 COALESCE(SUM(outstanding_amount) FILTER (WHERE days_overdue > 0), 0) AS overdue_value,
                 COALESCE(SUM(outstanding_amount), 0) AS total_outstanding
             FROM tz_ar_aging
-        """)
+            WHERE company_id = %s
+        """, (company_id,))
         summary = cur.fetchone()
 
         cur.execute(f"""
@@ -518,13 +533,14 @@ def get_ar_summary(conn) -> dict:
                 COALESCE(SUM(outstanding_amount), 0) AS outstanding,
                 MAX(days_overdue)                    AS oldest_days
             FROM tz_ar_aging
+            WHERE company_id = %s
             GROUP BY customer_name
             ORDER BY outstanding DESC
             LIMIT {MAX_CUSTOMERS}
-        """)
+        """, (company_id,))
         exposures = cur.fetchall()
 
-    ls = _last_sync(conn, "ar_aging")
+    ls = _last_sync(conn, "ar_aging", company_id)
     return {
         "aging_buckets": [
             {"bucket": r[0], "count": int(r[1]), "value": float(r[2])}
@@ -543,7 +559,7 @@ def get_ar_summary(conn) -> dict:
     }
 
 
-def get_ar_customer_exposure(conn) -> dict:
+def get_ar_customer_exposure(conn, company_id: str) -> dict:
     """
     O2 — AR exposure per customer with oldest invoice age.
     Returns: customers list [{customer_name, outstanding, invoice_count, oldest_days, overdue_value}]
@@ -557,13 +573,14 @@ def get_ar_customer_exposure(conn) -> dict:
                 MAX(days_overdue)                                                AS oldest_days,
                 COALESCE(SUM(outstanding_amount) FILTER (WHERE days_overdue > 0), 0) AS overdue_value
             FROM tz_ar_aging
+            WHERE company_id = %s
             GROUP BY customer_name
             ORDER BY outstanding DESC
             LIMIT {MAX_CUSTOMERS}
-        """)
+        """, (company_id,))
         rows = cur.fetchall()
 
-    ls = _last_sync(conn, "ar_aging")
+    ls = _last_sync(conn, "ar_aging", company_id)
     return {
         "customers": [
             {
@@ -580,7 +597,7 @@ def get_ar_customer_exposure(conn) -> dict:
     }
 
 
-def get_overdue_pos(conn) -> dict:
+def get_overdue_pos(conn, company_id: str) -> dict:
     """
     O3 — Overdue purchase orders (past expected date, not received).
     Returns: pos list [{po_number, vendor_name, item_name, pending_qty, po_value,
@@ -597,22 +614,24 @@ def get_overdue_pos(conn) -> dict:
                 expected_date,
                 (CURRENT_DATE - expected_date) AS days_overdue
             FROM tz_purchase_orders
-            WHERE expected_date < CURRENT_DATE
-            AND status NOT IN ('received', 'cancelled')
+            WHERE company_id = %s
+              AND expected_date < CURRENT_DATE
+              AND status NOT IN ('received', 'cancelled')
             ORDER BY days_overdue DESC
             LIMIT {MAX_INVOICES}
-        """)
+        """, (company_id,))
         rows = cur.fetchall()
 
         cur.execute("""
             SELECT COUNT(*), COALESCE(SUM(po_value), 0)
             FROM tz_purchase_orders
-            WHERE expected_date < CURRENT_DATE
-            AND status NOT IN ('received', 'cancelled')
-        """)
+            WHERE company_id = %s
+              AND expected_date < CURRENT_DATE
+              AND status NOT IN ('received', 'cancelled')
+        """, (company_id,))
         totals = cur.fetchone()
 
-    ls = _last_sync(conn, "purchase_orders")
+    ls = _last_sync(conn, "purchase_orders", company_id)
     return {
         "total_overdue_count": int(totals[0] or 0),
         "total_value_at_risk": float(totals[1] or 0),
@@ -633,7 +652,7 @@ def get_overdue_pos(conn) -> dict:
     }
 
 
-def get_production_wip(conn) -> dict:
+def get_production_wip(conn, company_id: str) -> dict:
     """
     O4 — WIP and production status breakdown.
     Returns: status_breakdown [{status, count, planned_qty, produced_qty}],
@@ -647,9 +666,10 @@ def get_production_wip(conn) -> dict:
                 COALESCE(SUM(planned_qty), 0)  AS planned_qty,
                 COALESCE(SUM(produced_qty), 0) AS produced_qty
             FROM tz_process_details
+            WHERE company_id = %s
             GROUP BY status
             ORDER BY count DESC
-        """)
+        """, (company_id,))
         breakdown = cur.fetchall()
 
         cur.execute(f"""
@@ -661,13 +681,13 @@ def get_production_wip(conn) -> dict:
                 produced_qty,
                 production_date
             FROM tz_process_details
-            WHERE status = 'wip'
+            WHERE company_id = %s AND status = 'wip'
             ORDER BY production_date DESC
             LIMIT {MAX_PROCESSES}
-        """)
+        """, (company_id,))
         wip = cur.fetchall()
 
-    ls = _last_sync(conn, "process_details")
+    ls = _last_sync(conn, "process_details", company_id)
     return {
         "status_breakdown": [
             {"status": r[0], "count": int(r[1]),
@@ -690,7 +710,7 @@ def get_production_wip(conn) -> dict:
     }
 
 
-def get_overdue_orders(conn) -> dict:
+def get_overdue_orders(conn, company_id: str) -> dict:
     """
     O5 — Overdue order confirmations (past delivery date, not dispatched).
     Returns: orders list [{order_number, customer_name, sku_name, pending_qty,
@@ -707,22 +727,24 @@ def get_overdue_orders(conn) -> dict:
                 delivery_date,
                 (CURRENT_DATE - delivery_date) AS days_overdue
             FROM tz_sales_orders
-            WHERE delivery_date < CURRENT_DATE
-            AND status NOT IN ('dispatched', 'cancelled')
+            WHERE company_id = %s
+              AND delivery_date < CURRENT_DATE
+              AND status NOT IN ('dispatched', 'cancelled')
             ORDER BY days_overdue DESC
             LIMIT {MAX_INVOICES}
-        """)
+        """, (company_id,))
         rows = cur.fetchall()
 
         cur.execute("""
             SELECT COUNT(*), COALESCE(SUM(order_value), 0)
             FROM tz_sales_orders
-            WHERE delivery_date < CURRENT_DATE
-            AND status NOT IN ('dispatched', 'cancelled')
-        """)
+            WHERE company_id = %s
+              AND delivery_date < CURRENT_DATE
+              AND status NOT IN ('dispatched', 'cancelled')
+        """, (company_id,))
         totals = cur.fetchone()
 
-    ls = _last_sync(conn, "sales_orders")
+    ls = _last_sync(conn, "sales_orders", company_id)
     return {
         "total_overdue_count": int(totals[0] or 0),
         "total_value":         float(totals[1] or 0),
@@ -747,9 +769,9 @@ def get_overdue_orders(conn) -> dict:
 # UTILITY
 # ════════════════════════════════════════════════════════════════════════════
 
-def get_sync_health(conn) -> dict:
+def get_sync_health(conn, company_id: str) -> dict:
     """
-    /dashboard/sync/health — freshness of all 10 pipelines.
+    /dashboard/sync/health — freshness of all 10 pipelines for this brand.
     Always reads live from tz_sync_runs (no caching).
     """
     with conn.cursor() as cur:
@@ -762,8 +784,9 @@ def get_sync_health(conn) -> dict:
                 rows_upserted,
                 error_message
             FROM tz_sync_runs
+            WHERE company_id = %s
             ORDER BY pipeline_name, completed_at DESC NULLS LAST
-        """)
+        """, (company_id,))
         rows = cur.fetchall()
 
     pipelines = []

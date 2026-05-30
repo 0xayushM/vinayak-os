@@ -92,12 +92,13 @@ class SalesInvoicesPipeline(BasePipeline):
     def _get_filters(self, from_date: str, to_date: str) -> dict:
         return {"filters": {"from_date": from_date, "to_date": to_date}}
 
-    def _upsert(self, conn, rows: list[SalesInvoiceRow]) -> int:
+    def _upsert(self, conn, rows: list[SalesInvoiceRow], company_id: str) -> int:
         if not rows:
             return 0
 
         records = [
             (
+                company_id,
                 r.raw_id,
                 r.invoice_date,
                 r.invoice_number,
@@ -120,11 +121,11 @@ class SalesInvoicesPipeline(BasePipeline):
 
         sql = """
             INSERT INTO tz_sales_invoices (
-                raw_id, invoice_date, invoice_number, customer_name, customer_code,
+                company_id, raw_id, invoice_date, invoice_number, customer_name, customer_code,
                 sku_code, sku_name, category, quantity, unit_price, line_total,
                 tax_amount, invoice_total, payment_status, due_date, salesperson
             ) VALUES %s
-            ON CONFLICT (raw_id) DO UPDATE SET
+            ON CONFLICT (company_id, raw_id) DO UPDATE SET
                 invoice_date    = EXCLUDED.invoice_date,
                 invoice_number  = EXCLUDED.invoice_number,
                 customer_name   = EXCLUDED.customer_name,

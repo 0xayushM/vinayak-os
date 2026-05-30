@@ -1,5 +1,6 @@
 "use client";
 
+import { use } from "react";
 import { PanelWrapper } from "@/components/dashboard/PanelWrapper";
 import {
   RevenueKpiPanel, RevenueTrendPanel, CustomerConcentrationPanel, TopSkusPanel,
@@ -10,7 +11,10 @@ import {
 // ════════════════════════════════════════════════════════════════════════════
 // Overview — strategic + operational panels at a glance
 // ════════════════════════════════════════════════════════════════════════════
-export default function DashboardOverview() {
+export default function DashboardOverview({ params }: { params: Promise<{ workspace: string }> }) {
+  const { workspace } = use(params);
+  const brandName = decodeURIComponent(workspace);
+
   return (
     <div className="p-4 sm:p-6 lg:p-8 space-y-8 max-w-[1600px] mx-auto w-full animate-rise">
       <div>
@@ -18,7 +22,7 @@ export default function DashboardOverview() {
           Business Overview
         </h1>
         <p className="text-[12.5px] text-zinc-500 mt-1">
-          KBrushes · Powered by TranzAct · Panels refresh automatically
+          {brandName} · Powered by TranzAct · Panels refresh automatically
         </p>
       </div>
 
