@@ -133,7 +133,14 @@ def _resolve_window(
     anchor = data_to or date.today()
 
     eff_end = _parse_date(end) or anchor
-    eff_start = _parse_date(start) or (eff_end - timedelta(days=period_days))
+    parsed_start = _parse_date(start)
+    if parsed_start is not None:
+        eff_start = parsed_start
+    else:
+        # Clamp the lookback so a very large period_days (used as a "whole
+        # dataset" sentinel) can't underflow below date.min and raise.
+        lookback = min(period_days, (eff_end - date.min).days)
+        eff_start = eff_end - timedelta(days=lookback)
     if eff_start > eff_end:
         eff_start, eff_end = eff_end, eff_start
 

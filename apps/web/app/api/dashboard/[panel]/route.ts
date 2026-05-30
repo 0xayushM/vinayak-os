@@ -320,7 +320,13 @@ export async function GET(
     const out = config.transform ? config.transform(body) : body;
     return NextResponse.json(out, {
       status: 200,
-      headers: { "Cache-Control": "private, max-age=300, stale-while-revalidate=60" },
+      headers: {
+        // Responses are workspace-scoped via the X-Workspace-Id header, which is
+        // NOT part of the URL. A shared/url-keyed cache would serve one brand's
+        // data for another, so we never store these responses.
+        "Cache-Control": "no-store",
+        Vary: "X-Workspace-Id, Cookie",
+      },
     });
   } catch (err) {
     console.error(`[BFF] /api/dashboard/${panel} upstream error:`, err);

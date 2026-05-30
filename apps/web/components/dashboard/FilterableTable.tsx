@@ -131,8 +131,11 @@ export function FilterableTable<T>({
             </tr>
           </thead>
           <tbody>
-            {rows.map((row) => (
-              <tr key={rowKey(row)} className="hover:bg-white/[0.02] transition-colors">
+            {rows.map((row, i) => (
+              // Suffix with the row index: data can legitimately contain
+              // duplicate line items (same invoice + SKU + total), so rowKey
+              // alone is not guaranteed unique.
+              <tr key={`${rowKey(row)}#${i}`} className="hover:bg-white/[0.02] transition-colors">
                 {columns.map((col) => (
                   <td
                     key={col.key}
