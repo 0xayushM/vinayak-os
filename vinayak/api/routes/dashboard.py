@@ -403,6 +403,39 @@ def order_book_summary(company_id: str = Depends(require_workspace)):
     return _envelope(data, report_id=2)
 
 
+@router.get("/quotes/summary")
+def quote_summary(period_days: int = Query(default=30, ge=7, le=365), company_id: str = Depends(require_workspace)):
+    """S13 — Sales quotation pipeline KPIs."""
+    conn = _conn()
+    try:
+        data = queries.get_quote_summary(conn, company_id, period_days)
+    finally:
+        conn.close()
+    return _envelope(data, report_id=8)
+
+
+@router.get("/grn/summary")
+def grn_summary(period_days: int = Query(default=30, ge=7, le=365), company_id: str = Depends(require_workspace)):
+    """S14 — Goods Received Note KPIs."""
+    conn = _conn()
+    try:
+        data = queries.get_grn_summary(conn, company_id, period_days)
+    finally:
+        conn.close()
+    return _envelope(data, report_id=34)
+
+
+@router.get("/bom/coverage")
+def bom_coverage(company_id: str = Depends(require_workspace)):
+    """S15 — BOM / routing coverage."""
+    conn = _conn()
+    try:
+        data = queries.get_bom_coverage(conn, company_id)
+    finally:
+        conn.close()
+    return _envelope(data, report_id=86)
+
+
 # ════════════════════════════════════════════════════════════════════════════
 # OPERATIONAL PANELS (hourly cache — Sandeep's morning alerts)
 # ════════════════════════════════════════════════════════════════════════════
@@ -435,6 +468,17 @@ def overdue_pos(company_id: str = Depends(require_workspace)):
     conn = _conn()
     try:
         data = queries.get_overdue_pos(conn, company_id)
+    finally:
+        conn.close()
+    return _envelope(data, report_id=3)
+
+
+@router.get("/purchases/open-pos")
+def open_pos(company_id: str = Depends(require_workspace)):
+    """O3b — Open PO book (open vs overdue distinct) + by-vendor breakdown."""
+    conn = _conn()
+    try:
+        data = queries.get_open_pos(conn, company_id)
     finally:
         conn.close()
     return _envelope(data, report_id=3)

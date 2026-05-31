@@ -11,20 +11,7 @@ const FASTAPI = process.env.FASTAPI_INTERNAL_URL ?? "http://localhost:8000";
 const API_KEY = process.env.INTERNAL_API_KEY ?? "";
 
 // ── Stub responses for panels with no FastAPI implementation yet ──────────────
-const STUBS: Record<string, unknown> = {
-  "quote-summary": {
-    data: { open_count: 0, open_value: 0, won_count: 0, won_value: 0, conversion_rate: 0 },
-    meta: { report_id: 0, last_synced_at: null, stale: false },
-  },
-  "bom-coverage": {
-    data: { total_items: 0, items_with_bom: 0, coverage_pct: 0, items_missing_bom: 0 },
-    meta: { report_id: 0, last_synced_at: null, stale: false },
-  },
-  "grn-summary": {
-    data: { received_count: 0, total_value: 0, pending_qir: 0, rejection_rate: 0 },
-    meta: { report_id: 0, last_synced_at: null, stale: false },
-  },
-};
+const STUBS: Record<string, unknown> = {};
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Body = Record<string, any>;
@@ -128,15 +115,14 @@ const ROUTES: Record<string, RouteConfig> = {
     paramMap: { days: "period_days" },
     transform: (body) => {
       const data: Body = body.data ?? {};
-      const spend: number = data.period_spend ?? 0;
-      const days: number = data.period_days ?? 30;
       return {
         ...body,
         data: {
-          period_total: spend,
+          period_total: data.period_spend ?? 0,
           invoice_count: data.invoice_count ?? 0,
           vendor_count: data.vendor_count ?? 0,
-          monthly_avg: days > 0 ? spend / (days / 30) : 0,
+          // True trailing-12-month average computed in SQL — NOT the 30-day total.
+          monthly_avg: data.monthly_avg ?? 0,
         },
       };
     },
@@ -145,6 +131,20 @@ const ROUTES: Record<string, RouteConfig> = {
   "top-vendors": {
     path: "/dashboard/purchases/vendors",
     paramMap: { days: "period_days" },
+  },
+
+  "quote-summary": {
+    path: "/dashboard/quotes/summary",
+    paramMap: { days: "period_days" },
+  },
+
+  "grn-summary": {
+    path: "/dashboard/grn/summary",
+    paramMap: { days: "period_days" },
+  },
+
+  "bom-coverage": {
+    path: "/dashboard/bom/coverage",
   },
 
   "ar-summary": {
@@ -184,29 +184,9 @@ const ROUTES: Record<string, RouteConfig> = {
   },
 
   "open-pos": {
-    path: "/dashboard/purchases/overdue-pos",
-    transform: (body) => {
-      const pos: Body[] = body.data?.pos ?? [];
-      const vendorMap = new Map<string, { vendor_name: string; count: number; value: number }>();
-      for (const po of pos) {
-        const name: string = po.vendor_name;
-        const entry = vendorMap.get(name) ?? { vendor_name: name, count: 0, value: 0 };
-        entry.count += 1;
-        entry.value += po.po_value ?? 0;
-        vendorMap.set(name, entry);
-      }
-      return {
-        ...body,
-        data: {
-          open_count: body.data?.total_overdue_count ?? 0,
-          open_value: body.data?.total_value_at_risk ?? 0,
-          overdue_count: body.data?.total_overdue_count ?? 0,
-          by_vendor: [...vendorMap.values()]
-            .sort((a, b) => b.value - a.value)
-            .slice(0, 5),
-        },
-      };
-    },
+    path: "/dashboard/purchases/open-pos",
+    // Backend already returns open vs overdue as distinct figures plus a
+    // by-vendor breakdown — pass through unchanged.
   },
 
   "inventory-summary": {

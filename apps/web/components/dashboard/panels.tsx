@@ -100,7 +100,7 @@ export function RevenueKpiPanel({ range }: { range?: DateRange } = {}) {
         <KpiCard label="Monthly Avg (12mo)" value={formatCurrency(d?.monthly_avg ?? 0, true)} accent="violet" />
         <KpiCard label={`YTD ${d?.ytd_year ?? ""}`} value={formatCurrency(d?.ytd_total ?? 0, true)} accent="amber" sub={`${formatNumber(d?.customer_count ?? 0)} customers`} />
       </div>
-      <CoverageNote from={d?.data_from} to={d?.data_to} />
+      <CoverageNote from={d?.window_from} to={d?.window_to} />
     </PanelWrapper>
   );
 }
@@ -134,7 +134,7 @@ export function RevenueDailyPanel({ range }: { range?: DateRange } = {}) {
           <Area type="monotone" dataKey="revenue" stroke={BLUE} strokeWidth={2} fill="url(#revFill)" />
         </AreaChart>
       </ResponsiveContainer>
-      <CoverageNote from={data?.data?.data_from} to={data?.data?.data_to} />
+      <CoverageNote from={data?.data?.window_from} to={data?.data?.window_to} />
     </PanelWrapper>
   );
 }
@@ -208,7 +208,7 @@ export function TopSkusPanel({ range }: { range?: DateRange } = {}) {
         ))}
         {skus.length === 0 && <p className="text-xs text-zinc-600 pt-3">No SKU sales in this period.</p>}
       </div>
-      <CoverageNote from={data?.data?.data_from} to={data?.data?.data_to} />
+      <CoverageNote from={data?.data?.window_from} to={data?.data?.window_to} />
     </PanelWrapper>
   );
 }
@@ -319,7 +319,7 @@ export function ArAgingPanel() {
   return (
     <PanelWrapper title="AR Aging" subtitle="Outstanding receivables" meta={data?.meta} loading={isLoading} error={error}>
       <div className="space-y-3 pt-1">
-        <div className="flex gap-4">
+        <div className="grid grid-cols-2 gap-4">
           <KpiCard label="Total Outstanding" value={formatCurrency(d?.total_outstanding ?? 0, true)} accent="blue" />
           <KpiCard label="Overdue" value={formatCurrency(d?.overdue_amount ?? 0, true)} accent="red" sub={`${((d?.overdue_pct ?? 0) * 100).toFixed(1)}% of total`} />
         </div>
@@ -448,7 +448,7 @@ export function OpenPosPanel() {
   return (
     <PanelWrapper title="Open Purchase Orders" subtitle="Live PO book" meta={data?.meta} loading={isLoading} error={error}>
       <div className="space-y-3 pt-1">
-        <div className="flex gap-4">
+        <div className="grid grid-cols-3 gap-4">
           <KpiCard label="Open POs" value={formatNumber(d?.open_count ?? 0)} accent="blue" />
           <KpiCard label="Open Value" value={formatCurrency(d?.open_value ?? 0, true)} accent="amber" />
           <KpiCard label="Overdue POs" value={formatNumber(d?.overdue_count ?? 0)} accent="red" />
@@ -621,7 +621,7 @@ export function SalesInvoicesTablePanel({ range }: { range?: DateRange } = {}) {
         searchPlaceholder="Search customer, invoice #, SKU…"
         emptyMessage="No invoices match these filters."
       />
-      <CoverageNote from={d?.data_from} to={d?.data_to} />
+      <CoverageNote from={d?.window_from} to={d?.window_to} />
     </PanelWrapper>
   );
 }
@@ -741,7 +741,7 @@ export function PurchaseInvoicesTablePanel({ range }: { range?: DateRange } = {}
         onSortChange={setSort} onPageChange={setPage}
         searchPlaceholder="Search vendor, invoice #, item…" emptyMessage="No purchase invoices match these filters."
       />
-      <CoverageNote from={d?.data_from} to={d?.data_to} />
+      <CoverageNote from={d?.window_from} to={d?.window_to} />
     </PanelWrapper>
   );
 }
@@ -779,7 +779,7 @@ export function SalesOrdersTablePanel({ range }: { range?: DateRange } = {}) {
         searchPlaceholder="Search customer, order #, SKU…" emptyMessage="No sales orders match these filters."
         toolbar={<StatusFilter value={status} options={["Open", "Partial", "Closed", "Cancelled"]} onChange={(v) => { setStatus(v); setPage(0); }} />}
       />
-      <CoverageNote from={d?.data_from} to={d?.data_to} />
+      <CoverageNote from={d?.window_from} to={d?.window_to} />
     </PanelWrapper>
   );
 }
@@ -817,7 +817,7 @@ export function PurchaseOrdersTablePanel({ range }: { range?: DateRange } = {}) 
         searchPlaceholder="Search vendor, PO #, item…" emptyMessage="No purchase orders match these filters."
         toolbar={<StatusFilter value={status} options={["Open", "Partial", "Closed", "Cancelled"]} onChange={(v) => { setStatus(v); setPage(0); }} />}
       />
-      <CoverageNote from={d?.data_from} to={d?.data_to} />
+      <CoverageNote from={d?.window_from} to={d?.window_to} />
     </PanelWrapper>
   );
 }
@@ -855,7 +855,7 @@ export function ProductionTablePanel({ range }: { range?: DateRange } = {}) {
         searchPlaceholder="Search work order, SKU, process…" emptyMessage="No production records match these filters."
         toolbar={<StatusFilter value={status} options={["Planned", "In Progress", "Completed", "On Hold"]} onChange={(v) => { setStatus(v); setPage(0); }} />}
       />
-      <CoverageNote from={d?.data_from} to={d?.data_to} />
+      <CoverageNote from={d?.window_from} to={d?.window_to} />
     </PanelWrapper>
   );
 }

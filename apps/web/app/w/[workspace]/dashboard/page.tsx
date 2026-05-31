@@ -1,12 +1,14 @@
 "use client";
 
-import { use } from "react";
+import { use, useState } from "react";
 import { PanelWrapper } from "@/components/dashboard/PanelWrapper";
+import { DateRangePicker, DateRange } from "@/components/dashboard/DateRangePicker";
 import {
   RevenueKpiPanel, RevenueTrendPanel, RevenueDailyPanel, CustomerConcentrationPanel, TopSkusPanel,
   QuotePipelinePanel, PurchaseSummaryPanel, BomCoveragePanel,
   ArAgingPanel, OpenOrdersPanel, OpenPosPanel, InventoryPanel, GrnPanel, ProductionPanel,
 } from "@/components/dashboard/panels";
+import { useRevenueSummary } from "@/hooks/useDashboard";
 
 // ════════════════════════════════════════════════════════════════════════════
 // Overview — strategic + operational panels at a glance
@@ -14,16 +16,32 @@ import {
 export default function DashboardOverview({ params }: { params: Promise<{ workspace: string }> }) {
   const { workspace } = use(params);
   const brandName = decodeURIComponent(workspace);
+  const [range, setRange] = useState<DateRange>({});
+
+  // Pull data coverage bounds to show in the date picker label
+  const { data: revData } = useRevenueSummary(
+    range.start || range.end ? { start: range.start, end: range.end } : { days: 30 }
+  );
+  const cov = revData?.data;
 
   return (
     <div className="p-4 sm:p-6 lg:p-8 space-y-8 max-w-[1600px] mx-auto w-full animate-rise">
-      <div>
-        <h1 className="text-xl sm:text-2xl font-semibold tracking-tight text-zinc-50">
-          Business Overview
-        </h1>
-        <p className="text-[12.5px] text-zinc-500 mt-1">
-          {brandName} · Powered by TranzAct · Panels refresh automatically
-        </p>
+      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+        <div>
+          <h1 className="text-xl sm:text-2xl font-semibold tracking-tight text-zinc-50">
+            Business Overview
+          </h1>
+          <p className="text-[12.5px] text-zinc-500 mt-1">
+            {brandName} · Powered by TranzAct · Panels refresh automatically
+          </p>
+        </div>
+        <DateRangePicker
+          value={range}
+          onChange={setRange}
+          dataFrom={cov?.data_from}
+          dataTo={cov?.data_to}
+          className="sm:pt-1 shrink-0"
+        />
       </div>
 
       {/* Strategic panels — daily cache */}
@@ -32,13 +50,13 @@ export default function DashboardOverview({ params }: { params: Promise<{ worksp
           Strategic — Daily Refresh
         </h2>
         <div className="mb-4">
-          <RevenueDailyPanel />
+          <RevenueDailyPanel range={range} />
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
-          <RevenueKpiPanel />
+          <RevenueKpiPanel range={range} />
           <RevenueTrendPanel />
-          <CustomerConcentrationPanel />
-          <TopSkusPanel />
+          <CustomerConcentrationPanel range={range} />
+          <TopSkusPanel range={range} />
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mt-4">
           <QuotePipelinePanel />
