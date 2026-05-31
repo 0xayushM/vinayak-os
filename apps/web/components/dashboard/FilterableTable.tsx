@@ -90,7 +90,7 @@ export function FilterableTable<T>({
             value={local}
             onChange={(e) => setLocal(e.target.value)}
             placeholder={searchPlaceholder}
-            className="w-full bg-[var(--bg-elevated)] text-[#DBC3AE]/90 text-xs rounded-lg pl-8 pr-3 py-2 border border-white/[0.08] focus:border-[#C08457] focus:outline-none placeholder-zinc-600"
+            className="w-full bg-[var(--bg-elevated)] text-[#F2DEC8]/90 text-xs rounded-lg pl-8 pr-3 py-2 border border-white/[0.08] focus:border-[#C08457] focus:outline-none placeholder-zinc-600"
           />
         </div>
         {toolbar}
@@ -111,7 +111,7 @@ export function FilterableTable<T>({
                     className={cn(
                       "sticky top-0 bg-[var(--bg-elevated)]/80 backdrop-blur-sm py-2.5 px-2 font-medium text-zinc-500 border-b border-white/[0.07] whitespace-nowrap",
                       alignClass(col.align),
-                      sortable && "cursor-pointer select-none hover:text-[#DBC3AE]/75 transition-colors",
+                      sortable && "cursor-pointer select-none hover:text-[#F2DEC8]/75 transition-colors",
                       col.className,
                     )}
                   >
@@ -140,7 +140,7 @@ export function FilterableTable<T>({
                   <td
                     key={col.key}
                     className={cn(
-                      "py-2.5 px-2 border-b border-white/[0.04] text-[#DBC3AE]/75",
+                      "py-2.5 px-2 border-b border-white/[0.04] text-[#F2DEC8]/75",
                       alignClass(col.align),
                       col.align === "right" && "tabular-nums",
                       col.className,

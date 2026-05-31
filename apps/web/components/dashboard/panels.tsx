@@ -59,7 +59,7 @@ function CoverageNote({ from, to }: { from?: string | null; to?: string | null }
 }
 
 // ── Chart palette (dark theme) ────────────────────────────────────────────────
-export const COLORS = ["#C08457", "#d4a070", "#a08070", "#DBC3AE", "#8a6050", "#e0c8b0"];
+export const COLORS = ["#C08457", "#d4a070", "#C4977A", "#F2DEC8", "#8a6050", "#e0c8b0"];
 const BLUE  = "#C08457";
 const GREEN = "#d4a070";
 const AMBER = "#C08457";
@@ -72,8 +72,8 @@ const tooltipStyle = {
     boxShadow: "0 12px 32px -16px rgba(0,0,0,0.8)",
     fontSize: 12,
   },
-  labelStyle: { color: "#a08070" },
-  itemStyle: { color: "#DBC3AE" },
+  labelStyle: { color: "#C4977A" },
+  itemStyle: { color: "#F2DEC8" },
 };
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -127,9 +127,9 @@ export function RevenueDailyPanel({ range }: { range?: DateRange } = {}) {
             </linearGradient>
           </defs>
           <CartesianGrid strokeDasharray="3 3" stroke="rgba(192,132,87,0.08)" vertical={false} />
-          <XAxis dataKey="date" tick={{ fill: "#a08070", fontSize: 9 }} axisLine={false} tickLine={false} minTickGap={32}
+          <XAxis dataKey="date" tick={{ fill: "#C4977A", fontSize: 9 }} axisLine={false} tickLine={false} minTickGap={32}
             tickFormatter={(v) => { const d = new Date(v + "T00:00:00"); return Number.isNaN(d.getTime()) ? v : d.toLocaleDateString("en-IN", { day: "2-digit", month: "short" }); }} />
-          <YAxis tick={{ fill: "#a08070", fontSize: 9 }} axisLine={false} tickLine={false} tickFormatter={(v) => formatCurrency(v, true)} />
+          <YAxis tick={{ fill: "#C4977A", fontSize: 9 }} axisLine={false} tickLine={false} tickFormatter={(v) => formatCurrency(v, true)} />
           <Tooltip {...tooltipStyle} formatter={fmt("Revenue")} labelFormatter={(l) => fmtDate(String(l))} />
           <Area type="monotone" dataKey="revenue" stroke={BLUE} strokeWidth={2} fill="url(#revFill)" />
         </AreaChart>
@@ -147,8 +147,8 @@ export function RevenueTrendPanel() {
       <ResponsiveContainer width="100%" height={180}>
         <BarChart data={months} margin={{ top: 4, right: 8, left: -20, bottom: 0 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="rgba(192,132,87,0.08)" vertical={false} />
-          <XAxis dataKey="month" tick={{ fill: "#a08070", fontSize: 10 }} axisLine={false} tickLine={false} />
-          <YAxis tick={{ fill: "#a08070", fontSize: 10 }} axisLine={false} tickLine={false} tickFormatter={(v) => formatCurrency(v, true)} />
+          <XAxis dataKey="month" tick={{ fill: "#C4977A", fontSize: 10 }} axisLine={false} tickLine={false} />
+          <YAxis tick={{ fill: "#C4977A", fontSize: 10 }} axisLine={false} tickLine={false} tickFormatter={(v) => formatCurrency(v, true)} />
           <Tooltip {...tooltipStyle} formatter={fmt("Revenue")} />
           <Bar dataKey="revenue" fill={BLUE} radius={[3, 3, 0, 0]} />
         </BarChart>
@@ -178,7 +178,7 @@ export function CustomerConcentrationPanel({ range }: { range?: DateRange } = {}
             <div key={s.name} className="flex items-center justify-between text-xs">
               <div className="flex items-center gap-1.5">
                 <span className="w-2 h-2 rounded-full shrink-0" style={{ background: COLORS[i % COLORS.length] }} />
-                <span className="text-[#DBC3AE]/75 truncate max-w-[100px]">{s.name}</span>
+                <span className="text-[#F2DEC8]/75 truncate max-w-[100px]">{s.name}</span>
               </div>
               <span className="text-zinc-500 tabular-nums">{s.pct.toFixed(1)}%</span>
             </div>
@@ -203,7 +203,7 @@ export function TopSkusPanel({ range }: { range?: DateRange } = {}) {
             <div className="flex-1 bg-white/[0.06] rounded-full h-1.5 overflow-hidden">
               <div className="h-full rounded-full bg-[#C08457]" style={{ width: `${(s.revenue / max) * 100}%` }} />
             </div>
-            <span className="text-[#DBC3AE]/75 tabular-nums w-16 text-right shrink-0">{formatCurrency(s.revenue, true)}</span>
+            <span className="text-[#F2DEC8]/75 tabular-nums w-16 text-right shrink-0">{formatCurrency(s.revenue, true)}</span>
           </div>
         ))}
         {skus.length === 0 && <p className="text-xs text-zinc-600 pt-3">No SKU sales in this period.</p>}
@@ -233,7 +233,7 @@ export function TopSkusTablePanel({ range }: { range?: DateRange } = {}) {
           { key: "qty_sold", header: "Qty sold", align: "right", sortValue: (s) => s.qty_sold,
             cell: (s) => formatNumber(s.qty_sold) },
           { key: "revenue", header: "Revenue", align: "right", sortValue: (s) => s.revenue,
-            cell: (s) => <span className="text-[#DBC3AE]/90">{formatCurrency(s.revenue, true)}</span> },
+            cell: (s) => <span className="text-[#F2DEC8]/90">{formatCurrency(s.revenue, true)}</span> },
         ]}
       />
     </PanelWrapper>
@@ -281,7 +281,7 @@ export function TopVendorsPanel() {
             <div className="flex-1 bg-white/[0.06] rounded-full h-1.5 overflow-hidden">
               <div className="h-full rounded-full bg-amber-500" style={{ width: `${(v.spend / max) * 100}%` }} />
             </div>
-            <span className="text-[#DBC3AE]/75 tabular-nums w-16 text-right shrink-0">{formatCurrency(v.spend, true)}</span>
+            <span className="text-[#F2DEC8]/75 tabular-nums w-16 text-right shrink-0">{formatCurrency(v.spend, true)}</span>
           </div>
         ))}
         {vendors.length === 0 && <p className="text-xs text-zinc-600 pt-3">No vendor spend in this period.</p>}
@@ -325,8 +325,8 @@ export function ArAgingPanel() {
         </div>
         <ResponsiveContainer width="100%" height={120}>
           <BarChart data={buckets} layout="vertical" margin={{ left: 0, right: 8, top: 0, bottom: 0 }}>
-            <XAxis type="number" tick={{ fill: "#a08070", fontSize: 9 }} axisLine={false} tickLine={false} tickFormatter={(v) => formatCurrency(v, true)} />
-            <YAxis type="category" dataKey="bucket" tick={{ fill: "#a08070", fontSize: 10 }} axisLine={false} tickLine={false} width={60} />
+            <XAxis type="number" tick={{ fill: "#C4977A", fontSize: 9 }} axisLine={false} tickLine={false} tickFormatter={(v) => formatCurrency(v, true)} />
+            <YAxis type="category" dataKey="bucket" tick={{ fill: "#C4977A", fontSize: 10 }} axisLine={false} tickLine={false} width={60} />
             <Tooltip {...tooltipStyle} formatter={fmt("Amount")} />
             <Bar dataKey="amount" fill={AMBER} radius={[0, 3, 3, 0]} />
           </BarChart>
@@ -355,8 +355,8 @@ export function ArBucketTablePanel() {
           <tbody>
             {buckets.map((b) => (
               <tr key={b.bucket} className="border-b border-white/[0.04] hover:bg-white/[0.02] transition-colors">
-                <td className="py-2 text-[#DBC3AE]/75">{b.bucket}</td>
-                <td className="py-2 text-right text-[#DBC3AE]/90 tabular-nums">{formatCurrency(b.amount, true)}</td>
+                <td className="py-2 text-[#F2DEC8]/75">{b.bucket}</td>
+                <td className="py-2 text-right text-[#F2DEC8]/90 tabular-nums">{formatCurrency(b.amount, true)}</td>
                 <td className="py-2 text-right text-zinc-400 tabular-nums">{formatNumber(b.invoice_count)}</td>
                 <td className="py-2 text-right text-zinc-400 tabular-nums">{Math.round(b.overdue_days_avg)}</td>
               </tr>
@@ -386,7 +386,7 @@ export function OpenOrdersPanel() {
               <span className="text-zinc-400">{s.status}</span>
               <div className="flex gap-3">
                 <span className="text-zinc-500">{s.count} orders</span>
-                <span className="text-[#DBC3AE]/75 tabular-nums">{formatCurrency(s.value, true)}</span>
+                <span className="text-[#F2DEC8]/75 tabular-nums">{formatCurrency(s.value, true)}</span>
               </div>
             </div>
           ))}
@@ -412,7 +412,7 @@ export function OpenOrdersTablePanel() {
           { key: "status", header: "Status", sortValue: (r) => r.status, cell: (r) => r.status },
           { key: "count", header: "Orders", align: "right", sortValue: (r) => r.count, cell: (r) => formatNumber(r.count) },
           { key: "value", header: "Value", align: "right", sortValue: (r) => r.value,
-            cell: (r) => <span className="text-[#DBC3AE]/90">{formatCurrency(r.value, true)}</span> },
+            cell: (r) => <span className="text-[#F2DEC8]/90">{formatCurrency(r.value, true)}</span> },
         ]}
       />
     </PanelWrapper>
@@ -435,7 +435,7 @@ export function OpenPosTablePanel() {
           { key: "vendor_name", header: "Vendor", sortValue: (r) => r.vendor_name ?? "",
             cell: (r) => <span className="block truncate max-w-[280px]">{r.vendor_name}</span> },
           { key: "value", header: "Open value", align: "right", sortValue: (r) => r.value,
-            cell: (r) => <span className="text-[#DBC3AE]/90">{formatCurrency(r.value, true)}</span> },
+            cell: (r) => <span className="text-[#F2DEC8]/90">{formatCurrency(r.value, true)}</span> },
         ]}
       />
     </PanelWrapper>
@@ -457,7 +457,7 @@ export function OpenPosPanel() {
           {(d?.by_vendor ?? []).slice(0, 5).map((v) => (
             <div key={v.vendor_name} className="flex justify-between text-xs">
               <span className="text-zinc-400 truncate max-w-[140px]">{v.vendor_name}</span>
-              <span className="text-[#DBC3AE]/75 tabular-nums">{formatCurrency(v.value, true)}</span>
+              <span className="text-[#F2DEC8]/75 tabular-nums">{formatCurrency(v.value, true)}</span>
             </div>
           ))}
         </div>
@@ -483,8 +483,8 @@ export function InventoryPanel() {
         {categories.length > 0 && (
           <ResponsiveContainer width="100%" height={90}>
             <BarChart data={categories.slice(0, 6)} margin={{ top: 0, right: 4, left: -20, bottom: 0 }}>
-              <XAxis dataKey="category" tick={{ fill: "#a08070", fontSize: 9 }} axisLine={false} tickLine={false} />
-              <YAxis tick={{ fill: "#a08070", fontSize: 9 }} axisLine={false} tickLine={false} tickFormatter={(v) => formatCurrency(v, true)} />
+              <XAxis dataKey="category" tick={{ fill: "#C4977A", fontSize: 9 }} axisLine={false} tickLine={false} />
+              <YAxis tick={{ fill: "#C4977A", fontSize: 9 }} axisLine={false} tickLine={false} tickFormatter={(v) => formatCurrency(v, true)} />
               <Tooltip {...tooltipStyle} formatter={fmt("Value")} />
               <Bar dataKey="value" fill={GREEN} radius={[3, 3, 0, 0]} />
             </BarChart>
@@ -513,8 +513,8 @@ export function InventoryCategoryTablePanel() {
           <tbody>
             {cats.map((c) => (
               <tr key={c.category} className="border-b border-white/[0.04] hover:bg-white/[0.02] transition-colors">
-                <td className="py-2 text-[#DBC3AE]/75">{c.category}</td>
-                <td className="py-2 text-right text-[#DBC3AE]/90 tabular-nums">{formatCurrency(c.value, true)}</td>
+                <td className="py-2 text-[#F2DEC8]/75">{c.category}</td>
+                <td className="py-2 text-right text-[#F2DEC8]/90 tabular-nums">{formatCurrency(c.value, true)}</td>
                 <td className="py-2 text-right text-zinc-400 tabular-nums">{formatNumber(c.sku_count)}</td>
               </tr>
             ))}
@@ -597,7 +597,7 @@ export function SalesInvoicesTablePanel({ range }: { range?: DateRange } = {}) {
     { key: "line_total", header: "Line total", align: "right", sortKey: "line_total",
       cell: (r) => formatCurrency(r.line_total, true) },
     { key: "invoice_total", header: "Invoice total", align: "right", sortKey: "invoice_total",
-      cell: (r) => <span className="text-[#DBC3AE]/90">{formatCurrency(r.invoice_total, true)}</span> },
+      cell: (r) => <span className="text-[#F2DEC8]/90">{formatCurrency(r.invoice_total, true)}</span> },
     { key: "payment_status", header: "Status", align: "center",
       cell: (r) => <StatusBadge status={r.payment_status} /> },
   ];
@@ -652,7 +652,7 @@ export function ArInvoicesTablePanel() {
     { key: "invoice_amount", header: "Amount", align: "right", sortKey: "invoice_amount",
       cell: (r) => formatCurrency(r.invoice_amount, true) },
     { key: "outstanding_amount", header: "Outstanding", align: "right", sortKey: "outstanding_amount",
-      cell: (r) => <span className="text-[#DBC3AE]/90">{formatCurrency(r.outstanding_amount, true)}</span> },
+      cell: (r) => <span className="text-[#F2DEC8]/90">{formatCurrency(r.outstanding_amount, true)}</span> },
     { key: "days_overdue", header: "Overdue", align: "right", sortKey: "days_overdue",
       cell: (r) => r.days_overdue == null ? "—" : <span className={r.days_overdue > 0 ? "text-amber-300" : "text-zinc-400"}>{r.days_overdue}d</span> },
     { key: "aging_bucket", header: "Bucket", align: "center",
@@ -683,7 +683,7 @@ export function ArInvoicesTablePanel() {
             className={`text-[11px] rounded-lg px-2.5 py-2 border transition-colors shrink-0 ${
               overdueOnly
                 ? "bg-amber-500/10 text-amber-300 border-amber-500/20"
-                : "text-zinc-400 border-white/[0.08] hover:text-[#DBC3AE]/90"
+                : "text-zinc-400 border-white/[0.08] hover:text-[#F2DEC8]/90"
             }`}
           >
             Overdue only
@@ -702,7 +702,7 @@ function StatusFilter({ value, options, onChange }: {
     <select
       value={value}
       onChange={(e) => onChange(e.target.value)}
-      className="bg-[var(--bg-elevated)] text-[#DBC3AE]/75 text-[11px] rounded-lg px-2 py-2 border border-white/[0.08] focus:border-[#C08457] focus:outline-none shrink-0 [color-scheme:dark]"
+      className="bg-[var(--bg-elevated)] text-[#F2DEC8]/75 text-[11px] rounded-lg px-2 py-2 border border-white/[0.08] focus:border-[#C08457] focus:outline-none shrink-0 [color-scheme:dark]"
     >
       <option value="">All statuses</option>
       {options.map((o) => <option key={o} value={o}>{o}</option>)}
@@ -728,7 +728,7 @@ export function PurchaseInvoicesTablePanel({ range }: { range?: DateRange } = {}
     { key: "item", header: "Item", cell: (r) => <span className="block truncate max-w-[160px]"><span className="font-mono text-zinc-500">{r.item_code}</span>{r.item_name ? ` · ${r.item_name}` : ""}</span> },
     { key: "quantity", header: "Qty", align: "right", sortKey: "quantity", cell: (r) => formatNumber(r.quantity) },
     { key: "line_total", header: "Line total", align: "right", sortKey: "line_total", cell: (r) => formatCurrency(r.line_total, true) },
-    { key: "invoice_total", header: "Invoice total", align: "right", sortKey: "invoice_total", cell: (r) => <span className="text-[#DBC3AE]/90">{formatCurrency(r.invoice_total, true)}</span> },
+    { key: "invoice_total", header: "Invoice total", align: "right", sortKey: "invoice_total", cell: (r) => <span className="text-[#F2DEC8]/90">{formatCurrency(r.invoice_total, true)}</span> },
   ];
   return (
     <PanelWrapper title="Purchase invoices — line items" subtitle="Search, sort and page through every purchase line" meta={data?.meta} error={error}>
@@ -763,7 +763,7 @@ export function SalesOrdersTablePanel({ range }: { range?: DateRange } = {}) {
     { key: "customer_name", header: "Customer", sortKey: "customer_name", cell: (r) => <span className="block truncate max-w-[160px]">{r.customer_name}</span> },
     { key: "sku", header: "SKU", cell: (r) => <span className="block truncate max-w-[150px]"><span className="font-mono text-zinc-500">{r.sku_code}</span>{r.sku_name ? ` · ${r.sku_name}` : ""}</span> },
     { key: "pending_qty", header: "Pending", align: "right", sortKey: "pending_qty", cell: (r) => formatNumber(r.pending_qty) },
-    { key: "order_value", header: "Value", align: "right", sortKey: "order_value", cell: (r) => <span className="text-[#DBC3AE]/90">{formatCurrency(r.order_value, true)}</span> },
+    { key: "order_value", header: "Value", align: "right", sortKey: "order_value", cell: (r) => <span className="text-[#F2DEC8]/90">{formatCurrency(r.order_value, true)}</span> },
     { key: "delivery_date", header: "Delivery", sortKey: "delivery_date", cell: (r) => <span className="text-zinc-400 whitespace-nowrap">{fmtDate(r.delivery_date)}</span> },
     { key: "status", header: "Status", align: "center", cell: (r) => <StatusBadge status={r.status} /> },
   ];
@@ -801,7 +801,7 @@ export function PurchaseOrdersTablePanel({ range }: { range?: DateRange } = {}) 
     { key: "vendor_name", header: "Vendor", sortKey: "vendor_name", cell: (r) => <span className="block truncate max-w-[160px]">{r.vendor_name}</span> },
     { key: "item", header: "Item", cell: (r) => <span className="block truncate max-w-[150px]"><span className="font-mono text-zinc-500">{r.item_code}</span>{r.item_name ? ` · ${r.item_name}` : ""}</span> },
     { key: "pending_qty", header: "Pending", align: "right", sortKey: "pending_qty", cell: (r) => formatNumber(r.pending_qty) },
-    { key: "po_value", header: "Value", align: "right", sortKey: "po_value", cell: (r) => <span className="text-[#DBC3AE]/90">{formatCurrency(r.po_value, true)}</span> },
+    { key: "po_value", header: "Value", align: "right", sortKey: "po_value", cell: (r) => <span className="text-[#F2DEC8]/90">{formatCurrency(r.po_value, true)}</span> },
     { key: "expected_date", header: "Expected", sortKey: "expected_date", cell: (r) => <span className="text-zinc-400 whitespace-nowrap">{fmtDate(r.expected_date)}</span> },
     { key: "status", header: "Status", align: "center", cell: (r) => <StatusBadge status={r.status} /> },
   ];
@@ -839,7 +839,7 @@ export function ProductionTablePanel({ range }: { range?: DateRange } = {}) {
     { key: "sku", header: "SKU", cell: (r) => <span className="block truncate max-w-[150px]"><span className="font-mono text-zinc-500">{r.sku_code}</span>{r.sku_name ? ` · ${r.sku_name}` : ""}</span> },
     { key: "process_name", header: "Process", cell: (r) => <span className="block truncate max-w-[130px]">{r.process_name}</span> },
     { key: "planned_qty", header: "Planned", align: "right", sortKey: "planned_qty", cell: (r) => formatNumber(r.planned_qty) },
-    { key: "produced_qty", header: "Produced", align: "right", sortKey: "produced_qty", cell: (r) => <span className="text-[#DBC3AE]/90">{formatNumber(r.produced_qty)}</span> },
+    { key: "produced_qty", header: "Produced", align: "right", sortKey: "produced_qty", cell: (r) => <span className="text-[#F2DEC8]/90">{formatNumber(r.produced_qty)}</span> },
     { key: "rejected_qty", header: "Rejected", align: "right", sortKey: "rejected_qty", cell: (r) => <span className={r.rejected_qty > 0 ? "text-amber-300" : "text-zinc-400"}>{formatNumber(r.rejected_qty)}</span> },
     { key: "status", header: "Status", align: "center", cell: (r) => <StatusBadge status={r.status} /> },
   ];
@@ -876,7 +876,7 @@ export function InventoryTablePanel() {
     { key: "warehouse", header: "Warehouse", cell: (r) => <span className="text-zinc-400 truncate max-w-[120px] block">{r.warehouse ?? "—"}</span> },
     { key: "quantity", header: "Qty", align: "right", sortKey: "quantity", cell: (r) => <span className={r.is_negative_stock ? "text-red-400" : ""}>{formatNumber(r.quantity)}</span> },
     { key: "unit_cost", header: "Unit cost", align: "right", sortKey: "unit_cost", cell: (r) => formatCurrency(r.unit_cost, true) },
-    { key: "total_value", header: "Value", align: "right", sortKey: "total_value", cell: (r) => <span className="text-[#DBC3AE]/90">{formatCurrency(r.total_value, true)}</span> },
+    { key: "total_value", header: "Value", align: "right", sortKey: "total_value", cell: (r) => <span className="text-[#F2DEC8]/90">{formatCurrency(r.total_value, true)}</span> },
   ];
   return (
     <PanelWrapper title="Inventory — valuation detail" subtitle="Every SKU, searchable and sortable" meta={data?.meta} error={error}>

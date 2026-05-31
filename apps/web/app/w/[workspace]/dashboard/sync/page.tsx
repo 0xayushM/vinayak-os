@@ -36,7 +36,7 @@ export default function SyncHealthPage() {
         </div>
         <button
           onClick={() => mutate()}
-          className="flex items-center gap-1.5 text-xs text-zinc-400 hover:text-[#DBC3AE]/90 transition-colors"
+          className="flex items-center gap-1.5 text-xs text-zinc-400 hover:text-[#F2DEC8]/90 transition-colors"
         >
           <RefreshCw className="w-3.5 h-3.5" />
           Refresh
@@ -102,7 +102,7 @@ export default function SyncHealthPage() {
                     run.status === "error" && "bg-red-500/5",
                   )}
                 >
-                  <td className="px-4 py-2.5 font-mono text-[#DBC3AE]/75">{run.pipeline_name}</td>
+                  <td className="px-4 py-2.5 font-mono text-[#F2DEC8]/75">{run.pipeline_name}</td>
                   <td className="px-4 py-2.5">
                     <div className="flex items-center gap-1.5">
                       <StatusIcon status={run.status} />

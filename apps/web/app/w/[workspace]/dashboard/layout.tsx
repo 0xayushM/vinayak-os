@@ -14,7 +14,7 @@ export default function DashboardLayout({
   children: React.ReactNode;
 }) {
   return (
-    <div className="flex h-screen overflow-hidden text-[#DBC3AE]">
+    <div className="flex h-screen overflow-hidden text-[#F2DEC8]">
       <Sidebar />
       <main className="flex-1 overflow-auto flex flex-col relative z-10 pt-12 lg:pt-0">
         <SyncProgressBanner />

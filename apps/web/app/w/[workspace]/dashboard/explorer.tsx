@@ -82,7 +82,7 @@ function Badge({ cadence }: { cadence: string }) {
   const hourly = cadence === "hourly";
   return (
     <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${
-      hourly ? "bg-[#C08457]/15 text-[#C08457]" : "bg-[#292929] text-zinc-400"
+      hourly ? "bg-[#C08457]/15 text-[#C08457]" : "bg-[#1e1e1e] text-zinc-400"
     }`}>
       {cadence}
     </span>
@@ -133,9 +133,9 @@ function RowsTable({ rows }: { rows: Record<string, unknown>[] }) {
       <table className="text-[11px] font-mono border-collapse min-w-full">
         <thead>
           <tr>
-            <th className="text-left px-3 py-1.5 text-zinc-600 font-semibold border-b border-[#292929] sticky top-0 bg-[#0E0E0E]">#</th>
+            <th className="text-left px-3 py-1.5 text-zinc-600 font-semibold border-b border-[#1e1e1e] sticky top-0 bg-[#080808]">#</th>
             {sorted.map(col => (
-              <th key={col} className="text-left px-3 py-1.5 text-zinc-500 font-semibold border-b border-[#292929] sticky top-0 bg-[#0E0E0E] whitespace-nowrap">
+              <th key={col} className="text-left px-3 py-1.5 text-zinc-500 font-semibold border-b border-[#1e1e1e] sticky top-0 bg-[#080808] whitespace-nowrap">
                 {col}
               </th>
             ))}
@@ -143,7 +143,7 @@ function RowsTable({ rows }: { rows: Record<string, unknown>[] }) {
         </thead>
         <tbody>
           {rows.map((row, i) => (
-            <tr key={i} className="hover:bg-[#1c1b1b] border-b border-[#292929]">
+            <tr key={i} className="hover:bg-[#141414] border-b border-[#1e1e1e]">
               <td className="px-3 py-1 text-zinc-700">{i + 1}</td>
               {sorted.map(col => {
                 const val = row[col];
@@ -151,7 +151,7 @@ function RowsTable({ rows }: { rows: Record<string, unknown>[] }) {
                   : val === "" ? <span className="text-zinc-800">—</span>
                   : typeof val === "number" ? <span className="text-amber-400">{val.toLocaleString()}</span>
                   : typeof val === "boolean" ? <span className="text-purple-400">{String(val)}</span>
-                  : <span className="text-[#DBC3AE]/75">{String(val).slice(0, 40)}</span>;
+                  : <span className="text-[#F2DEC8]/75">{String(val).slice(0, 40)}</span>;
                 return <td key={col} className="px-3 py-1 whitespace-nowrap">{display}</td>;
               })}
             </tr>
@@ -249,18 +249,18 @@ export default function DashboardPage() {
     <div className="flex h-screen overflow-hidden">
 
       {/* ── Sidebar ──────────────────────────────────────────────────────────── */}
-      <aside className="w-64 shrink-0 bg-[#1c1b1b] border-r border-[#292929] flex flex-col overflow-hidden">
-        <div className="px-4 py-4 border-b border-[#292929]">
+      <aside className="w-64 shrink-0 bg-[#141414] border-r border-[#1e1e1e] flex flex-col overflow-hidden">
+        <div className="px-4 py-4 border-b border-[#1e1e1e]">
           <div className="text-sm font-bold text-white">Brain OS</div>
           <div className="text-[11px] text-zinc-500 mt-0.5">KBrushes · TranzAct Explorer</div>
         </div>
 
         {/* Auth test */}
-        <div className="px-3 py-3 border-b border-[#292929]">
+        <div className="px-3 py-3 border-b border-[#1e1e1e]">
           <button
             onClick={testAuth}
             disabled={authLoading}
-            className="w-full text-xs font-medium px-3 py-2 rounded-md bg-[#292929] hover:bg-[#292929] text-[#DBC3AE]/75 hover:text-white transition-colors flex items-center justify-center gap-1.5 disabled:opacity-50"
+            className="w-full text-xs font-medium px-3 py-2 rounded-md bg-[#1e1e1e] hover:bg-[#1e1e1e] text-[#F2DEC8]/75 hover:text-white transition-colors flex items-center justify-center gap-1.5 disabled:opacity-50"
           >
             {authLoading ? <span className="animate-spin">↻</span> : "🔑"}
             {authLoading ? "Testing auth…" : "Test Authentication"}
@@ -268,7 +268,7 @@ export default function DashboardPage() {
           {authResult && (
             <div className={`mt-2 text-[10px] rounded p-2 font-mono ${
               authResult.ok
-                ? "bg-[#1c1b1b] text-[#d4a070] border border-[#C08457]/20"
+                ? "bg-[#141414] text-[#d4a070] border border-[#C08457]/20"
                 : "bg-red-950 text-red-400 border border-red-900"
             }`}>
               {authResult.ok ? (
@@ -303,11 +303,11 @@ export default function DashboardPage() {
               className={`w-full text-left px-3 py-2.5 flex flex-col gap-0.5 transition-colors ${
                 selectedReport === r.id
                   ? "bg-[#C08457]/15 border-r-2 border-[#C08457]"
-                  : "hover:bg-[#292929]"
+                  : "hover:bg-[#1e1e1e]"
               }`}
             >
               <div className="flex items-center justify-between">
-                <span className={`text-xs font-medium ${selectedReport === r.id ? "text-white" : "text-[#DBC3AE]/75"}`}>
+                <span className={`text-xs font-medium ${selectedReport === r.id ? "text-white" : "text-[#F2DEC8]/75"}`}>
                   {r.name}
                 </span>
                 <Badge cadence={r.cadence} />
@@ -319,7 +319,7 @@ export default function DashboardPage() {
           ))}
         </div>
 
-        <div className="px-3 py-2 border-t border-[#292929] text-[10px] text-zinc-600">
+        <div className="px-3 py-2 border-t border-[#1e1e1e] text-[10px] text-zinc-600">
           reporting.letstranzact.com/generate_report
         </div>
       </aside>
@@ -328,7 +328,7 @@ export default function DashboardPage() {
       <main className="flex-1 flex flex-col overflow-hidden">
 
         {/* Header */}
-        <header className="shrink-0 bg-[#1c1b1b] border-b border-[#292929] px-5 py-3 flex items-center justify-between gap-4">
+        <header className="shrink-0 bg-[#141414] border-b border-[#1e1e1e] px-5 py-3 flex items-center justify-between gap-4">
           <div>
             <h1 className="text-sm font-bold text-white">{currentReport.name}</h1>
             <div className="text-[11px] text-zinc-500">
@@ -345,12 +345,12 @@ export default function DashboardPage() {
               </span>
             )}
             {totalItems > 0 && (
-              <span className="text-[10px] px-2 py-0.5 rounded-full bg-[#292929] text-[#DBC3AE]/75 font-medium">
+              <span className="text-[10px] px-2 py-0.5 rounded-full bg-[#1e1e1e] text-[#F2DEC8]/75 font-medium">
                 {totalItems.toLocaleString()} total rows
               </span>
             )}
             {reportedAt && (
-              <span className="text-[10px] px-2 py-0.5 rounded-full bg-[#292929] text-zinc-500">
+              <span className="text-[10px] px-2 py-0.5 rounded-full bg-[#1e1e1e] text-zinc-500">
                 as of {reportedAt}
               </span>
             )}
@@ -358,7 +358,7 @@ export default function DashboardPage() {
         </header>
 
         {/* Controls */}
-        <div className="shrink-0 bg-[#1c1b1b]/50 border-b border-[#292929] px-5 py-3 flex items-end gap-3">
+        <div className="shrink-0 bg-[#141414]/50 border-b border-[#1e1e1e] px-5 py-3 flex items-end gap-3">
           <div className="flex-1">
             <label className="block text-[10px] font-semibold text-zinc-500 uppercase tracking-wider mb-1">
               Filters JSON (optional)
@@ -368,7 +368,7 @@ export default function DashboardPage() {
               onChange={e => setFilters(e.target.value)}
               rows={1}
               spellCheck={false}
-              className="w-full bg-[#292929] text-[#DBC3AE]/90 text-xs font-mono rounded-md px-3 py-2 border border-[#292929] focus:border-[#C08457] focus:outline-none resize-none"
+              className="w-full bg-[#1e1e1e] text-[#F2DEC8]/90 text-xs font-mono rounded-md px-3 py-2 border border-[#1e1e1e] focus:border-[#C08457] focus:outline-none resize-none"
             />
           </div>
           <button
@@ -404,7 +404,7 @@ export default function DashboardPage() {
             <div className="flex-1 flex flex-col overflow-hidden">
 
               {/* Tabs + pagination */}
-              <div className="shrink-0 flex items-center border-b border-[#292929] px-5 bg-[#1c1b1b]/50">
+              <div className="shrink-0 flex items-center border-b border-[#1e1e1e] px-5 bg-[#141414]/50">
                 {(["table", "json", "payload"] as const).map(tab => (
                   <button
                     key={tab}
@@ -412,7 +412,7 @@ export default function DashboardPage() {
                     className={`text-xs font-medium px-4 py-2.5 border-b-2 transition-colors ${
                       activeTab === tab
                         ? "border-[#C08457] text-white"
-                        : "border-transparent text-zinc-500 hover:text-[#DBC3AE]/75"
+                        : "border-transparent text-zinc-500 hover:text-[#F2DEC8]/75"
                     }`}
                   >
                     {tab === "table" ? `Table (${rows.length} rows)` : tab === "json" ? "Raw JSON" : "Payload"}
@@ -428,14 +428,14 @@ export default function DashboardPage() {
                     <button
                       disabled={page <= 1}
                       onClick={() => goToPage(page - 1)}
-                      className="text-[10px] px-2 py-0.5 rounded bg-[#292929] hover:bg-[#292929] text-zinc-400 disabled:opacity-30 disabled:cursor-not-allowed"
+                      className="text-[10px] px-2 py-0.5 rounded bg-[#1e1e1e] hover:bg-[#1e1e1e] text-zinc-400 disabled:opacity-30 disabled:cursor-not-allowed"
                     >
                       ← prev
                     </button>
                     <button
                       disabled={page >= totalPages}
                       onClick={() => goToPage(page + 1)}
-                      className="text-[10px] px-2 py-0.5 rounded bg-[#292929] hover:bg-[#292929] text-zinc-400 disabled:opacity-30 disabled:cursor-not-allowed"
+                      className="text-[10px] px-2 py-0.5 rounded bg-[#1e1e1e] hover:bg-[#1e1e1e] text-zinc-400 disabled:opacity-30 disabled:cursor-not-allowed"
                     >
                       next →
                     </button>
@@ -444,7 +444,7 @@ export default function DashboardPage() {
               </div>
 
               {/* Content */}
-              <div className="flex-1 overflow-auto p-5 bg-[#0E0E0E]">
+              <div className="flex-1 overflow-auto p-5 bg-[#080808]">
                 {result.error ? (
                   <div className="bg-red-950 border border-red-900 rounded-lg p-4">
                     <div className="text-xs font-bold text-red-400 mb-1">❌ {result.error}</div>

@@ -186,7 +186,7 @@ export default function NewWorkspaceForm({ onCancel }: Props) {
         {onCancel && step === "idle" && (
           <button
             onClick={onCancel}
-            className="flex items-center gap-1 text-xs text-zinc-500 hover:text-[#DBC3AE]/75 mb-3 transition-colors"
+            className="flex items-center gap-1 text-xs text-zinc-500 hover:text-[#F2DEC8]/75 mb-3 transition-colors"
           >
             <ArrowLeft className="w-3 h-3" /> Back
           </button>
@@ -196,7 +196,7 @@ export default function NewWorkspaceForm({ onCancel }: Props) {
             <Building2 className="w-5 h-5 text-[#C08457]" />
           </div>
           <div>
-            <h2 className="text-sm font-semibold text-[#DBC3AE]">
+            <h2 className="text-sm font-semibold text-[#F2DEC8]">
               Add a brand workspace
             </h2>
             <p className="text-xs text-zinc-500">
@@ -220,7 +220,7 @@ export default function NewWorkspaceForm({ onCancel }: Props) {
             placeholder="e.g. KBrushes"
             required
             disabled={busy || step === "done"}
-            className="w-full bg-[#292929]/60 text-[#DBC3AE]/90 text-sm rounded-lg px-3 py-2.5 border border-[#292929] focus:border-[#C08457] focus:outline-none placeholder-zinc-600 disabled:opacity-60"
+            className="w-full bg-[#1e1e1e]/60 text-[#F2DEC8]/90 text-sm rounded-lg px-3 py-2.5 border border-[#1e1e1e] focus:border-[#C08457] focus:outline-none placeholder-zinc-600 disabled:opacity-60"
           />
           {slug && (
             <p className="text-[11px] text-zinc-600">
@@ -231,7 +231,7 @@ export default function NewWorkspaceForm({ onCancel }: Props) {
         </div>
 
         {/* TranzAct credentials */}
-        <div className="rounded-xl border border-[#292929] bg-[#1c1b1b]/50 p-4 space-y-3">
+        <div className="rounded-xl border border-[#1e1e1e] bg-[#141414]/50 p-4 space-y-3">
           <div className="flex items-center gap-2 text-xs font-medium text-zinc-400">
             <Plug className="w-3.5 h-3.5 text-[#C08457]" />
             TranzAct credentials
@@ -245,7 +245,7 @@ export default function NewWorkspaceForm({ onCancel }: Props) {
               placeholder="you@company.com"
               required
               disabled={busy || step === "done"}
-              className="w-full bg-[#292929] text-[#DBC3AE]/90 text-sm rounded-lg px-3 py-2 border border-[#292929] focus:border-[#C08457] focus:outline-none placeholder-zinc-600 disabled:opacity-60"
+              className="w-full bg-[#1e1e1e] text-[#F2DEC8]/90 text-sm rounded-lg px-3 py-2 border border-[#1e1e1e] focus:border-[#C08457] focus:outline-none placeholder-zinc-600 disabled:opacity-60"
             />
           </div>
           <div>
@@ -257,7 +257,7 @@ export default function NewWorkspaceForm({ onCancel }: Props) {
               placeholder="••••••••"
               required
               disabled={busy || step === "done"}
-              className="w-full bg-[#292929] text-[#DBC3AE]/90 text-sm rounded-lg px-3 py-2 border border-[#292929] focus:border-[#C08457] focus:outline-none placeholder-zinc-600 disabled:opacity-60"
+              className="w-full bg-[#1e1e1e] text-[#F2DEC8]/90 text-sm rounded-lg px-3 py-2 border border-[#1e1e1e] focus:border-[#C08457] focus:outline-none placeholder-zinc-600 disabled:opacity-60"
             />
           </div>
         </div>
@@ -284,7 +284,7 @@ export default function NewWorkspaceForm({ onCancel }: Props) {
 
       {/* Status message */}
       {(busy || step === "done") && (
-        <div className="flex items-center gap-2 text-xs rounded-lg px-3 py-2.5 bg-[#292929] text-zinc-400">
+        <div className="flex items-center gap-2 text-xs rounded-lg px-3 py-2.5 bg-[#1e1e1e] text-zinc-400">
           {busy && <Loader2 className="w-3.5 h-3.5 shrink-0 animate-spin" />}
           {step === "done" && (
             <CheckCircle className="w-3.5 h-3.5 shrink-0 text-[#d4a070]" />
@@ -311,7 +311,7 @@ export default function NewWorkspaceForm({ onCancel }: Props) {
                 {sync.completed}/{sync.total}
               </span>
             </div>
-            <div className="h-1.5 w-full overflow-hidden rounded-full bg-[#292929]">
+            <div className="h-1.5 w-full overflow-hidden rounded-full bg-[#1e1e1e]">
               <div
                 className="h-full rounded-full bg-[#C08457] transition-all duration-500"
                 style={{
@@ -339,8 +339,8 @@ export default function NewWorkspaceForm({ onCancel }: Props) {
                 <span
                   className={cn(
                     "flex-1",
-                    p.status === "success" && "text-[#DBC3AE]/75",
-                    p.status === "running" && "text-[#DBC3AE]/90",
+                    p.status === "success" && "text-[#F2DEC8]/75",
+                    p.status === "running" && "text-[#F2DEC8]/90",
                     p.status === "failed" && "text-red-400",
                     p.status === "pending" && "text-zinc-600",
                   )}

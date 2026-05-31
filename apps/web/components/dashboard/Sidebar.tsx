@@ -105,10 +105,10 @@ function WorkspaceSwitcher({ ws, onNavigate }: { ws: string | null; onNavigate?:
       >
         <Image src="/logo.png" alt="Logo" width={28} height={28} className="rounded-lg shrink-0" />
         <div className="min-w-0 flex-1">
-          <div className="text-[13px] font-semibold tracking-tight text-[#DBC3AE] truncate archimoto">
+          <div className="text-[13px] font-semibold tracking-tight text-[#F2DEC8] truncate archimoto">
             {label}
           </div>
-          <div className="text-[10.5px] text-[#5a4a40] truncate">TranzAct</div>
+          <div className="text-[10.5px] text-[#7a6055] truncate">TranzAct</div>
         </div>
         <ChevronsUpDown className="w-3.5 h-3.5 text-zinc-500 shrink-0" />
       </button>
@@ -137,7 +137,7 @@ function WorkspaceSwitcher({ ws, onNavigate }: { ws: string | null; onNavigate?:
                     onClick={() => { setOpen(false); onNavigate?.(); }}
                     className={cn(
                       "flex items-center gap-2 flex-1 min-w-0 px-3 py-2 text-[12.5px] transition-colors",
-                      active ? "text-[#DBC3AE]" : "text-zinc-400 hover:text-[#DBC3AE]/90",
+                      active ? "text-[#F2DEC8]" : "text-zinc-400 hover:text-[#F2DEC8]/90",
                     )}
                   >
                     <span className="truncate flex-1">{w.name}</span>
@@ -151,7 +151,7 @@ function WorkspaceSwitcher({ ws, onNavigate }: { ws: string | null; onNavigate?:
                     target="_blank"
                     rel="noopener noreferrer"
                     title="Open in new tab"
-                    className="px-2.5 py-2 text-zinc-600 hover:text-[#DBC3AE]/75 opacity-0 group-hover:opacity-100 transition-opacity"
+                    className="px-2.5 py-2 text-zinc-600 hover:text-[#F2DEC8]/75 opacity-0 group-hover:opacity-100 transition-opacity"
                   >
                     <ExternalLink className="w-3.5 h-3.5" />
                   </a>
@@ -162,7 +162,7 @@ function WorkspaceSwitcher({ ws, onNavigate }: { ws: string | null; onNavigate?:
               <button
                 onClick={handleCreate}
                 disabled={creating}
-                className="flex items-center gap-2 w-full px-3 py-2 text-[12.5px] text-zinc-400 hover:text-[#DBC3AE]/90 transition-colors disabled:opacity-60"
+                className="flex items-center gap-2 w-full px-3 py-2 text-[12.5px] text-zinc-400 hover:text-[#F2DEC8]/90 transition-colors disabled:opacity-60"
               >
                 {creating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
                 Add brand
@@ -211,8 +211,8 @@ function RailContent({ onNavigate }: { onNavigate?: () => void }) {
                     className={cn(
                       "relative flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-[12.5px] transition-all duration-150",
                       active
-                        ? "bg-white/[0.06] text-[#DBC3AE]"
-                        : "text-zinc-400 hover:text-[#DBC3AE]/90 hover:bg-white/[0.03]",
+                        ? "bg-white/[0.06] text-[#F2DEC8]"
+                        : "text-zinc-400 hover:text-[#F2DEC8]/90 hover:bg-white/[0.03]",
                     )}
                   >
                     {active && (
@@ -233,7 +233,7 @@ function RailContent({ onNavigate }: { onNavigate?: () => void }) {
         <Link
           href={link("/dashboard/sync")}
           onClick={onNavigate}
-          className="flex items-center gap-2 text-[11px] text-zinc-500 hover:text-[#DBC3AE]/75 transition-colors"
+          className="flex items-center gap-2 text-[11px] text-zinc-500 hover:text-[#F2DEC8]/75 transition-colors"
         >
           <span
             className={cn(
@@ -258,7 +258,7 @@ function RailContent({ onNavigate }: { onNavigate?: () => void }) {
         <Link
           href={link("/dashboard/settings")}
           onClick={onNavigate}
-          className="flex items-center gap-2 text-[11px] text-zinc-500 hover:text-[#DBC3AE]/75 transition-colors"
+          className="flex items-center gap-2 text-[11px] text-zinc-500 hover:text-[#F2DEC8]/75 transition-colors"
         >
           <Settings className="w-3.5 h-3.5" />
           Settings & Connections
@@ -295,13 +295,13 @@ export function Sidebar() {
       <div className="lg:hidden fixed top-0 inset-x-0 z-30 h-12 flex items-center justify-between px-4 surface-rail border-b border-white/[0.05] backdrop-blur-md">
         <div className="flex items-center gap-2">
           <Image src="/logo.png" alt="Logo" width={24} height={24} className="rounded-md shrink-0" />
-          <span className="text-[13px] font-semibold tracking-tight text-[#DBC3AE] archimoto">
+          <span className="text-[13px] font-semibold tracking-tight text-[#F2DEC8] archimoto">
             Brain OS
           </span>
         </div>
         <button
           onClick={() => setOpen(true)}
-          className="p-1.5 rounded-md text-zinc-400 hover:text-[#DBC3AE] hover:bg-white/[0.05]"
+          className="p-1.5 rounded-md text-zinc-400 hover:text-[#F2DEC8] hover:bg-white/[0.05]"
           aria-label="Open menu"
         >
           <Menu className="w-5 h-5" />
@@ -318,7 +318,7 @@ export function Sidebar() {
           <div className="absolute left-0 top-0 bottom-0 w-72 max-w-[80%] bg-[var(--bg-elevated)] border-r border-white/[0.06] shadow-2xl">
             <button
               onClick={() => setOpen(false)}
-              className="absolute right-3 top-3 z-10 p-1.5 rounded-md text-zinc-400 hover:text-[#DBC3AE] hover:bg-white/[0.05]"
+              className="absolute right-3 top-3 z-10 p-1.5 rounded-md text-zinc-400 hover:text-[#F2DEC8] hover:bg-white/[0.05]"
               aria-label="Close menu"
             >
               <X className="w-4 h-4" />

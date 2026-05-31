@@ -90,7 +90,7 @@ export function DataTable<T>({
                     className={cn(
                       "sticky top-0 bg-[var(--bg-elevated)]/80 backdrop-blur-sm py-2.5 px-2 font-medium text-zinc-500 border-b border-white/[0.07] whitespace-nowrap",
                       alignClass(col.align),
-                      sortable && "cursor-pointer select-none hover:text-[#DBC3AE]/75 transition-colors",
+                      sortable && "cursor-pointer select-none hover:text-[#F2DEC8]/75 transition-colors",
                       col.className,
                     )}
                   >
@@ -127,7 +127,7 @@ export function DataTable<T>({
                   <td
                     key={col.key}
                     className={cn(
-                      "py-2.5 px-2 border-b border-white/[0.04] text-[#DBC3AE]/75",
+                      "py-2.5 px-2 border-b border-white/[0.04] text-[#F2DEC8]/75",
                       alignClass(col.align),
                       col.align === "right" && "tabular-nums",
                       col.className,

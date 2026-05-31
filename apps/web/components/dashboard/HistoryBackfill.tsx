@@ -76,13 +76,13 @@ export function HistoryBackfill({ mode = "full" }: Props) {
   const busy = running || pending;
 
   return (
-    <div className="bg-[#1c1b1b] border border-[#292929] rounded-xl p-5 space-y-4 max-w-xl">
+    <div className="bg-[#141414] border border-[#1e1e1e] rounded-xl p-5 space-y-4 max-w-xl">
       <div className="flex items-center gap-3">
         <div className="w-9 h-9 rounded-lg bg-[#C08457]/15 border border-[#C08457]/20 flex items-center justify-center">
           <History className="w-4 h-4 text-[#C08457]" />
         </div>
         <div>
-          <h3 className="text-sm font-semibold text-[#DBC3AE]">Historical data</h3>
+          <h3 className="text-sm font-semibold text-[#F2DEC8]">Historical data</h3>
           <p className="text-xs text-zinc-500">
             {since ? `Data available from ${fmtDate(since)}` : "No history fetched yet"}
           </p>

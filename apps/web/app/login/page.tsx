@@ -48,13 +48,13 @@ export default function LoginPage() {
           <div className="inline-flex items-center justify-center mb-6">
             <Image src="/logo.png" alt="Logo" width={72} height={72} className="rounded-2xl" />
           </div>
-          <p className="text-sm text-[#a08070]">Sign in to your dashboard</p>
+          <p className="text-sm text-[#C4977A]">Sign in to your dashboard</p>
         </div>
 
         {/* Form */}
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-xs font-medium text-[#a08070] mb-1.5">
+            <label className="block text-xs font-medium text-[#C4977A] mb-1.5">
               Email address
             </label>
             <input
@@ -64,12 +64,12 @@ export default function LoginPage() {
               placeholder="you@company.com"
               required
               autoFocus
-              className="w-full bg-[#1c1b1b] text-[#DBC3AE] text-sm rounded-xl px-4 py-3 border border-[#292929] focus:border-[#C08457] focus:outline-none placeholder-[#5a4a40] transition-colors"
+              className="w-full bg-[#141414] text-[#F2DEC8] text-sm rounded-xl px-4 py-3 border border-[#1e1e1e] focus:border-[#C08457] focus:outline-none placeholder-[#7a6055] transition-colors"
             />
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-[#a08070] mb-1.5">
+            <label className="block text-xs font-medium text-[#C4977A] mb-1.5">
               Password
             </label>
             <input
@@ -78,7 +78,7 @@ export default function LoginPage() {
               onChange={(e) => setPassword(e.target.value)}
               placeholder="••••••••"
               required
-              className="w-full bg-[#1c1b1b] text-[#DBC3AE] text-sm rounded-xl px-4 py-3 border border-[#292929] focus:border-[#C08457] focus:outline-none placeholder-[#5a4a40] transition-colors"
+              className="w-full bg-[#141414] text-[#F2DEC8] text-sm rounded-xl px-4 py-3 border border-[#1e1e1e] focus:border-[#C08457] focus:outline-none placeholder-[#7a6055] transition-colors"
             />
           </div>
 
@@ -92,7 +92,7 @@ export default function LoginPage() {
           <button
             type="submit"
             disabled={loading}
-            className="w-full flex items-center justify-center gap-2 bg-[#C08457] hover:bg-[#d4a070] text-[#0E0E0E] text-sm font-semibold py-3 rounded-xl transition-colors disabled:opacity-60 mt-2"
+            className="w-full flex items-center justify-center gap-2 bg-[#C08457] hover:bg-[#d4a070] text-[#080808] text-sm font-semibold py-3 rounded-xl transition-colors disabled:opacity-60 mt-2"
           >
             {loading ? (
               <>

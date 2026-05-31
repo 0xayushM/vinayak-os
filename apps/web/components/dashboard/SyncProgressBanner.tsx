@@ -71,7 +71,7 @@ export function SyncProgressBanner() {
 
   return (
     <div className={cn(
-      "border-b border-[#292929] bg-[#0E0E0E] transition-all",
+      "border-b border-[#1e1e1e] bg-[#080808] transition-all",
       finished ? "border-[#C08457]/15 bg-[#C08457]/5" : "",
     )}>
       {/* Compact bar */}
@@ -88,7 +88,7 @@ export function SyncProgressBanner() {
               : `Syncing TranzAct data… ${data.completed}/${data.total} reports`
             }
           </p>
-          <div className="h-1 w-full overflow-hidden rounded-full bg-[#292929]">
+          <div className="h-1 w-full overflow-hidden rounded-full bg-[#1e1e1e]">
             <div
               className={cn(
                 "h-full rounded-full transition-all duration-700",
@@ -101,7 +101,7 @@ export function SyncProgressBanner() {
 
         <button
           onClick={() => setExpanded((v) => !v)}
-          className="shrink-0 text-zinc-600 hover:text-[#DBC3AE]/75 transition-colors"
+          className="shrink-0 text-zinc-600 hover:text-[#F2DEC8]/75 transition-colors"
           title={expanded ? "Hide details" : "Show details"}
         >
           {expanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
@@ -121,7 +121,7 @@ export function SyncProgressBanner() {
                 <span className={cn(
                   "truncate",
                   p.status === "success" ? "text-zinc-400"
-                  : p.status === "running" ? "text-[#DBC3AE]/90"
+                  : p.status === "running" ? "text-[#F2DEC8]/90"
                   : p.status === "failed"  ? "text-red-400"
                   : "text-zinc-700",
                 )}>
