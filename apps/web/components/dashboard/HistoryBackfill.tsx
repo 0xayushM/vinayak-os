@@ -76,19 +76,19 @@ export function HistoryBackfill({ mode = "full" }: Props) {
   const busy = running || pending;
 
   return (
-    <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-5 space-y-4 max-w-xl">
+    <div className="bg-[#141414] border border-[#1e1e1e] rounded-xl p-5 space-y-4 max-w-xl">
       <div className="flex items-center gap-3">
-        <div className="w-9 h-9 rounded-lg bg-violet-600/20 border border-violet-500/20 flex items-center justify-center">
-          <History className="w-4 h-4 text-violet-400" />
+        <div className="w-9 h-9 rounded-lg bg-[#C08457]/15 border border-[#C08457]/20 flex items-center justify-center">
+          <History className="w-4 h-4 text-[#C08457]" />
         </div>
         <div>
-          <h3 className="text-sm font-semibold text-zinc-100">Historical data</h3>
+          <h3 className="text-sm font-semibold text-[#F2DEC8]">Historical data</h3>
           <p className="text-xs text-zinc-500">
             {since ? `Data available from ${fmtDate(since)}` : "No history fetched yet"}
           </p>
         </div>
         {running && (
-          <span className="ml-auto flex items-center gap-1.5 text-[11px] text-violet-400">
+          <span className="ml-auto flex items-center gap-1.5 text-[11px] text-[#C08457]">
             <Loader2 className="w-3 h-3 animate-spin" /> Backfilling…
           </span>
         )}
@@ -100,7 +100,7 @@ export function HistoryBackfill({ mode = "full" }: Props) {
           <li key={c.key} className="flex items-center justify-between text-xs">
             <span className="text-zinc-400">{c.label}</span>
             <span className="tabular-nums text-zinc-500 flex items-center gap-1.5">
-              {c.oldest_fetched_date && <CheckCircle className="w-3 h-3 text-emerald-500/70" />}
+              {c.oldest_fetched_date && <CheckCircle className="w-3 h-3 text-[#C08457]/70" />}
               {fmtDate(c.oldest_fetched_date)}
             </span>
           </li>
@@ -117,7 +117,7 @@ export function HistoryBackfill({ mode = "full" }: Props) {
             disabled={busy}
             className={cn(
               "w-full flex items-center justify-center gap-1.5 px-4 py-2 text-sm font-semibold rounded-lg transition-colors",
-              "bg-violet-600 hover:bg-violet-500 text-white disabled:opacity-50",
+              "bg-[#C08457] hover:bg-[#d4a070] text-white disabled:opacity-50",
             )}
           >
             {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}

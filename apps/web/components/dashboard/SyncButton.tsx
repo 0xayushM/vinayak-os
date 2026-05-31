@@ -75,7 +75,7 @@ export function SyncButton({ className }: { className?: string }) {
       title="Sync to the latest data"
       className={cn(
         "flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full font-medium transition-colors",
-        "bg-indigo-500/10 text-indigo-300 border border-indigo-500/20 hover:bg-indigo-500/20 disabled:opacity-70 disabled:cursor-default",
+        "bg-[#C08457]/15 text-[#C08457] border border-[#C08457]/30 hover:bg-[#C08457]/15 disabled:opacity-70 disabled:cursor-default",
         className,
       )}
     >

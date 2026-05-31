@@ -26,7 +26,7 @@ function pretty(iso?: string | null): string {
 }
 
 const inputCls =
-  "bg-[var(--bg-elevated)] text-zinc-200 text-xs rounded-lg px-2.5 py-1.5 border border-white/[0.08] focus:border-indigo-500 focus:outline-none [color-scheme:dark]";
+  "bg-[var(--bg-elevated)] text-[#F2DEC8]/90 text-xs rounded-lg px-2.5 py-1.5 border border-white/[0.08] focus:border-[#C08457] focus:outline-none [color-scheme:dark]";
 
 export function DateRangePicker({
   value,
@@ -61,7 +61,7 @@ export function DateRangePicker({
         {active && (
           <button
             onClick={() => onChange({})}
-            className="flex items-center gap-1 text-[11px] text-zinc-500 hover:text-zinc-300 border border-white/[0.08] rounded-lg px-2 py-1.5 transition-colors"
+            className="flex items-center gap-1 text-[11px] text-zinc-500 hover:text-[#F2DEC8]/75 border border-white/[0.08] rounded-lg px-2 py-1.5 transition-colors"
             title="Clear range — show latest available data"
           >
             <X className="w-3 h-3" /> Latest

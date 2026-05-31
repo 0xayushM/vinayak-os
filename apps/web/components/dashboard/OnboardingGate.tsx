@@ -56,7 +56,7 @@ export default function OnboardingGate({ children }: { children: React.ReactNode
     return (
       <div className="flex flex-col items-center justify-center min-h-[70vh] px-6 gap-6">
         <div className="text-center">
-          <h1 className="text-lg font-semibold text-zinc-100">Welcome to Vinayak Brain OS</h1>
+          <h1 className="text-lg font-semibold text-zinc-100">Welcome to Brain OS</h1>
           <p className="text-sm text-zinc-500 mt-1">
             Connect TranzAct to bring your business data into the dashboard.
           </p>

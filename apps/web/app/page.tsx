@@ -74,14 +74,11 @@ export default function Home() {
 
   if (view === "create") {
     return (
-      <div className="min-h-screen flex items-center justify-center px-4 py-12 bg-zinc-950">
+      <div className="min-h-screen flex items-center justify-center px-4 py-12 bg-[#080808]">
         <div className="w-full max-w-md space-y-8">
           {/* Page title */}
           <div className="text-center space-y-1">
-            <p className="text-xs font-semibold uppercase tracking-widest text-indigo-400">
-              Vinayak Brain OS
-            </p>
-            <h1 className="text-xl font-bold text-zinc-100">
+            <h1 className="text-xl font-bold text-[#F2DEC8]">
               {workspaces.length === 0
                 ? "Create your first workspace"
                 : "Add a brand workspace"}
@@ -91,7 +88,7 @@ export default function Home() {
             </p>
           </div>
 
-          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6">
+          <div className="bg-[#141414] border border-[#1e1e1e] rounded-2xl p-6">
             <NewWorkspaceForm
               onCancel={
                 workspaces.length > 0 ? () => setView("picker") : undefined
@@ -105,15 +102,12 @@ export default function Home() {
 
   // ── Workspace picker ─────────────────────────────────────────────────────────
   return (
-    <div className="min-h-screen flex items-center justify-center px-4 bg-zinc-950">
+    <div className="min-h-screen flex items-center justify-center px-4 bg-[#080808]">
       <div className="w-full max-w-sm space-y-6">
         {/* Header */}
         <div className="flex items-center justify-between">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-widest text-indigo-400">
-              Vinayak Brain OS
-            </p>
-            <h1 className="text-lg font-semibold text-zinc-100 mt-0.5">
+            <h1 className="text-lg font-semibold text-[#F2DEC8] mt-0.5">
               Choose a brand
             </h1>
             <p className="text-xs text-zinc-500 mt-0.5">
@@ -135,13 +129,13 @@ export default function Home() {
             <a
               key={w.id}
               href={workspacePath(w.id, "/dashboard")}
-              className="flex items-center gap-3 px-4 py-3 rounded-xl border border-zinc-800 bg-zinc-900 hover:bg-zinc-800/60 transition-colors"
+              className="flex items-center gap-3 px-4 py-3 rounded-xl border border-[#1e1e1e] bg-[#141414] hover:bg-[#1e1e1e]/60 transition-colors"
             >
-              <span className="grid place-items-center w-8 h-8 rounded-lg bg-indigo-500/15 border border-indigo-400/20 text-indigo-300 text-sm shrink-0">
+              <span className="grid place-items-center w-8 h-8 rounded-lg bg-[#C08457]/15 border border-[#C08457]/30 text-[#C08457] text-sm shrink-0">
                 ◆
               </span>
               <div className="flex-1 min-w-0">
-                <div className="text-sm font-medium text-zinc-100 truncate">
+                <div className="text-sm font-medium text-[#F2DEC8] truncate">
                   {w.name}
                 </div>
                 <div className="text-[11px] text-zinc-500">
@@ -155,7 +149,7 @@ export default function Home() {
         {/* Add brand */}
         <button
           onClick={() => setView("create")}
-          className="flex items-center justify-center gap-2 w-full text-sm text-zinc-400 hover:text-zinc-200 border border-white/[0.08] rounded-xl py-2.5 transition-colors"
+          className="flex items-center justify-center gap-2 w-full text-sm text-zinc-400 hover:text-[#F2DEC8]/90 border border-white/[0.08] rounded-xl py-2.5 transition-colors"
         >
           <Plus className="w-4 h-4" /> Add a brand
         </button>
