@@ -90,7 +90,7 @@ export function DataTable<T>({
                     className={cn(
                       "sticky top-0 bg-[var(--bg-elevated)]/80 backdrop-blur-sm py-2.5 px-2 font-medium text-zinc-500 border-b border-white/[0.07] whitespace-nowrap",
                       alignClass(col.align),
-                      sortable && "cursor-pointer select-none hover:text-zinc-300 transition-colors",
+                      sortable && "cursor-pointer select-none hover:text-[#DBC3AE]/75 transition-colors",
                       col.className,
                     )}
                   >
@@ -104,9 +104,9 @@ export function DataTable<T>({
                       {sortable &&
                         (activeSort ? (
                           sort!.dir === "asc" ? (
-                            <ChevronUp className="w-3 h-3 text-indigo-400" />
+                            <ChevronUp className="w-3 h-3 text-[#C08457]" />
                           ) : (
-                            <ChevronDown className="w-3 h-3 text-indigo-400" />
+                            <ChevronDown className="w-3 h-3 text-[#C08457]" />
                           )
                         ) : (
                           <ChevronsUpDown className="w-3 h-3 text-zinc-700" />
@@ -127,7 +127,7 @@ export function DataTable<T>({
                   <td
                     key={col.key}
                     className={cn(
-                      "py-2.5 px-2 border-b border-white/[0.04] text-zinc-300",
+                      "py-2.5 px-2 border-b border-white/[0.04] text-[#DBC3AE]/75",
                       alignClass(col.align),
                       col.align === "right" && "tabular-nums",
                       col.className,

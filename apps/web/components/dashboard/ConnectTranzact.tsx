@@ -182,7 +182,7 @@ export default function ConnectTranzact({ onConnected, compact = false }: Props)
   // ── Loading check ───────────────────────────────────────────────────────────
   if (!checkDone) {
     return (
-      <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6 flex items-center gap-3 text-sm text-zinc-500">
+      <div className="bg-[#1c1b1b] border border-[#292929] rounded-xl p-6 flex items-center gap-3 text-sm text-zinc-500">
         <Loader2 className="w-4 h-4 animate-spin" /> Checking connection…
       </div>
     );
@@ -191,14 +191,14 @@ export default function ConnectTranzact({ onConnected, compact = false }: Props)
   // ── Connected status card (compact / settings mode) ───────────────────────
   if (compact && existing && !showChangeForm) {
     return (
-      <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6 space-y-4 max-w-xl">
+      <div className="bg-[#1c1b1b] border border-[#292929] rounded-xl p-6 space-y-4 max-w-xl">
         {/* Header */}
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-lg bg-emerald-600/15 border border-emerald-500/20 flex items-center justify-center">
-            <CheckCircle className="w-5 h-5 text-emerald-400" />
+          <div className="w-10 h-10 rounded-lg bg-[#C08457]/12 border border-[#C08457]/20 flex items-center justify-center">
+            <CheckCircle className="w-5 h-5 text-[#d4a070]" />
           </div>
           <div className="flex-1 min-w-0">
-            <h2 className="text-sm font-semibold text-zinc-100">TranzAct connected</h2>
+            <h2 className="text-sm font-semibold text-[#DBC3AE]">TranzAct connected</h2>
             <p className="text-xs text-zinc-500">
               {existing.last_verified_at
                 ? `Last verified ${relativeTime(existing.last_verified_at)}`
@@ -211,9 +211,9 @@ export default function ConnectTranzact({ onConnected, compact = false }: Props)
         {message && (
           <div className={cn(
             "flex items-start gap-2 rounded-lg px-3 py-2.5 text-xs",
-            step === "done"    ? "bg-emerald-500/10 border border-emerald-500/20 text-emerald-400"
+            step === "done"    ? "bg-[#C08457]/10 border border-[#C08457]/20 text-[#d4a070]"
             : step === "error" ? "bg-red-500/10 border border-red-500/20 text-red-400"
-            : "bg-zinc-800 text-zinc-400",
+            : "bg-[#292929] text-zinc-400",
           )}>
             {step === "done"  && <CheckCircle className="w-3.5 h-3.5 mt-0.5 shrink-0" />}
             {step === "error" && <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0" />}
@@ -229,23 +229,23 @@ export default function ConnectTranzact({ onConnected, compact = false }: Props)
               <span>Pulling reports from TranzAct</span>
               <span className="tabular-nums">{sync.completed}/{sync.total}</span>
             </div>
-            <div className="h-1.5 w-full overflow-hidden rounded-full bg-zinc-800">
+            <div className="h-1.5 w-full overflow-hidden rounded-full bg-[#292929]">
               <div
-                className="h-full rounded-full bg-blue-500 transition-all duration-500"
+                className="h-full rounded-full bg-[#C08457] transition-all duration-500"
                 style={{ width: `${Math.round((sync.completed / sync.total) * 100)}%` }}
               />
             </div>
             <ul className="space-y-1 pt-1">
               {sync.pipelines.map((p) => (
                 <li key={p.key} className="flex items-center gap-2 text-xs">
-                  {p.status === "success" && <CheckCircle className="w-3 h-3 shrink-0 text-emerald-400" />}
-                  {p.status === "running" && <Loader2 className="w-3 h-3 shrink-0 animate-spin text-blue-400" />}
+                  {p.status === "success" && <CheckCircle className="w-3 h-3 shrink-0 text-[#d4a070]" />}
+                  {p.status === "running" && <Loader2 className="w-3 h-3 shrink-0 animate-spin text-[#C08457]" />}
                   {p.status === "failed"  && <XCircle className="w-3 h-3 shrink-0 text-red-400" />}
                   {p.status === "pending" && <Circle className="w-3 h-3 shrink-0 text-zinc-600" />}
                   <span className={cn(
                     "flex-1",
-                    p.status === "success" && "text-zinc-300",
-                    p.status === "running" && "text-zinc-200",
+                    p.status === "success" && "text-[#DBC3AE]/75",
+                    p.status === "running" && "text-[#DBC3AE]/90",
                     p.status === "failed"  && "text-red-400",
                     p.status === "pending" && "text-zinc-600",
                   )}>{p.label}</span>
@@ -276,7 +276,7 @@ export default function ConnectTranzact({ onConnected, compact = false }: Props)
               }
             }}
             disabled={busy}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded-lg transition-colors disabled:opacity-50"
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-[#C08457] hover:bg-[#C08457] text-white text-xs font-semibold rounded-lg transition-colors disabled:opacity-50"
           >
             {step === "syncing" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
             Re-sync data
@@ -299,14 +299,14 @@ export default function ConnectTranzact({ onConnected, compact = false }: Props)
               }
             }}
             disabled={busy}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-zinc-700 hover:bg-zinc-600 text-zinc-200 text-xs font-semibold rounded-lg transition-colors disabled:opacity-50"
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-zinc-700 hover:bg-zinc-600 text-[#DBC3AE]/90 text-xs font-semibold rounded-lg transition-colors disabled:opacity-50"
           >
             {step === "testing" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <FlaskConical className="w-3.5 h-3.5" />}
             Test connection
           </button>
           <button
             onClick={() => { setShowChangeForm(true); setStep("idle"); setMessage(""); }}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-400 text-xs font-semibold rounded-lg transition-colors"
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-[#292929] hover:bg-zinc-700 text-zinc-400 text-xs font-semibold rounded-lg transition-colors"
           >
             <KeyRound className="w-3.5 h-3.5" /> Update credentials
           </button>
@@ -319,16 +319,16 @@ export default function ConnectTranzact({ onConnected, compact = false }: Props)
   return (
     <div
       className={cn(
-        "bg-zinc-900 border border-zinc-800 rounded-xl p-6 space-y-5",
+        "bg-[#1c1b1b] border border-[#292929] rounded-xl p-6 space-y-5",
         compact ? "max-w-xl" : "max-w-md w-full",
       )}
     >
       <div className="flex items-center gap-3">
-        <div className="w-10 h-10 rounded-lg bg-blue-600/20 border border-blue-500/20 flex items-center justify-center">
-          <Plug className="w-5 h-5 text-blue-400" />
+        <div className="w-10 h-10 rounded-lg bg-[#C08457]/15 border border-[#C08457]/20 flex items-center justify-center">
+          <Plug className="w-5 h-5 text-[#C08457]" />
         </div>
         <div className="flex-1 min-w-0">
-          <h2 className="text-sm font-semibold text-zinc-100">
+          <h2 className="text-sm font-semibold text-[#DBC3AE]">
             {showChangeForm ? "Update TranzAct credentials" : "Connect TranzAct"}
           </h2>
           <p className="text-xs text-zinc-500">Cloud ERP · letstranzact.com</p>
@@ -336,7 +336,7 @@ export default function ConnectTranzact({ onConnected, compact = false }: Props)
         {showChangeForm && (
           <button
             onClick={() => setShowChangeForm(false)}
-            className="text-xs text-zinc-500 hover:text-zinc-300 transition-colors"
+            className="text-xs text-zinc-500 hover:text-[#DBC3AE]/75 transition-colors"
           >
             Cancel
           </button>
@@ -360,7 +360,7 @@ export default function ConnectTranzact({ onConnected, compact = false }: Props)
             placeholder="you@company.com"
             required
             disabled={busy || step === "done"}
-            className="w-full bg-zinc-800 text-zinc-200 text-sm rounded-lg px-3 py-2 border border-zinc-700 focus:border-blue-500 focus:outline-none placeholder-zinc-600 disabled:opacity-60"
+            className="w-full bg-[#292929] text-[#DBC3AE]/90 text-sm rounded-lg px-3 py-2 border border-[#292929] focus:border-[#C08457] focus:outline-none placeholder-zinc-600 disabled:opacity-60"
           />
         </div>
         <div>
@@ -372,14 +372,14 @@ export default function ConnectTranzact({ onConnected, compact = false }: Props)
             placeholder="••••••••"
             required
             disabled={busy || step === "done"}
-            className="w-full bg-zinc-800 text-zinc-200 text-sm rounded-lg px-3 py-2 border border-zinc-700 focus:border-blue-500 focus:outline-none placeholder-zinc-600 disabled:opacity-60"
+            className="w-full bg-[#292929] text-[#DBC3AE]/90 text-sm rounded-lg px-3 py-2 border border-[#292929] focus:border-[#C08457] focus:outline-none placeholder-zinc-600 disabled:opacity-60"
           />
         </div>
 
         <button
           type="submit"
           disabled={busy || step === "done"}
-          className="w-full flex items-center justify-center gap-1.5 px-4 py-2.5 bg-blue-600 hover:bg-blue-500 text-white text-sm font-semibold rounded-lg transition-colors disabled:opacity-50"
+          className="w-full flex items-center justify-center gap-1.5 px-4 py-2.5 bg-[#C08457] hover:bg-[#C08457] text-white text-sm font-semibold rounded-lg transition-colors disabled:opacity-50"
         >
           {busy && <Loader2 className="w-4 h-4 animate-spin" />}
           {step === "saving" && "Saving…"}
@@ -395,10 +395,10 @@ export default function ConnectTranzact({ onConnected, compact = false }: Props)
           className={cn(
             "flex items-start gap-2 rounded-lg px-3 py-2.5 text-xs",
             step === "done"
-              ? "bg-emerald-500/10 border border-emerald-500/20 text-emerald-400"
+              ? "bg-[#C08457]/10 border border-[#C08457]/20 text-[#d4a070]"
               : step === "error"
               ? "bg-red-500/10 border border-red-500/20 text-red-400"
-              : "bg-zinc-800 text-zinc-400",
+              : "bg-[#292929] text-zinc-400",
           )}
         >
           {step === "done" && <CheckCircle className="w-3.5 h-3.5 mt-0.5 shrink-0" />}
@@ -419,9 +419,9 @@ export default function ConnectTranzact({ onConnected, compact = false }: Props)
                 {sync.completed}/{sync.total}
               </span>
             </div>
-            <div className="h-1.5 w-full overflow-hidden rounded-full bg-zinc-800">
+            <div className="h-1.5 w-full overflow-hidden rounded-full bg-[#292929]">
               <div
-                className="h-full rounded-full bg-blue-500 transition-all duration-500"
+                className="h-full rounded-full bg-[#C08457] transition-all duration-500"
                 style={{ width: `${Math.round((sync.completed / sync.total) * 100)}%` }}
               />
             </div>
@@ -432,10 +432,10 @@ export default function ConnectTranzact({ onConnected, compact = false }: Props)
             {sync.pipelines.map((p) => (
               <li key={p.key} className="flex items-center gap-2 text-xs">
                 {p.status === "success" && (
-                  <CheckCircle className="w-3.5 h-3.5 shrink-0 text-emerald-400" />
+                  <CheckCircle className="w-3.5 h-3.5 shrink-0 text-[#d4a070]" />
                 )}
                 {p.status === "running" && (
-                  <Loader2 className="w-3.5 h-3.5 shrink-0 animate-spin text-blue-400" />
+                  <Loader2 className="w-3.5 h-3.5 shrink-0 animate-spin text-[#C08457]" />
                 )}
                 {p.status === "failed" && (
                   <XCircle className="w-3.5 h-3.5 shrink-0 text-red-400" />
@@ -446,8 +446,8 @@ export default function ConnectTranzact({ onConnected, compact = false }: Props)
                 <span
                   className={cn(
                     "flex-1",
-                    p.status === "success" && "text-zinc-300",
-                    p.status === "running" && "text-zinc-200",
+                    p.status === "success" && "text-[#DBC3AE]/75",
+                    p.status === "running" && "text-[#DBC3AE]/90",
                     p.status === "failed" && "text-red-400",
                     p.status === "pending" && "text-zinc-600",
                   )}

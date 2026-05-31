@@ -7,9 +7,9 @@ import { HistoryBackfill } from "@/components/dashboard/HistoryBackfill";
 
 function StatusIcon({ status }: { status: string }) {
   if (status === "success")
-    return <CheckCircle className="w-4 h-4 text-emerald-500 shrink-0" />;
+    return <CheckCircle className="w-4 h-4 text-[#C08457] shrink-0" />;
   if (status === "running")
-    return <RefreshCw className="w-4 h-4 text-indigo-400 animate-spin shrink-0" />;
+    return <RefreshCw className="w-4 h-4 text-[#C08457] animate-spin shrink-0" />;
   return <XCircle className="w-4 h-4 text-red-500 shrink-0" />;
 }
 
@@ -36,7 +36,7 @@ export default function SyncHealthPage() {
         </div>
         <button
           onClick={() => mutate()}
-          className="flex items-center gap-1.5 text-xs text-zinc-400 hover:text-zinc-200 transition-colors"
+          className="flex items-center gap-1.5 text-xs text-zinc-400 hover:text-[#DBC3AE]/90 transition-colors"
         >
           <RefreshCw className="w-3.5 h-3.5" />
           Refresh
@@ -52,7 +52,7 @@ export default function SyncHealthPage() {
           className={cn(
             "rounded-xl border px-4 py-3 flex items-center gap-3 text-sm font-medium",
             data.healthy
-              ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-400"
+              ? "bg-[#C08457]/10 border-[#C08457]/20 text-[#d4a070]"
               : "bg-amber-500/10 border-amber-500/20 text-amber-400",
           )}
         >
@@ -102,14 +102,14 @@ export default function SyncHealthPage() {
                     run.status === "error" && "bg-red-500/5",
                   )}
                 >
-                  <td className="px-4 py-2.5 font-mono text-zinc-300">{run.pipeline_name}</td>
+                  <td className="px-4 py-2.5 font-mono text-[#DBC3AE]/75">{run.pipeline_name}</td>
                   <td className="px-4 py-2.5">
                     <div className="flex items-center gap-1.5">
                       <StatusIcon status={run.status} />
                       <span
                         className={cn(
-                          run.status === "success" && "text-emerald-400",
-                          run.status === "running" && "text-indigo-400",
+                          run.status === "success" && "text-[#d4a070]",
+                          run.status === "running" && "text-[#C08457]",
                           run.status === "error"   && "text-red-400",
                         )}
                       >

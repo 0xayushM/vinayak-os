@@ -186,17 +186,17 @@ export default function NewWorkspaceForm({ onCancel }: Props) {
         {onCancel && step === "idle" && (
           <button
             onClick={onCancel}
-            className="flex items-center gap-1 text-xs text-zinc-500 hover:text-zinc-300 mb-3 transition-colors"
+            className="flex items-center gap-1 text-xs text-zinc-500 hover:text-[#DBC3AE]/75 mb-3 transition-colors"
           >
             <ArrowLeft className="w-3 h-3" /> Back
           </button>
         )}
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-indigo-500/15 border border-indigo-400/20 flex items-center justify-center shrink-0">
-            <Building2 className="w-5 h-5 text-indigo-400" />
+          <div className="w-10 h-10 rounded-xl bg-[#C08457]/15 border border-[#C08457]/30 flex items-center justify-center shrink-0">
+            <Building2 className="w-5 h-5 text-[#C08457]" />
           </div>
           <div>
-            <h2 className="text-sm font-semibold text-zinc-100">
+            <h2 className="text-sm font-semibold text-[#DBC3AE]">
               Add a brand workspace
             </h2>
             <p className="text-xs text-zinc-500">
@@ -220,7 +220,7 @@ export default function NewWorkspaceForm({ onCancel }: Props) {
             placeholder="e.g. KBrushes"
             required
             disabled={busy || step === "done"}
-            className="w-full bg-zinc-800/60 text-zinc-200 text-sm rounded-lg px-3 py-2.5 border border-zinc-700 focus:border-indigo-500 focus:outline-none placeholder-zinc-600 disabled:opacity-60"
+            className="w-full bg-[#292929]/60 text-[#DBC3AE]/90 text-sm rounded-lg px-3 py-2.5 border border-[#292929] focus:border-[#C08457] focus:outline-none placeholder-zinc-600 disabled:opacity-60"
           />
           {slug && (
             <p className="text-[11px] text-zinc-600">
@@ -231,9 +231,9 @@ export default function NewWorkspaceForm({ onCancel }: Props) {
         </div>
 
         {/* TranzAct credentials */}
-        <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-4 space-y-3">
+        <div className="rounded-xl border border-[#292929] bg-[#1c1b1b]/50 p-4 space-y-3">
           <div className="flex items-center gap-2 text-xs font-medium text-zinc-400">
-            <Plug className="w-3.5 h-3.5 text-blue-400" />
+            <Plug className="w-3.5 h-3.5 text-[#C08457]" />
             TranzAct credentials
           </div>
           <div>
@@ -245,7 +245,7 @@ export default function NewWorkspaceForm({ onCancel }: Props) {
               placeholder="you@company.com"
               required
               disabled={busy || step === "done"}
-              className="w-full bg-zinc-800 text-zinc-200 text-sm rounded-lg px-3 py-2 border border-zinc-700 focus:border-blue-500 focus:outline-none placeholder-zinc-600 disabled:opacity-60"
+              className="w-full bg-[#292929] text-[#DBC3AE]/90 text-sm rounded-lg px-3 py-2 border border-[#292929] focus:border-[#C08457] focus:outline-none placeholder-zinc-600 disabled:opacity-60"
             />
           </div>
           <div>
@@ -257,7 +257,7 @@ export default function NewWorkspaceForm({ onCancel }: Props) {
               placeholder="••••••••"
               required
               disabled={busy || step === "done"}
-              className="w-full bg-zinc-800 text-zinc-200 text-sm rounded-lg px-3 py-2 border border-zinc-700 focus:border-blue-500 focus:outline-none placeholder-zinc-600 disabled:opacity-60"
+              className="w-full bg-[#292929] text-[#DBC3AE]/90 text-sm rounded-lg px-3 py-2 border border-[#292929] focus:border-[#C08457] focus:outline-none placeholder-zinc-600 disabled:opacity-60"
             />
           </div>
         </div>
@@ -265,7 +265,7 @@ export default function NewWorkspaceForm({ onCancel }: Props) {
         <button
           type="submit"
           disabled={busy || step === "done" || !slug}
-          className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-[#C08457] hover:bg-[#C08457] text-white text-sm font-semibold rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {busy && <Loader2 className="w-4 h-4 animate-spin" />}
           {step === "idle" && "Create workspace & connect"}
@@ -284,10 +284,10 @@ export default function NewWorkspaceForm({ onCancel }: Props) {
 
       {/* Status message */}
       {(busy || step === "done") && (
-        <div className="flex items-center gap-2 text-xs rounded-lg px-3 py-2.5 bg-zinc-800 text-zinc-400">
+        <div className="flex items-center gap-2 text-xs rounded-lg px-3 py-2.5 bg-[#292929] text-zinc-400">
           {busy && <Loader2 className="w-3.5 h-3.5 shrink-0 animate-spin" />}
           {step === "done" && (
-            <CheckCircle className="w-3.5 h-3.5 shrink-0 text-emerald-400" />
+            <CheckCircle className="w-3.5 h-3.5 shrink-0 text-[#d4a070]" />
           )}
           {STEP_LABELS[step]}
         </div>
@@ -311,9 +311,9 @@ export default function NewWorkspaceForm({ onCancel }: Props) {
                 {sync.completed}/{sync.total}
               </span>
             </div>
-            <div className="h-1.5 w-full overflow-hidden rounded-full bg-zinc-800">
+            <div className="h-1.5 w-full overflow-hidden rounded-full bg-[#292929]">
               <div
-                className="h-full rounded-full bg-indigo-500 transition-all duration-500"
+                className="h-full rounded-full bg-[#C08457] transition-all duration-500"
                 style={{
                   width: `${Math.round((sync.completed / sync.total) * 100)}%`,
                 }}
@@ -325,10 +325,10 @@ export default function NewWorkspaceForm({ onCancel }: Props) {
             {sync.pipelines.map((p) => (
               <li key={p.key} className="flex items-center gap-2 text-xs">
                 {p.status === "success" && (
-                  <CheckCircle className="w-3.5 h-3.5 shrink-0 text-emerald-400" />
+                  <CheckCircle className="w-3.5 h-3.5 shrink-0 text-[#d4a070]" />
                 )}
                 {p.status === "running" && (
-                  <Loader2 className="w-3.5 h-3.5 shrink-0 animate-spin text-indigo-400" />
+                  <Loader2 className="w-3.5 h-3.5 shrink-0 animate-spin text-[#C08457]" />
                 )}
                 {p.status === "failed" && (
                   <XCircle className="w-3.5 h-3.5 shrink-0 text-red-400" />
@@ -339,8 +339,8 @@ export default function NewWorkspaceForm({ onCancel }: Props) {
                 <span
                   className={cn(
                     "flex-1",
-                    p.status === "success" && "text-zinc-300",
-                    p.status === "running" && "text-zinc-200",
+                    p.status === "success" && "text-[#DBC3AE]/75",
+                    p.status === "running" && "text-[#DBC3AE]/90",
                     p.status === "failed" && "text-red-400",
                     p.status === "pending" && "text-zinc-600",
                   )}

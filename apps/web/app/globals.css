@@ -1,38 +1,64 @@
 @import "tailwindcss";
 
+@font-face {
+  font-family: 'Archimoto';
+  font-style: normal;
+  font-weight: normal;
+  src: url('/fonts/ArchimotoV01-Regular.otf') format('opentype');
+}
+
+@font-face {
+  font-family: 'Archimoto';
+  font-style: normal;
+  font-weight: bold;
+  src: url('/fonts/ArchimotoV01-Black.otf') format('opentype');
+}
+
+@font-face {
+  font-family: 'Nebulax';
+  font-style: normal;
+  font-weight: normal;
+  src: url('/fonts/Nebulax.ttf') format('truetype');
+}
+
 /* ════════════════════════════════════════════════════════════════════════
-   Vinayak Brain OS — premium dark design system
-   Single restrained accent (indigo), layered surfaces, hairline borders.
+   Vinayak Brain OS — edhway warm dark design system
+   Warm dark canvas, copper accent, cream foreground.
    ════════════════════════════════════════════════════════════════════════ */
 
 :root {
   /* Base canvas */
-  --bg-base:        #08080b;
-  --bg-elevated:    #0e0e12;
+  --bg-base:        #0E0E0E;
+  --bg-elevated:    #1c1b1b;
 
   /* Layered surfaces */
-  --surface-1:      rgba(255, 255, 255, 0.024);
-  --surface-2:      rgba(255, 255, 255, 0.04);
-  --hairline:       rgba(255, 255, 255, 0.07);
-  --hairline-soft:  rgba(255, 255, 255, 0.045);
+  --surface-1:      rgba(192, 132, 87, 0.04);
+  --surface-2:      rgba(192, 132, 87, 0.07);
+  --hairline:       rgba(192, 132, 87, 0.12);
+  --hairline-soft:  rgba(192, 132, 87, 0.07);
 
   /* Text ramp */
-  --text-primary:   #f4f4f5;
-  --text-secondary: #a1a1aa;
-  --text-muted:     #6b6b76;
+  --text-primary:   #DBC3AE;
+  --text-secondary: #a08070;
+  --text-muted:     #5a4a40;
 
-  /* Single signature accent */
-  --accent:         #6366f1;
-  --accent-soft:    #818cf8;
+  /* Copper signature accent */
+  --accent:         #C08457;
+  --accent-soft:    #d4a070;
 
-  --background: var(--bg-base);
-  --foreground: var(--text-primary);
+  /* Named palette (mirrors edhway) */
+  --background:     #0E0E0E;
+  --foreground:     #DBC3AE;
+  --secondary:      #292929;
+  --tertiary:       #C08457;
 }
 
 @theme inline {
   --color-background: var(--bg-base);
   --color-foreground: var(--text-primary);
   --color-accent:     var(--accent);
+  --color-secondary:  var(--secondary);
+  --color-tertiary:   var(--tertiary);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
@@ -44,9 +70,32 @@ html, body {
     Roboto, Helvetica, Arial, sans-serif;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
+  margin: 0;
+  padding: 0;
 }
 
-/* Ambient top glow — gives the canvas depth without a flat fill */
+/* Animated warm gradient background */
+body {
+  background: linear-gradient(
+    298deg,
+    #252423 0%,
+    #1c1b1b 20%,
+    #0E0E0E 40%,
+    #0E0E0E 60%,
+    #1c1b1b 80%,
+    #252423 100%
+  );
+  background-size: 240% 240%;
+  animation: gradient-animation 24s ease infinite;
+}
+
+@keyframes gradient-animation {
+  0%   { background-position: 0% 50%; }
+  50%  { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+/* Ambient top glow — warm copper tint */
 body::before {
   content: "";
   position: fixed;
@@ -54,54 +103,53 @@ body::before {
   pointer-events: none;
   z-index: 0;
   background:
-    radial-gradient(120% 60% at 50% -10%, rgba(99, 102, 241, 0.10), transparent 60%),
-    radial-gradient(80% 50% at 100% 0%, rgba(99, 102, 241, 0.05), transparent 55%);
+    radial-gradient(120% 60% at 50% -10%, rgba(192, 132, 87, 0.08), transparent 60%),
+    radial-gradient(80% 50% at 100% 0%, rgba(192, 132, 87, 0.04), transparent 55%);
 }
 
 /* Refined scrollbars */
 * {
   scrollbar-width: thin;
-  scrollbar-color: rgba(255, 255, 255, 0.12) transparent;
+  scrollbar-color: rgba(192, 132, 87, 0.18) transparent;
 }
 *::-webkit-scrollbar { width: 9px; height: 9px; }
 *::-webkit-scrollbar-track { background: transparent; }
 *::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.10);
+  background: rgba(192, 132, 87, 0.14);
   border-radius: 999px;
   border: 2px solid transparent;
   background-clip: padding-box;
 }
-*::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.18); background-clip: padding-box; }
+*::-webkit-scrollbar-thumb:hover { background: rgba(192, 132, 87, 0.28); background-clip: padding-box; }
 
 ::selection {
-  background: rgba(99, 102, 241, 0.32);
-  color: #fff;
+  background: rgba(192, 132, 87, 0.32);
+  color: #DBC3AE;
 }
 
 /* ── Reusable surface utilities ─────────────────────────────────────────── */
 
-/* Premium card: layered fill + hairline + inset sheen + soft drop shadow */
 .surface-card {
   background: linear-gradient(180deg, var(--surface-2), var(--surface-1));
   border: 1px solid var(--hairline);
   border-radius: 1rem;
   box-shadow:
-    inset 0 1px 0 0 rgba(255, 255, 255, 0.05),
+    inset 0 1px 0 0 rgba(192, 132, 87, 0.06),
     0 1px 2px 0 rgba(0, 0, 0, 0.4),
     0 12px 32px -16px rgba(0, 0, 0, 0.7);
   transition: border-color 0.25s ease, box-shadow 0.25s ease, transform 0.25s ease;
 }
 .surface-card-hover:hover {
-  border-color: rgba(255, 255, 255, 0.12);
+  border-color: rgba(192, 132, 87, 0.20);
   box-shadow:
-    inset 0 1px 0 0 rgba(255, 255, 255, 0.06),
+    inset 0 1px 0 0 rgba(192, 132, 87, 0.08),
     0 1px 2px 0 rgba(0, 0, 0, 0.4),
     0 18px 44px -18px rgba(0, 0, 0, 0.8);
 }
 
 /* Subtle inset panel (sidebar, headers) */
 .surface-rail {
-  background: linear-gradient(180deg, rgba(255,255,255,0.022), rgba(255,255,255,0.006));
+  background: linear-gradient(180deg, rgba(192,132,87,0.03), rgba(192,132,87,0.008));
 }
 
 @keyframes fade-rise {
@@ -109,3 +157,8 @@ body::before {
   to   { opacity: 1; transform: translateY(0); }
 }
 .animate-rise { animation: fade-rise 0.4s cubic-bezier(0.22, 1, 0.36, 1) both; }
+
+/* Font helpers */
+.archimoto       { font-family: 'Archimoto', sans-serif; }
+.archimoto-bold  { font-family: 'Archimoto', sans-serif; font-weight: bold; }
+.nebulax         { font-family: 'Nebulax', sans-serif; }

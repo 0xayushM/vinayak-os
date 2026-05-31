@@ -71,14 +71,14 @@ export function SyncProgressBanner() {
 
   return (
     <div className={cn(
-      "border-b border-zinc-800 bg-zinc-950 transition-all",
-      finished ? "border-emerald-800/30 bg-emerald-950/20" : "",
+      "border-b border-[#292929] bg-[#0E0E0E] transition-all",
+      finished ? "border-[#C08457]/15 bg-[#C08457]/5" : "",
     )}>
       {/* Compact bar */}
       <div className="flex items-center gap-3 px-4 sm:px-6 lg:px-8 py-2">
         {finished
-          ? <CheckCircle className="w-3.5 h-3.5 shrink-0 text-emerald-400" />
-          : <Loader2 className="w-3.5 h-3.5 shrink-0 animate-spin text-blue-400" />
+          ? <CheckCircle className="w-3.5 h-3.5 shrink-0 text-[#d4a070]" />
+          : <Loader2 className="w-3.5 h-3.5 shrink-0 animate-spin text-[#C08457]" />
         }
 
         <div className="flex-1 min-w-0 space-y-0.5">
@@ -88,11 +88,11 @@ export function SyncProgressBanner() {
               : `Syncing TranzAct data… ${data.completed}/${data.total} reports`
             }
           </p>
-          <div className="h-1 w-full overflow-hidden rounded-full bg-zinc-800">
+          <div className="h-1 w-full overflow-hidden rounded-full bg-[#292929]">
             <div
               className={cn(
                 "h-full rounded-full transition-all duration-700",
-                finished ? "bg-emerald-500" : "bg-blue-500",
+                finished ? "bg-[#C08457]" : "bg-[#C08457]",
               )}
               style={{ width: `${pct}%` }}
             />
@@ -101,7 +101,7 @@ export function SyncProgressBanner() {
 
         <button
           onClick={() => setExpanded((v) => !v)}
-          className="shrink-0 text-zinc-600 hover:text-zinc-300 transition-colors"
+          className="shrink-0 text-zinc-600 hover:text-[#DBC3AE]/75 transition-colors"
           title={expanded ? "Hide details" : "Show details"}
         >
           {expanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
@@ -114,14 +114,14 @@ export function SyncProgressBanner() {
           <ul className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-x-6 gap-y-1">
             {data.pipelines.map((p) => (
               <li key={p.key} className="flex items-center gap-1.5 text-[11px]">
-                {p.status === "success" && <CheckCircle className="w-3 h-3 shrink-0 text-emerald-400" />}
-                {p.status === "running" && <Loader2 className="w-3 h-3 shrink-0 animate-spin text-blue-400" />}
+                {p.status === "success" && <CheckCircle className="w-3 h-3 shrink-0 text-[#d4a070]" />}
+                {p.status === "running" && <Loader2 className="w-3 h-3 shrink-0 animate-spin text-[#C08457]" />}
                 {p.status === "failed"  && <XCircle className="w-3 h-3 shrink-0 text-red-400" />}
                 {p.status === "pending" && <Circle className="w-3 h-3 shrink-0 text-zinc-700" />}
                 <span className={cn(
                   "truncate",
                   p.status === "success" ? "text-zinc-400"
-                  : p.status === "running" ? "text-zinc-200"
+                  : p.status === "running" ? "text-[#DBC3AE]/90"
                   : p.status === "failed"  ? "text-red-400"
                   : "text-zinc-700",
                 )}>

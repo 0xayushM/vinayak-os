@@ -14,8 +14,11 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Vinayak Brain OS — KBrushes",
+  title: "Brain OS",
   description: "TranzAct data dashboard for KBrushes",
+  icons: {
+    icon: "/logo.png",
+  },
 };
 
 export default function RootLayout({
@@ -28,7 +31,7 @@ export default function RootLayout({
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full bg-zinc-950 text-zinc-100 flex flex-col">
+      <body className="min-h-full flex flex-col" style={{ color: 'var(--text-primary)' }}>
         <SwrProvider>{children}</SwrProvider>
       </body>
     </html>

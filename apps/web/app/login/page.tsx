@@ -2,7 +2,8 @@
 
 import { useState, FormEvent } from "react";
 import { useRouter } from "next/navigation";
-import { Brain, Loader2, AlertTriangle } from "lucide-react";
+import Image from "next/image";
+import { Loader2, AlertTriangle } from "lucide-react";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -31,8 +32,6 @@ export default function LoginPage() {
         return;
       }
 
-      // httpOnly cookie is now set — go to the brand resolver, which lands on
-      // /w/{brand}/dashboard (or prompts to create the first brand).
       router.replace("/");
     } catch {
       setError("Could not reach the server. Make sure the backend is running.");
@@ -42,21 +41,20 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen bg-zinc-950 flex items-center justify-center px-4">
+    <div className="min-h-screen flex items-center justify-center px-4">
       <div className="w-full max-w-sm space-y-8">
         {/* Brand */}
         <div className="text-center">
-          <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-blue-600/20 border border-blue-500/30 mb-4">
-            <Brain className="w-7 h-7 text-blue-400" />
+          <div className="inline-flex items-center justify-center mb-6">
+            <Image src="/logo.png" alt="Logo" width={72} height={72} className="rounded-2xl" />
           </div>
-          <h1 className="text-2xl font-bold text-zinc-100">Vinayak Brain OS</h1>
-          <p className="text-sm text-zinc-500 mt-1">Sign in to your dashboard</p>
+          <p className="text-sm text-[#a08070]">Sign in to your dashboard</p>
         </div>
 
         {/* Form */}
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-xs font-medium text-zinc-400 mb-1.5">
+            <label className="block text-xs font-medium text-[#a08070] mb-1.5">
               Email address
             </label>
             <input
@@ -66,12 +64,12 @@ export default function LoginPage() {
               placeholder="you@company.com"
               required
               autoFocus
-              className="w-full bg-zinc-900 text-zinc-100 text-sm rounded-xl px-4 py-3 border border-zinc-800 focus:border-blue-500 focus:outline-none placeholder-zinc-600 transition-colors"
+              className="w-full bg-[#1c1b1b] text-[#DBC3AE] text-sm rounded-xl px-4 py-3 border border-[#292929] focus:border-[#C08457] focus:outline-none placeholder-[#5a4a40] transition-colors"
             />
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-zinc-400 mb-1.5">
+            <label className="block text-xs font-medium text-[#a08070] mb-1.5">
               Password
             </label>
             <input
@@ -80,7 +78,7 @@ export default function LoginPage() {
               onChange={(e) => setPassword(e.target.value)}
               placeholder="••••••••"
               required
-              className="w-full bg-zinc-900 text-zinc-100 text-sm rounded-xl px-4 py-3 border border-zinc-800 focus:border-blue-500 focus:outline-none placeholder-zinc-600 transition-colors"
+              className="w-full bg-[#1c1b1b] text-[#DBC3AE] text-sm rounded-xl px-4 py-3 border border-[#292929] focus:border-[#C08457] focus:outline-none placeholder-[#5a4a40] transition-colors"
             />
           </div>
 
@@ -94,7 +92,7 @@ export default function LoginPage() {
           <button
             type="submit"
             disabled={loading}
-            className="w-full flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-500 text-white text-sm font-semibold py-3 rounded-xl transition-colors disabled:opacity-60 mt-2"
+            className="w-full flex items-center justify-center gap-2 bg-[#C08457] hover:bg-[#d4a070] text-[#0E0E0E] text-sm font-semibold py-3 rounded-xl transition-colors disabled:opacity-60 mt-2"
           >
             {loading ? (
               <>
@@ -107,9 +105,6 @@ export default function LoginPage() {
           </button>
         </form>
 
-        <p className="text-center text-xs text-zinc-600">
-          KBrushes · Phase 1 · TranzAct Integration
-        </p>
       </div>
     </div>
   );
