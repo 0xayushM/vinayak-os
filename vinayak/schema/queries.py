@@ -546,17 +546,47 @@ def get_top_stock_holdings(conn, company_id: str) -> dict:
     }
 
 
+def _purchase_monthly_avg(conn, company_id: str) -> float:
+    """
+    Average monthly purchase spend over the trailing 12 months of *available*
+    data (anchored to the latest invoice). Divides by the number of distinct
+    months that actually have data, so it is a true average and never collapses
+    to equal a 1-month period total.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT MAX(invoice_date) FROM tz_purchase_invoices WHERE company_id = %s",
+            (company_id,),
+        )
+        data_to = cur.fetchone()[0]
+        if data_to is None:
+            return 0.0
+        floor = data_to - timedelta(days=365)
+        cur.execute(
+            """
+            SELECT COALESCE(SUM(invoice_total), 0),
+                   COUNT(DISTINCT date_trunc('month', invoice_date))
+            FROM tz_purchase_invoices
+            WHERE company_id = %s AND invoice_date > %s AND invoice_date <= %s
+            """,
+            (company_id, floor.isoformat(), data_to.isoformat()),
+        )
+        total, n_months = cur.fetchone()
+    n = int(n_months or 0)
+    return float(total or 0) / n if n else 0.0
+
+
 def get_purchases_summary(conn, company_id: str, period_days: int = 30) -> dict:
     """
     S9 — Purchase KPIs.
-    Returns: period_spend, vendor_count, invoice_count, overdue_po_count
+    Returns: period_spend, monthly_avg, vendor_count, invoice_count, overdue_po_count
     """
     since = (date.today() - timedelta(days=period_days)).isoformat()
     with conn.cursor() as cur:
         cur.execute("""
             SELECT
                 COALESCE(SUM(invoice_total), 0) AS period_spend,
-                COUNT(DISTINCT vendor_code)     AS vendor_count,
+                COUNT(DISTINCT vendor_name)     AS vendor_count,
                 COUNT(DISTINCT invoice_number)  AS invoice_count
             FROM tz_purchase_invoices
             WHERE company_id = %s AND invoice_date >= %s
@@ -575,6 +605,7 @@ def get_purchases_summary(conn, company_id: str, period_days: int = 30) -> dict:
     return {
         "period_days":    period_days,
         "period_spend":   float(row[0] or 0),
+        "monthly_avg":    _purchase_monthly_avg(conn, company_id),
         "vendor_count":   int(row[1] or 0),
         "invoice_count":  int(row[2] or 0),
         "overdue_po_count": int(overdue_pos or 0),
@@ -631,12 +662,21 @@ def get_production_summary(conn, company_id: str, period_days: int = 30) -> dict
     """
     since = (date.today() - timedelta(days=period_days)).isoformat()
     with conn.cursor() as cur:
+        # TranzAct stores status_text as 'WIP' / 'Pending' / 'Planned' (mixed
+        # case, and there is no literal 'completed' state). Match case-insensitively
+        # and count distinct work orders, not process rows, so "WIP Jobs" is a job
+        # count rather than an operation count. A job is treated as completed once
+        # its produced quantity meets or exceeds the planned quantity.
         cur.execute("""
             SELECT
                 COALESCE(SUM(produced_qty), 0)  AS fg_produced,
                 COALESCE(SUM(rejected_qty), 0)  AS rejected,
-                COUNT(*) FILTER (WHERE status = 'wip')       AS wip_count,
-                COUNT(*) FILTER (WHERE status = 'completed') AS completed_count
+                COUNT(DISTINCT work_order_number)
+                    FILTER (WHERE status ILIKE 'wip')                       AS wip_count,
+                COUNT(DISTINCT work_order_number)
+                    FILTER (WHERE status ILIKE 'completed'
+                                OR status ILIKE 'closed'
+                                OR (planned_qty > 0 AND produced_qty >= planned_qty)) AS completed_count
             FROM tz_process_details
             WHERE company_id = %s AND production_date >= %s
         """, (company_id, since))
@@ -656,6 +696,136 @@ def get_production_summary(conn, company_id: str, period_days: int = 30) -> dict
         "completed_count":  int(row[3] or 0),
         "last_synced_at":   _fmt(ls),
         "stale":            _is_stale(ls),
+    }
+
+
+def get_quote_summary(conn, company_id: str, period_days: int = 30) -> dict:
+    """
+    S13 — Sales quotation pipeline KPIs.
+
+    A quote counts as won once it converts to an order (converted_to_order) or
+    its status explicitly says so. Everything not won/lost/cancelled is open.
+    Returns: open_count, open_value, won_count, won_value, conversion_rate.
+    """
+    since = (date.today() - timedelta(days=period_days)).isoformat()
+    with conn.cursor() as cur:
+        cur.execute("""
+            SELECT
+                COUNT(*) FILTER (
+                    WHERE converted_to_order OR status ILIKE 'won' OR status ILIKE 'accepted'
+                ) AS won_count,
+                COALESCE(SUM(quoted_value) FILTER (
+                    WHERE converted_to_order OR status ILIKE 'won' OR status ILIKE 'accepted'
+                ), 0) AS won_value,
+                COUNT(*) FILTER (
+                    WHERE NOT converted_to_order
+                      AND status NOT ILIKE 'won' AND status NOT ILIKE 'accepted'
+                      AND status NOT ILIKE 'lost' AND status NOT ILIKE 'rejected'
+                      AND status NOT ILIKE 'cancelled'
+                ) AS open_count,
+                COALESCE(SUM(quoted_value) FILTER (
+                    WHERE NOT converted_to_order
+                      AND status NOT ILIKE 'won' AND status NOT ILIKE 'accepted'
+                      AND status NOT ILIKE 'lost' AND status NOT ILIKE 'rejected'
+                      AND status NOT ILIKE 'cancelled'
+                ), 0) AS open_value,
+                COUNT(*) AS total_count
+            FROM tz_sales_quotations
+            WHERE company_id = %s AND quote_date >= %s
+        """, (company_id, since))
+        row = cur.fetchone()
+
+    won_count = int(row[0] or 0)
+    total = int(row[4] or 0)
+    conversion = (won_count / total) if total else 0.0
+
+    ls = _last_sync(conn, "sales_quotations", company_id)
+    return {
+        "period_days":     period_days,
+        "open_count":      int(row[2] or 0),
+        "open_value":      float(row[3] or 0),
+        "won_count":       won_count,
+        "won_value":       float(row[1] or 0),
+        "conversion_rate": conversion,
+        "last_synced_at":  _fmt(ls),
+        "stale":           _is_stale(ls),
+    }
+
+
+def get_grn_summary(conn, company_id: str, period_days: int = 30) -> dict:
+    """
+    S14 — Goods Received Note KPIs.
+
+    Source report 34 carries quantities but no monetary value, so total_value is
+    0. pending_qir = GRN lines received but not yet inspected (no rejection
+    decision recorded). rejection_rate = rejected / received.
+    Returns: received_count, total_value, pending_qir, rejection_rate.
+    """
+    since = (date.today() - timedelta(days=period_days)).isoformat()
+    with conn.cursor() as cur:
+        cur.execute("""
+            SELECT
+                COUNT(DISTINCT grn_number)              AS received_count,
+                COALESCE(SUM(received_qty), 0)          AS total_received,
+                COALESCE(SUM(rejected_qty), 0)          AS total_rejected,
+                COUNT(*) FILTER (WHERE rejected_qty IS NULL) AS pending_qir
+            FROM tz_grn_qir
+            WHERE company_id = %s AND grn_date >= %s
+        """, (company_id, since))
+        row = cur.fetchone()
+
+    received = float(row[1] or 0)
+    rejected = float(row[2] or 0)
+    rejection_rate = (rejected / received) if received > 0 else 0.0
+
+    ls = _last_sync(conn, "grn_qir", company_id)
+    return {
+        "period_days":    period_days,
+        "received_count": int(row[0] or 0),
+        "total_value":    0.0,
+        "pending_qir":    int(row[3] or 0),
+        "rejection_rate": rejection_rate,
+        "last_synced_at": _fmt(ls),
+        "stale":          _is_stale(ls),
+    }
+
+
+def get_bom_coverage(conn, company_id: str) -> dict:
+    """
+    S15 — BOM / routing coverage.
+
+    Measures what fraction of manufactured SKUs (those appearing in production
+    process details) have a defined process routing (report 86).
+    Returns: total_items, items_with_bom, coverage_pct, items_missing_bom.
+    """
+    with conn.cursor() as cur:
+        cur.execute("""
+            SELECT COUNT(DISTINCT pd.sku_code)
+            FROM tz_process_details pd
+            WHERE pd.company_id = %s AND pd.sku_code IS NOT NULL
+        """, (company_id,))
+        total_items = int(cur.fetchone()[0] or 0)
+
+        cur.execute("""
+            SELECT COUNT(DISTINCT pd.sku_code)
+            FROM tz_process_details pd
+            WHERE pd.company_id = %s AND pd.sku_code IS NOT NULL
+              AND EXISTS (
+                  SELECT 1 FROM tz_process_routing pr
+                  WHERE pr.company_id = pd.company_id AND pr.sku_code = pd.sku_code
+              )
+        """, (company_id,))
+        items_with_bom = int(cur.fetchone()[0] or 0)
+
+    coverage = (items_with_bom / total_items) if total_items else 0.0
+    ls = _last_sync(conn, "process_routing", company_id)
+    return {
+        "total_items":       total_items,
+        "items_with_bom":    items_with_bom,
+        "coverage_pct":      round(coverage * 100, 1),
+        "items_missing_bom": total_items - items_with_bom,
+        "last_synced_at":    _fmt(ls),
+        "stale":             _is_stale(ls),
     }
 
 
@@ -852,6 +1022,56 @@ def get_overdue_pos(conn, company_id: str) -> dict:
     }
 
 
+def get_open_pos(conn, company_id: str) -> dict:
+    """
+    O3b — Open purchase order book.
+
+    Distinguishes two figures that must NOT be conflated:
+      • open  = every PO not yet received/cancelled (regardless of date)
+      • overdue = the subset of open POs whose expected_date is in the past
+
+    Returns: open_count, open_value, overdue_count, overdue_value,
+             by_vendor [{vendor_name, count, value}] (top vendors by open value)
+    """
+    with conn.cursor() as cur:
+        cur.execute("""
+            SELECT
+                COUNT(*)                                                       AS open_count,
+                COALESCE(SUM(po_value), 0)                                     AS open_value,
+                COUNT(*) FILTER (WHERE expected_date < CURRENT_DATE)           AS overdue_count,
+                COALESCE(SUM(po_value) FILTER (WHERE expected_date < CURRENT_DATE), 0) AS overdue_value
+            FROM tz_purchase_orders
+            WHERE company_id = %s
+              AND status NOT IN ('received', 'cancelled')
+        """, (company_id,))
+        totals = cur.fetchone()
+
+        cur.execute(f"""
+            SELECT vendor_name, COUNT(*), COALESCE(SUM(po_value), 0)
+            FROM tz_purchase_orders
+            WHERE company_id = %s
+              AND status NOT IN ('received', 'cancelled')
+            GROUP BY vendor_name
+            ORDER BY COALESCE(SUM(po_value), 0) DESC
+            LIMIT {MAX_VENDORS}
+        """, (company_id,))
+        vendors = cur.fetchall()
+
+    ls = _last_sync(conn, "purchase_orders", company_id)
+    return {
+        "open_count":     int(totals[0] or 0),
+        "open_value":     float(totals[1] or 0),
+        "overdue_count":  int(totals[2] or 0),
+        "overdue_value":  float(totals[3] or 0),
+        "by_vendor": [
+            {"vendor_name": v[0], "count": int(v[1] or 0), "value": float(v[2] or 0)}
+            for v in vendors
+        ],
+        "last_synced_at": _fmt(ls),
+        "stale": _is_stale(ls),
+    }
+
+
 def get_production_wip(conn, company_id: str) -> dict:
     """
     O4 — WIP and production status breakdown.
@@ -881,7 +1101,7 @@ def get_production_wip(conn, company_id: str) -> dict:
                 produced_qty,
                 production_date
             FROM tz_process_details
-            WHERE company_id = %s AND status = 'wip'
+            WHERE company_id = %s AND status ILIKE 'wip'
             ORDER BY production_date DESC
             LIMIT {MAX_PROCESSES}
         """, (company_id,))

@@ -30,9 +30,15 @@ from __future__ import annotations
 
 import logging
 from datetime import date, timedelta
+from typing import Callable, Iterator
+
+import psycopg2
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
+
+from vinayak.config import DATABASE_URL, TRANZACT_BASE_URL
+from vinayak.adapters.tranzact.client import TranzactCreds
 
 # Existing pipelines
 from vinayak.pipelines.ar_aging import ARAgingPipeline
@@ -66,84 +72,98 @@ _process_routing = ProcessRoutingPipeline()
 _process_details = ProcessDetailsPipeline()
 
 
+# ── Multi-tenant credential loading ───────────────────────────────────────────
+# Scheduled jobs must run once PER brand, authenticating as that brand. We pull
+# every active TranzAct connection from the DB, decrypt its credentials, and run
+# the pipeline scoped to that company_id. A brand with no stored connection is
+# simply skipped (nothing to sync).
+
+def _iter_company_creds() -> Iterator[tuple[str, TranzactCreds]]:
+    """Yield (company_id, creds) for every company with an active TranzAct connection."""
+    from vinayak.api.routes.connections import _decrypt
+
+    conn = psycopg2.connect(DATABASE_URL)
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """SELECT company_id, encrypted_credentials
+                   FROM tool_connections
+                   WHERE tool_name = 'tranzact' AND is_active = TRUE""",
+            )
+            rows = cur.fetchall()
+    finally:
+        conn.close()
+
+    for company_id, blob in rows:
+        try:
+            cred = _decrypt(blob)
+            yield company_id, TranzactCreds(
+                email=cred["email"], password=cred["password"], base_url=TRANZACT_BASE_URL,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.error("Scheduler: failed to load creds for %s: %s", company_id, exc)
+
+
+def _run_for_all(pipeline, name: str, days_back: int) -> None:
+    """Run `pipeline` for every company with stored TranzAct creds.
+
+    days_back=0 → today-only snapshot (e.g. AR aging, inventory valuation).
+    A failure for one brand is logged and never aborts the others.
+    """
+    today = date.today()
+    from_date = today - timedelta(days=days_back)
+    companies = list(_iter_company_creds())
+    if not companies:
+        logger.info("Scheduler: %s — no connected workspaces, skipping", name)
+        return
+    for company_id, creds in companies:
+        logger.info("Scheduler: %s for %s (%s → %s)", name, company_id, from_date, today)
+        try:
+            pipeline.run(from_date, today, company_id=company_id, creds=creds)
+        except Exception as exc:  # noqa: BLE001
+            logger.error("Scheduler: %s failed for %s: %s", name, company_id, exc)
+
+
 # ── Job functions ─────────────────────────────────────────────────────────────
 
 def _run_ar_aging() -> None:
-    """AR Aging — today only (point-in-time snapshot)."""
-    today = date.today()
-    logger.info("Scheduler: starting ar_aging for %s", today)
-    _ar_aging.run(today, today)
+    _run_for_all(_ar_aging, "ar_aging", days_back=0)
 
 
 def _run_sales_orders() -> None:
-    """Sales Orders — last 7 days."""
-    today = date.today()
-    from_date = today - timedelta(days=7)
-    logger.info("Scheduler: starting sales_orders %s → %s", from_date, today)
-    _sales_orders.run(from_date, today)
+    _run_for_all(_sales_orders, "sales_orders", days_back=7)
 
 
 def _run_purchase_orders() -> None:
-    """Purchase Orders — last 7 days."""
-    today = date.today()
-    from_date = today - timedelta(days=7)
-    logger.info("Scheduler: starting purchase_orders %s → %s", from_date, today)
-    _purchase_orders.run(from_date, today)
+    _run_for_all(_purchase_orders, "purchase_orders", days_back=7)
 
 
 def _run_inventory_valuation() -> None:
-    """Inventory Valuation — snapshot, date args accepted but not forwarded."""
-    today = date.today()
-    logger.info("Scheduler: starting inventory_valuation snapshot for %s", today)
-    _inventory_valuation.run(today, today)
+    _run_for_all(_inventory_valuation, "inventory_valuation", days_back=0)
 
 
 def _run_process_details() -> None:
-    """Process Details — last 7 days."""
-    today = date.today()
-    from_date = today - timedelta(days=7)
-    logger.info("Scheduler: starting process_details %s → %s", from_date, today)
-    _process_details.run(from_date, today)
+    _run_for_all(_process_details, "process_details", days_back=7)
 
 
 def _run_sales_invoices() -> None:
-    """Sales Invoices — last 30 days."""
-    today = date.today()
-    from_date = today - timedelta(days=30)
-    logger.info("Scheduler: starting sales_invoices %s → %s", from_date, today)
-    _sales_invoices.run(from_date, today)
+    _run_for_all(_sales_invoices, "sales_invoices", days_back=30)
 
 
 def _run_purchase_invoices() -> None:
-    """Purchase Invoices — last 30 days."""
-    today = date.today()
-    from_date = today - timedelta(days=30)
-    logger.info("Scheduler: starting purchase_invoices %s → %s", from_date, today)
-    _purchase_invoices.run(from_date, today)
+    _run_for_all(_purchase_invoices, "purchase_invoices", days_back=30)
 
 
 def _run_grn_qir() -> None:
-    """GRN / QIR — last 30 days."""
-    today = date.today()
-    from_date = today - timedelta(days=30)
-    logger.info("Scheduler: starting grn_qir %s → %s", from_date, today)
-    _grn_qir.run(from_date, today)
+    _run_for_all(_grn_qir, "grn_qir", days_back=30)
 
 
 def _run_sales_quotations() -> None:
-    """Sales Quotations — last 30 days."""
-    today = date.today()
-    from_date = today - timedelta(days=30)
-    logger.info("Scheduler: starting sales_quotations %s → %s", from_date, today)
-    _sales_quotations.run(from_date, today)
+    _run_for_all(_sales_quotations, "sales_quotations", days_back=30)
 
 
 def _run_process_routing() -> None:
-    """Process Routing — last 30 days."""
-    today = date.today()
-    from_date = today - timedelta(days=30)
-    logger.info("Scheduler: starting process_routing %s → %s", from_date, today)
-    _process_routing.run(from_date, today)
+    _run_for_all(_process_routing, "process_routing", days_back=30)
 
 
 # ── Scheduler instance ────────────────────────────────────────────────────────
