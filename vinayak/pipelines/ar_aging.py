@@ -20,7 +20,7 @@ import psycopg2.extras
 from pydantic import BaseModel, field_validator, model_validator
 
 from vinayak.pipelines.base import BasePipeline
-from vinayak.pipelines.helpers import epoch_to_date
+from vinayak.pipelines.helpers import epoch_to_date, stable_row_id
 
 logger = logging.getLogger(__name__)
 
@@ -44,11 +44,7 @@ class ARAgingRow(BaseModel):
     def remap_api_fields(cls, data):
         if not isinstance(data, dict):
             return data
-        raw_id = str(data.get("uuid") or data.get("id") or "").strip()
-        if not raw_id:
-            raise ValueError("Row has no uuid/id — cannot create raw_id")
-        return {
-            "raw_id":             raw_id,
+        mapped = {
             "customer_name":      data.get("company_name"),
             "customer_code":      None,
             "invoice_number":     data.get("document_number"),
@@ -59,6 +55,10 @@ class ARAgingRow(BaseModel):
             "days_overdue":       None,
             "aging_bucket":       None,
         }
+        # AR is a snapshot keyed by invoice (+ customer): re-syncing refreshes the
+        # outstanding balance in place instead of inserting a duplicate.
+        mapped["raw_id"] = stable_row_id(mapped["invoice_number"], mapped["customer_name"])
+        return mapped
 
     @field_validator("invoice_date", "due_date", mode="before")
     @classmethod

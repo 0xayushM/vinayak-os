@@ -95,11 +95,16 @@ export function RevenueKpiPanel({ range }: { range?: DateRange } = {}) {
       error={error}
     >
       <div className="grid grid-cols-2 gap-4 pt-2">
-        <KpiCard label="Period Total" value={formatCurrency(d?.period_total ?? 0, true)} accent="blue" sub={`${formatNumber(d?.invoice_count ?? 0)} invoices`} />
-        <KpiCard label="Avg / Invoice" value={formatCurrency(d?.avg_invoice_value ?? 0, true)} accent="emerald" />
-        <KpiCard label="Monthly Avg (12mo)" value={formatCurrency(d?.monthly_avg ?? 0, true)} accent="violet" />
-        <KpiCard label={`YTD ${d?.ytd_year ?? ""}`} value={formatCurrency(d?.ytd_total ?? 0, true)} accent="amber" sub={`${formatNumber(d?.customer_count ?? 0)} customers`} />
+        <KpiCard label="Revenue · goods value" value={formatCurrency(d?.period_total_goods ?? d?.period_total ?? 0, true)} accent="blue" sub={`${formatNumber(d?.invoice_count ?? 0)} invoices`} />
+        <KpiCard label="Revenue · invoice total" value={formatCurrency(d?.period_total_invoiced ?? 0, true)} accent="emerald" sub="incl. tax / freight" />
+        <KpiCard label="Avg / Invoice" value={formatCurrency(d?.avg_invoice_value ?? 0, true)} accent="violet" />
+        <KpiCard label="Monthly Avg (12mo)" value={formatCurrency(d?.monthly_avg ?? 0, true)} accent="amber" sub={`invoiced ${formatCurrency(d?.monthly_avg_invoiced ?? 0, true)}`} />
+        <KpiCard label={`YTD ${d?.ytd_year ?? ""} · goods`} value={formatCurrency(d?.ytd_total ?? 0, true)} accent="blue" sub={`${formatNumber(d?.customer_count ?? 0)} customers`} />
+        <KpiCard label={`YTD ${d?.ytd_year ?? ""} · invoiced`} value={formatCurrency(d?.ytd_invoiced ?? 0, true)} accent="emerald" />
       </div>
+      <p className="text-[10.5px] text-zinc-600 pt-2">
+        Goods value = sum of line items (ex-tax). Invoice total = printed invoice grand total (incl. tax/freight).
+      </p>
       <CoverageNote from={d?.window_from} to={d?.window_to} />
     </PanelWrapper>
   );
@@ -178,7 +183,7 @@ export function CustomerConcentrationPanel({ range }: { range?: DateRange } = {}
             <div key={s.name} className="flex items-center justify-between text-xs">
               <div className="flex items-center gap-1.5">
                 <span className="w-2 h-2 rounded-full shrink-0" style={{ background: COLORS[i % COLORS.length] }} />
-                <span className="text-[#F2DEC8]/75 truncate max-w-[100px]">{s.name}</span>
+                <span title={s.name} className="text-[#F2DEC8]/75 truncate max-w-[150px]">{s.name}</span>
               </div>
               <span className="text-zinc-500 tabular-nums">{s.pct.toFixed(1)}%</span>
             </div>
@@ -199,7 +204,7 @@ export function TopSkusPanel({ range }: { range?: DateRange } = {}) {
       <div className="space-y-2 pt-1">
         {skus.slice(0, 8).map((s) => (
           <div key={s.sku_code} className="flex items-center gap-2 text-xs">
-            <span className="text-zinc-500 font-mono w-14 shrink-0 truncate">{s.sku_code}</span>
+            <span title={s.sku_code} className="text-zinc-500 font-mono w-24 shrink-0 truncate">{s.sku_code}</span>
             <div className="flex-1 bg-white/[0.06] rounded-full h-1.5 overflow-hidden">
               <div className="h-full rounded-full bg-[#C08457]" style={{ width: `${(s.revenue / max) * 100}%` }} />
             </div>
@@ -245,7 +250,7 @@ export function QuotePipelinePanel() {
   const d = data?.data;
   return (
     <PanelWrapper title="Quote Pipeline" subtitle="Last 30 days" meta={data?.meta} loading={isLoading} error={error}>
-      <div className="grid grid-cols-2 gap-4 pt-2">
+      <div className="grid grid-cols-3 gap-4 pt-2">
         <KpiCard label="Open Quotes" value={formatNumber(d?.open_count ?? 0)} accent="blue" sub={formatCurrency(d?.open_value ?? 0, true)} />
         <KpiCard label="Won" value={formatNumber(d?.won_count ?? 0)} accent="emerald" sub={formatCurrency(d?.won_value ?? 0, true)} />
         <KpiCard label="Conversion Rate" value={`${((d?.conversion_rate ?? 0) * 100).toFixed(1)}%`} accent="violet" />
@@ -260,10 +265,14 @@ export function PurchaseSummaryPanel() {
   return (
     <PanelWrapper title="Purchases" subtitle="Last 30 days" meta={data?.meta} loading={isLoading} error={error}>
       <div className="grid grid-cols-2 gap-4 pt-2">
-        <KpiCard label="Total Spend" value={formatCurrency(d?.period_total ?? 0, true)} accent="amber" sub={`${d?.invoice_count ?? 0} invoices`} />
-        <KpiCard label="Monthly Avg" value={formatCurrency(d?.monthly_avg ?? 0, true)} accent="blue" />
-        <KpiCard label="Active Vendors" value={formatNumber(d?.vendor_count ?? 0)} accent="emerald" />
+        <KpiCard label="Spend · goods value" value={formatCurrency(d?.period_total_goods ?? d?.period_total ?? 0, true)} accent="amber" sub={`${d?.invoice_count ?? 0} invoices`} />
+        <KpiCard label="Spend · invoice total" value={formatCurrency(d?.period_total_invoiced ?? 0, true)} accent="emerald" sub="incl. tax / freight" />
+        <KpiCard label="Monthly Avg" value={formatCurrency(d?.monthly_avg ?? 0, true)} accent="blue" sub={`invoiced ${formatCurrency(d?.monthly_avg_invoiced ?? 0, true)}`} />
+        <KpiCard label="Active Vendors" value={formatNumber(d?.vendor_count ?? 0)} accent="violet" />
       </div>
+      <p className="text-[10.5px] text-zinc-600 pt-2">
+        Goods value = sum of line items (ex-tax). Invoice total = printed grand total (incl. tax/freight).
+      </p>
     </PanelWrapper>
   );
 }
@@ -277,7 +286,7 @@ export function TopVendorsPanel() {
       <div className="space-y-2 pt-1">
         {vendors.slice(0, 8).map((v) => (
           <div key={v.vendor_name} className="flex items-center gap-2 text-xs">
-            <span className="text-zinc-400 w-32 shrink-0 truncate">{v.vendor_name}</span>
+            <span title={v.vendor_name} className="text-zinc-400 w-40 shrink-0 truncate">{v.vendor_name}</span>
             <div className="flex-1 bg-white/[0.06] rounded-full h-1.5 overflow-hidden">
               <div className="h-full rounded-full bg-amber-500" style={{ width: `${(v.spend / max) * 100}%` }} />
             </div>
@@ -455,8 +464,8 @@ export function OpenPosPanel() {
         </div>
         <div className="space-y-1">
           {(d?.by_vendor ?? []).slice(0, 5).map((v) => (
-            <div key={v.vendor_name} className="flex justify-between text-xs">
-              <span className="text-zinc-400 truncate max-w-[140px]">{v.vendor_name}</span>
+            <div key={v.vendor_name} className="flex justify-between text-xs gap-2">
+              <span title={v.vendor_name} className="text-zinc-400 truncate max-w-[180px]">{v.vendor_name}</span>
               <span className="text-[#F2DEC8]/75 tabular-nums">{formatCurrency(v.value, true)}</span>
             </div>
           ))}
@@ -531,7 +540,7 @@ export function GrnPanel() {
   const d = data?.data;
   return (
     <PanelWrapper title="GRN / Goods Received" subtitle="Last 30 days" meta={data?.meta} loading={isLoading} error={error}>
-      <div className="grid grid-cols-2 gap-4 pt-2">
+      <div className="grid grid-cols-3 gap-4 pt-2">
         <KpiCard label="GRNs Received" value={formatNumber(d?.received_count ?? 0)} accent="blue" sub={formatCurrency(d?.total_value ?? 0, true)} />
         <KpiCard label="Pending QIR" value={formatNumber(d?.pending_qir ?? 0)} accent="amber" />
         <KpiCard label="Rejection Rate" value={`${((d?.rejection_rate ?? 0) * 100).toFixed(1)}%`} accent={(d?.rejection_rate ?? 0) > 0.05 ? "red" : "emerald"} />
@@ -545,7 +554,7 @@ export function ProductionPanel() {
   const d = data?.data;
   return (
     <PanelWrapper title="Production" subtitle="WIP & completed jobs" meta={data?.meta} loading={isLoading} error={error}>
-      <div className="grid grid-cols-2 gap-4 pt-2">
+      <div className="grid grid-cols-3 gap-4 pt-2">
         <KpiCard label="WIP Jobs" value={formatNumber(d?.wip_count ?? 0)} accent="blue" sub={formatCurrency(d?.wip_value ?? 0, true)} />
         <KpiCard label="Completed" value={formatNumber(d?.completed_count ?? 0)} accent="emerald" />
         <KpiCard label="Avg Cycle Time" value={`${(d?.avg_cycle_days ?? 0).toFixed(1)}d`} accent="amber" />

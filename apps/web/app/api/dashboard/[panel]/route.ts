@@ -119,10 +119,16 @@ const ROUTES: Record<string, RouteConfig> = {
         ...body,
         data: {
           period_total: data.period_spend ?? 0,
+          // Both bases (BUG 1 fix): goods = SUM(line_total), invoiced = per-invoice header.
+          period_total_goods: data.period_spend_goods ?? data.period_spend ?? 0,
+          period_total_invoiced: data.period_spend_invoiced ?? 0,
           invoice_count: data.invoice_count ?? 0,
           vendor_count: data.vendor_count ?? 0,
           // True trailing-12-month average computed in SQL — NOT the 30-day total.
           monthly_avg: data.monthly_avg ?? 0,
+          monthly_avg_invoiced: data.monthly_avg_invoiced ?? 0,
+          window_from: data.window_from ?? null,
+          window_to: data.window_to ?? null,
         },
       };
     },

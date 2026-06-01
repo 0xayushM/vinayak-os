@@ -24,6 +24,7 @@ import psycopg2.extras
 from pydantic import BaseModel, field_validator, model_validator
 
 from vinayak.pipelines.base import BasePipeline
+from vinayak.pipelines.helpers import stable_row_id
 
 logger = logging.getLogger(__name__)
 
@@ -46,12 +47,8 @@ class InventoryValuationRow(BaseModel):
     def remap_api_fields(cls, data):
         if not isinstance(data, dict):
             return data
-        raw_id = str(data.get("uuid") or data.get("product_id") or "").strip()
-        if not raw_id:
-            raise ValueError("Row has no uuid/product_id — cannot create raw_id")
         item_type = str(data.get("type") or "").strip().lower()
-        return {
-            "raw_id":          raw_id,
+        mapped = {
             "sku_code":        data.get("itemid"),
             "sku_name":        data.get("name"),
             "category":        data.get("category"),
@@ -61,6 +58,10 @@ class InventoryValuationRow(BaseModel):
             "total_value":     data.get("cal_final_stock_cost"),
             "is_raw_material": item_type == "raw material",
         }
+        # Inventory is a snapshot: the natural key is the SKU (+ warehouse), so
+        # hash only the identity fields — re-syncing refreshes qty/value in place.
+        mapped["raw_id"] = stable_row_id(mapped["sku_code"], mapped["warehouse"])
+        return mapped
 
     @field_validator("is_raw_material", mode="before")
     @classmethod

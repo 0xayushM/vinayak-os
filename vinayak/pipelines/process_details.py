@@ -21,7 +21,7 @@ import psycopg2.extras
 from pydantic import BaseModel, field_validator, model_validator
 
 from vinayak.pipelines.base import BasePipeline
-from vinayak.pipelines.helpers import epoch_to_date
+from vinayak.pipelines.helpers import epoch_to_date, stable_row_id
 
 logger = logging.getLogger(__name__)
 
@@ -45,11 +45,7 @@ class ProcessDetailsRow(BaseModel):
     def remap_api_fields(cls, data):
         if not isinstance(data, dict):
             return data
-        raw_id = str(data.get("uuid") or data.get("process_id") or "").strip()
-        if not raw_id:
-            raise ValueError("Row has no uuid/process_id — cannot create raw_id")
-        return {
-            "raw_id":             raw_id,
+        mapped = {
             "production_date":    data.get("creation_date"),
             "work_order_number":  data.get("document_number"),
             "sku_code":           data.get("itemid"),
@@ -60,6 +56,11 @@ class ProcessDetailsRow(BaseModel):
             "rejected_qty":       data.get("fg_reject_quantity"),
             "status":             data.get("status_text"),
         }
+        # Stable content-hash id (not the volatile uuid) — prevents re-sync dupes.
+        # Immutable key only (produced/rejected qty mutate → update in place).
+        mapped["raw_id"] = stable_row_id(
+            mapped["work_order_number"], mapped["sku_code"], mapped["process_name"])
+        return mapped
 
     @field_validator("production_date", mode="before")
     @classmethod
