@@ -21,7 +21,7 @@ import psycopg2.extras
 from pydantic import BaseModel, field_validator, model_validator
 
 from vinayak.pipelines.base import BasePipeline
-from vinayak.pipelines.helpers import epoch_to_date
+from vinayak.pipelines.helpers import epoch_to_date, stable_row_id
 
 logger = logging.getLogger(__name__)
 
@@ -47,11 +47,7 @@ class SalesQuotationRow(BaseModel):
     def remap_api_fields(cls, data):
         if not isinstance(data, dict):
             return data
-        raw_id = str(data.get("uuid") or data.get("document_id") or "").strip()
-        if not raw_id:
-            raise ValueError("Row has no uuid/document_id — cannot create raw_id")
-        return {
-            "raw_id":             raw_id,
+        mapped = {
             "quote_date":         data.get("document_date") or data.get("creation_date"),
             "quote_number":       data.get("document_no_text"),
             "customer_name":      data.get("customer_name"),
@@ -64,6 +60,10 @@ class SalesQuotationRow(BaseModel):
             "valid_until":        data.get("valid_till_date") or data.get("expiry_date"),
             "converted_to_order": data.get("converted_to_order", False),
         }
+        # Stable content-hash id (not the volatile uuid) — prevents re-sync dupes.
+        # Immutable key only (status/converted mutate → update in place).
+        mapped["raw_id"] = stable_row_id(mapped["quote_number"], mapped["sku_code"])
+        return mapped
 
     @field_validator("quote_date", "valid_until", mode="before")
     @classmethod

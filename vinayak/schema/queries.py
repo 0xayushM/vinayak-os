@@ -157,29 +157,75 @@ def _window_meta(w: dict) -> dict:
     }
 
 
-def _sales_monthly_avg(conn, company_id: str, data_to: date | None) -> float:
+# ── Dual-basis revenue helper (BUG 1 fix) ─────────────────────────────────────
+# tz_sales_invoices / tz_purchase_invoices are LINE-LEVEL: one row per invoice
+# line, and every line repeats the same header `invoice_total`. Summing
+# invoice_total across lines therefore multiplies each invoice by its line count.
+# We expose two correct bases instead:
+#   • goods    = SUM(line_total)                  — taxable goods value
+#   • invoiced = SUM of per-invoice header total  — printed invoice grand total
+def _dual_window_totals(
+    conn, table: str, company_id: str, s: str, e: str, date_col: str = "invoice_date",
+) -> tuple[float, float]:
+    """Return (goods_total, invoiced_total) for a [s, e] window on `table`."""
+    with conn.cursor() as cur:
+        cur.execute(
+            f"""
+            SELECT
+                COALESCE(SUM(line_total), 0) AS goods,
+                COALESCE((
+                    SELECT SUM(inv_total) FROM (
+                        SELECT invoice_number, MAX(invoice_total) AS inv_total
+                        FROM {table}
+                        WHERE company_id = %s AND {date_col} >= %s AND {date_col} <= %s
+                        GROUP BY invoice_number
+                    ) d
+                ), 0) AS invoiced
+            FROM {table}
+            WHERE company_id = %s AND {date_col} >= %s AND {date_col} <= %s
+            """,  # noqa: S608 — table/date_col are fixed module identifiers
+            (company_id, s, e, company_id, s, e),
+        )
+        goods, invoiced = cur.fetchone()
+    return float(goods or 0), float(invoiced or 0)
+
+
+def _sales_monthly_avg(conn, company_id: str, data_to: date | None) -> tuple[float, float]:
     """
     Average monthly sales revenue over the trailing 12 months of *available*
     data (anchored to the latest invoice, not today). Divides by the number of
     distinct months that actually have data, so it is a true average and never
     collapses to equal the period total of a 1-month window.
+
+    Returns both bases: (goods_avg, invoiced_avg). See _dual_window_totals.
     """
     if data_to is None:
-        return 0.0
+        return 0.0, 0.0
     floor = data_to - timedelta(days=365)
     with conn.cursor() as cur:
         cur.execute(
             """
-            SELECT COALESCE(SUM(invoice_total), 0),
-                   COUNT(DISTINCT date_trunc('month', invoice_date))
+            SELECT COALESCE(SUM(line_total), 0),
+                   COUNT(DISTINCT date_trunc('month', invoice_date)),
+                   COALESCE((
+                       SELECT SUM(inv_total) FROM (
+                           SELECT invoice_number, MAX(invoice_total) AS inv_total
+                           FROM tz_sales_invoices
+                           WHERE company_id = %s AND invoice_date > %s AND invoice_date <= %s
+                           GROUP BY invoice_number
+                       ) d
+                   ), 0)
             FROM tz_sales_invoices
             WHERE company_id = %s AND invoice_date > %s AND invoice_date <= %s
             """,
-            (company_id, floor.isoformat(), data_to.isoformat()),
+            (company_id, floor.isoformat(), data_to.isoformat(),
+             company_id, floor.isoformat(), data_to.isoformat()),
         )
-        total, n_months = cur.fetchone()
+        goods, n_months, invoiced = cur.fetchone()
     n = int(n_months or 0)
-    return float(total or 0) / n if n else 0.0
+    if not n:
+        return 0.0, 0.0
+    return float(goods or 0) / n, float(invoiced or 0) / n
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -200,10 +246,13 @@ def get_revenue_summary(
     """
     w = _resolve_window(conn, company_id, "tz_sales_invoices", start, end, period_days)
     s, e = w["start"].isoformat(), w["end"].isoformat()
+    # BUG 1 fix: compute both the goods (SUM line_total) and the invoiced
+    # (per-invoice header) bases instead of the line-multiplied SUM(invoice_total).
+    period_goods, period_invoiced = _dual_window_totals(
+        conn, "tz_sales_invoices", company_id, s, e)
     with conn.cursor() as cur:
         cur.execute("""
             SELECT
-                COALESCE(SUM(invoice_total), 0)  AS period_total,
                 COUNT(DISTINCT invoice_number)   AS invoice_count,
                 COUNT(DISTINCT customer_code)    AS customer_count
             FROM tz_sales_invoices
@@ -213,28 +262,30 @@ def get_revenue_summary(
 
         # YTD anchored to the latest data year (not necessarily the wall-clock year).
         anchor_year = (w["data_to"] or date.today()).year
-        cur.execute("""
-            SELECT COALESCE(SUM(invoice_total), 0)
-            FROM tz_sales_invoices
-            WHERE company_id = %s AND EXTRACT(YEAR FROM invoice_date) = %s
-        """, (company_id, anchor_year))
-        ytd_row = cur.fetchone()
+        ystart, yend = date(anchor_year, 1, 1).isoformat(), date(anchor_year, 12, 31).isoformat()
+    ytd_goods, ytd_invoiced = _dual_window_totals(
+        conn, "tz_sales_invoices", company_id, ystart, yend)
 
-    period_total = float(row[0] or 0)
-    invoice_count = int(row[1] or 0)
+    invoice_count = int(row[0] or 0)
+    monthly_goods, monthly_invoiced = _sales_monthly_avg(conn, company_id, w["data_to"])
     ls = _last_sync(conn, "sales_invoices", company_id)
     return {
-        "period_days":       period_days,
-        "period_total":      period_total,
-        "invoice_count":     invoice_count,
-        "customer_count":    int(row[2] or 0),
-        "avg_invoice_value": (period_total / invoice_count) if invoice_count else 0.0,
-        "monthly_avg":       _sales_monthly_avg(conn, company_id, w["data_to"]),
-        "ytd_total":         float(ytd_row[0] or 0),
-        "ytd_year":          anchor_year,
+        "period_days":           period_days,
+        # `period_total` keeps the goods basis (matches SKU/line tables & charts).
+        "period_total":          period_goods,
+        "period_total_goods":    period_goods,
+        "period_total_invoiced": period_invoiced,
+        "invoice_count":         invoice_count,
+        "customer_count":        int(row[1] or 0),
+        "avg_invoice_value":     (period_invoiced / invoice_count) if invoice_count else 0.0,
+        "monthly_avg":           monthly_goods,
+        "monthly_avg_invoiced":  monthly_invoiced,
+        "ytd_total":             ytd_goods,
+        "ytd_invoiced":          ytd_invoiced,
+        "ytd_year":              anchor_year,
         **_window_meta(w),
-        "last_synced_at":    _fmt(ls),
-        "stale":             _is_stale(ls),
+        "last_synced_at":        _fmt(ls),
+        "stale":                 _is_stale(ls),
     }
 
 
@@ -258,7 +309,7 @@ def get_revenue_trend(conn, company_id: str, months: int = 6) -> dict:
         cur.execute("""
             SELECT
                 TO_CHAR(invoice_date, 'YYYY-MM') AS month,
-                COALESCE(SUM(invoice_total), 0)  AS revenue,
+                COALESCE(SUM(line_total), 0)     AS revenue,
                 COUNT(DISTINCT invoice_number)   AS invoice_count
             FROM tz_sales_invoices
             WHERE company_id = %s AND invoice_date >= %s
@@ -302,7 +353,7 @@ def get_revenue_daily(
     with conn.cursor() as cur:
         cur.execute("""
             SELECT invoice_date,
-                   COALESCE(SUM(invoice_total), 0),
+                   COALESCE(SUM(line_total), 0),
                    COUNT(DISTINCT invoice_number)
             FROM tz_sales_invoices
             WHERE company_id = %s AND invoice_date >= %s AND invoice_date <= %s
@@ -341,7 +392,7 @@ def get_customer_concentration(
     s, e = w["start"].isoformat(), w["end"].isoformat()
     with conn.cursor() as cur:
         cur.execute("""
-            SELECT customer_name, COALESCE(SUM(invoice_total), 0) AS revenue
+            SELECT customer_name, COALESCE(SUM(line_total), 0) AS revenue
             FROM tz_sales_invoices
             WHERE company_id = %s AND invoice_date >= %s AND invoice_date <= %s
             GROUP BY customer_name
@@ -351,7 +402,7 @@ def get_customer_concentration(
         top5 = cur.fetchall()
 
         cur.execute("""
-            SELECT COALESCE(SUM(invoice_total), 0)
+            SELECT COALESCE(SUM(line_total), 0)
             FROM tz_sales_invoices
             WHERE company_id = %s AND invoice_date >= %s AND invoice_date <= %s
         """, (company_id, s, e))
@@ -386,16 +437,16 @@ def get_top_customers_revenue(
     with conn.cursor() as cur:
         cur.execute(f"""
             WITH totals AS (
-                SELECT SUM(invoice_total) AS grand_total
+                SELECT SUM(line_total) AS grand_total
                 FROM tz_sales_invoices
                 WHERE company_id = %s AND invoice_date >= %s AND invoice_date <= %s
             )
             SELECT
                 customer_name,
-                COALESCE(SUM(invoice_total), 0) AS revenue,
+                COALESCE(SUM(line_total), 0) AS revenue,
                 COUNT(DISTINCT invoice_number)  AS invoice_count,
                 ROUND(
-                    100.0 * SUM(invoice_total) / NULLIF((SELECT grand_total FROM totals), 0),
+                    100.0 * SUM(line_total) / NULLIF((SELECT grand_total FROM totals), 0),
                     1
                 ) AS pct
             FROM tz_sales_invoices
@@ -546,12 +597,14 @@ def get_top_stock_holdings(conn, company_id: str) -> dict:
     }
 
 
-def _purchase_monthly_avg(conn, company_id: str) -> float:
+def _purchase_monthly_avg(conn, company_id: str) -> tuple[float, float]:
     """
     Average monthly purchase spend over the trailing 12 months of *available*
     data (anchored to the latest invoice). Divides by the number of distinct
     months that actually have data, so it is a true average and never collapses
     to equal a 1-month period total.
+
+    Returns both bases: (goods_avg, invoiced_avg). See _dual_window_totals.
     """
     with conn.cursor() as cur:
         cur.execute(
@@ -560,57 +613,81 @@ def _purchase_monthly_avg(conn, company_id: str) -> float:
         )
         data_to = cur.fetchone()[0]
         if data_to is None:
-            return 0.0
+            return 0.0, 0.0
         floor = data_to - timedelta(days=365)
         cur.execute(
             """
-            SELECT COALESCE(SUM(invoice_total), 0),
-                   COUNT(DISTINCT date_trunc('month', invoice_date))
+            SELECT COALESCE(SUM(line_total), 0),
+                   COUNT(DISTINCT date_trunc('month', invoice_date)),
+                   COALESCE((
+                       SELECT SUM(inv_total) FROM (
+                           SELECT invoice_number, MAX(invoice_total) AS inv_total
+                           FROM tz_purchase_invoices
+                           WHERE company_id = %s AND invoice_date > %s AND invoice_date <= %s
+                           GROUP BY invoice_number
+                       ) d
+                   ), 0)
             FROM tz_purchase_invoices
             WHERE company_id = %s AND invoice_date > %s AND invoice_date <= %s
             """,
-            (company_id, floor.isoformat(), data_to.isoformat()),
+            (company_id, floor.isoformat(), data_to.isoformat(),
+             company_id, floor.isoformat(), data_to.isoformat()),
         )
-        total, n_months = cur.fetchone()
+        goods, n_months, invoiced = cur.fetchone()
     n = int(n_months or 0)
-    return float(total or 0) / n if n else 0.0
+    if not n:
+        return 0.0, 0.0
+    return float(goods or 0) / n, float(invoiced or 0) / n
 
 
 def get_purchases_summary(conn, company_id: str, period_days: int = 30) -> dict:
     """
     S9 — Purchase KPIs.
-    Returns: period_spend, monthly_avg, vendor_count, invoice_count, overdue_po_count
+    Returns: period_spend (+ goods/invoiced bases), monthly_avg, vendor_count,
+             invoice_count, overdue_po_count.
     """
-    since = (date.today() - timedelta(days=period_days)).isoformat()
+    # BUG 2 fix: anchor the window to the latest available data, not today, so
+    # this lines up with the revenue panels even when sync data is not current.
+    w = _resolve_window(conn, company_id, "tz_purchase_invoices", None, None, period_days)
+    s, e = w["start"].isoformat(), w["end"].isoformat()
+    # BUG 1 fix: dual basis instead of line-multiplied SUM(invoice_total).
+    period_goods, period_invoiced = _dual_window_totals(
+        conn, "tz_purchase_invoices", company_id, s, e)
     with conn.cursor() as cur:
         cur.execute("""
             SELECT
-                COALESCE(SUM(invoice_total), 0) AS period_spend,
                 COUNT(DISTINCT vendor_name)     AS vendor_count,
                 COUNT(DISTINCT invoice_number)  AS invoice_count
             FROM tz_purchase_invoices
-            WHERE company_id = %s AND invoice_date >= %s
-        """, (company_id, since))
+            WHERE company_id = %s AND invoice_date >= %s AND invoice_date <= %s
+        """, (company_id, s, e))
         row = cur.fetchone()
 
+        # BUG 3 fix: status is mixed-case in TranzAct — compare case-insensitively.
         cur.execute("""
             SELECT COUNT(*) FROM tz_purchase_orders
             WHERE company_id = %s
               AND expected_date < CURRENT_DATE
-              AND status NOT IN ('received', 'cancelled')
+              AND status NOT ILIKE 'received'
+              AND status NOT ILIKE 'cancelled'
         """, (company_id,))
         overdue_pos = cur.fetchone()[0]
 
+    monthly_goods, monthly_invoiced = _purchase_monthly_avg(conn, company_id)
     ls = _last_sync(conn, "purchase_invoices", company_id)
     return {
-        "period_days":    period_days,
-        "period_spend":   float(row[0] or 0),
-        "monthly_avg":    _purchase_monthly_avg(conn, company_id),
-        "vendor_count":   int(row[1] or 0),
-        "invoice_count":  int(row[2] or 0),
-        "overdue_po_count": int(overdue_pos or 0),
-        "last_synced_at": _fmt(ls),
-        "stale":          _is_stale(ls),
+        "period_days":          period_days,
+        "period_spend":         period_goods,
+        "period_spend_goods":   period_goods,
+        "period_spend_invoiced": period_invoiced,
+        "monthly_avg":          monthly_goods,
+        "monthly_avg_invoiced": monthly_invoiced,
+        "vendor_count":         int(row[0] or 0),
+        "invoice_count":        int(row[1] or 0),
+        "overdue_po_count":     int(overdue_pos or 0),
+        **_window_meta(w),
+        "last_synced_at":       _fmt(ls),
+        "stale":                _is_stale(ls),
     }
 
 
@@ -619,27 +696,30 @@ def get_top_vendors_spend(conn, company_id: str, period_days: int = 30) -> dict:
     S10 — Top N vendors by purchase spend.
     Returns: vendors list [{vendor_name, spend, invoice_count, pct_of_total}]
     """
-    since = (date.today() - timedelta(days=period_days)).isoformat()
+    # BUG 2 fix: anchor to latest data; BUG 1 fix: line_total basis (goods).
+    w = _resolve_window(conn, company_id, "tz_purchase_invoices", None, None, period_days)
+    s, e = w["start"].isoformat(), w["end"].isoformat()
     with conn.cursor() as cur:
         cur.execute(f"""
             WITH totals AS (
-                SELECT SUM(invoice_total) AS grand_total
-                FROM tz_purchase_invoices WHERE company_id = %s AND invoice_date >= %s
+                SELECT SUM(line_total) AS grand_total
+                FROM tz_purchase_invoices
+                WHERE company_id = %s AND invoice_date >= %s AND invoice_date <= %s
             )
             SELECT
                 vendor_name,
-                COALESCE(SUM(invoice_total), 0) AS spend,
+                COALESCE(SUM(line_total), 0) AS spend,
                 COUNT(DISTINCT invoice_number)  AS invoice_count,
                 ROUND(
-                    100.0 * SUM(invoice_total) / NULLIF((SELECT grand_total FROM totals), 0),
+                    100.0 * SUM(line_total) / NULLIF((SELECT grand_total FROM totals), 0),
                     1
                 ) AS pct
             FROM tz_purchase_invoices
-            WHERE company_id = %s AND invoice_date >= %s
+            WHERE company_id = %s AND invoice_date >= %s AND invoice_date <= %s
             GROUP BY vendor_name
             ORDER BY spend DESC
             LIMIT {MAX_VENDORS}
-        """, (company_id, since, company_id, since))
+        """, (company_id, s, e, company_id, s, e))
         rows = cur.fetchall()
 
     ls = _last_sync(conn, "purchase_invoices", company_id)
@@ -660,7 +740,9 @@ def get_production_summary(conn, company_id: str, period_days: int = 30) -> dict
     S11 — Production KPIs.
     Returns: fg_produced, rejected, reject_rate_pct, wip_count, completed_count
     """
-    since = (date.today() - timedelta(days=period_days)).isoformat()
+    # BUG 2 fix: anchor to latest available production data, not today.
+    w = _resolve_window(conn, company_id, "tz_process_details", None, None, period_days)
+    s, e = w["start"].isoformat(), w["end"].isoformat()
     with conn.cursor() as cur:
         # TranzAct stores status_text as 'WIP' / 'Pending' / 'Planned' (mixed
         # case, and there is no literal 'completed' state). Match case-insensitively
@@ -678,8 +760,8 @@ def get_production_summary(conn, company_id: str, period_days: int = 30) -> dict
                                 OR status ILIKE 'closed'
                                 OR (planned_qty > 0 AND produced_qty >= planned_qty)) AS completed_count
             FROM tz_process_details
-            WHERE company_id = %s AND production_date >= %s
-        """, (company_id, since))
+            WHERE company_id = %s AND production_date >= %s AND production_date <= %s
+        """, (company_id, s, e))
         row = cur.fetchone()
 
     fg = float(row[0] or 0)
@@ -707,7 +789,9 @@ def get_quote_summary(conn, company_id: str, period_days: int = 30) -> dict:
     its status explicitly says so. Everything not won/lost/cancelled is open.
     Returns: open_count, open_value, won_count, won_value, conversion_rate.
     """
-    since = (date.today() - timedelta(days=period_days)).isoformat()
+    # BUG 2 fix: anchor to latest available quotation data, not today.
+    w = _resolve_window(conn, company_id, "tz_sales_quotations", None, None, period_days)
+    s, e = w["start"].isoformat(), w["end"].isoformat()
     with conn.cursor() as cur:
         cur.execute("""
             SELECT
@@ -731,8 +815,8 @@ def get_quote_summary(conn, company_id: str, period_days: int = 30) -> dict:
                 ), 0) AS open_value,
                 COUNT(*) AS total_count
             FROM tz_sales_quotations
-            WHERE company_id = %s AND quote_date >= %s
-        """, (company_id, since))
+            WHERE company_id = %s AND quote_date >= %s AND quote_date <= %s
+        """, (company_id, s, e))
         row = cur.fetchone()
 
     won_count = int(row[0] or 0)
@@ -761,7 +845,9 @@ def get_grn_summary(conn, company_id: str, period_days: int = 30) -> dict:
     decision recorded). rejection_rate = rejected / received.
     Returns: received_count, total_value, pending_qir, rejection_rate.
     """
-    since = (date.today() - timedelta(days=period_days)).isoformat()
+    # BUG 2 fix: anchor to latest available GRN data, not today.
+    w = _resolve_window(conn, company_id, "tz_grn_qir", None, None, period_days)
+    s, e = w["start"].isoformat(), w["end"].isoformat()
     with conn.cursor() as cur:
         cur.execute("""
             SELECT
@@ -770,8 +856,8 @@ def get_grn_summary(conn, company_id: str, period_days: int = 30) -> dict:
                 COALESCE(SUM(rejected_qty), 0)          AS total_rejected,
                 COUNT(*) FILTER (WHERE rejected_qty IS NULL) AS pending_qir
             FROM tz_grn_qir
-            WHERE company_id = %s AND grn_date >= %s
-        """, (company_id, since))
+            WHERE company_id = %s AND grn_date >= %s AND grn_date <= %s
+        """, (company_id, s, e))
         row = cur.fetchone()
 
     received = float(row[1] or 0)
@@ -837,13 +923,13 @@ def get_order_book_summary(conn, company_id: str) -> dict:
     with conn.cursor() as cur:
         cur.execute("""
             SELECT
-                COUNT(*) FILTER (WHERE status NOT IN ('dispatched', 'cancelled')) AS open_count,
-                COALESCE(SUM(order_value) FILTER (WHERE status NOT IN ('dispatched','cancelled')), 0) AS open_value,
-                COUNT(*) FILTER (WHERE status = 'dispatched') AS dispatched_count,
+                COUNT(*) FILTER (WHERE LOWER(status) NOT IN ('dispatched', 'cancelled')) AS open_count,
+                COALESCE(SUM(order_value) FILTER (WHERE LOWER(status) NOT IN ('dispatched','cancelled')), 0) AS open_value,
+                COUNT(*) FILTER (WHERE LOWER(status) = 'dispatched') AS dispatched_count,
                 COUNT(*) AS total_count,
                 COUNT(*) FILTER (
                     WHERE delivery_date < CURRENT_DATE
-                    AND status NOT IN ('dispatched', 'cancelled')
+                    AND LOWER(status) NOT IN ('dispatched', 'cancelled')
                 ) AS overdue_count
             FROM tz_sales_orders
             WHERE company_id = %s
@@ -986,7 +1072,7 @@ def get_overdue_pos(conn, company_id: str) -> dict:
             FROM tz_purchase_orders
             WHERE company_id = %s
               AND expected_date < CURRENT_DATE
-              AND status NOT IN ('received', 'cancelled')
+              AND LOWER(status) NOT IN ('received', 'cancelled')
             ORDER BY days_overdue DESC
             LIMIT {MAX_INVOICES}
         """, (company_id,))
@@ -997,7 +1083,7 @@ def get_overdue_pos(conn, company_id: str) -> dict:
             FROM tz_purchase_orders
             WHERE company_id = %s
               AND expected_date < CURRENT_DATE
-              AND status NOT IN ('received', 'cancelled')
+              AND LOWER(status) NOT IN ('received', 'cancelled')
         """, (company_id,))
         totals = cur.fetchone()
 
@@ -1042,7 +1128,7 @@ def get_open_pos(conn, company_id: str) -> dict:
                 COALESCE(SUM(po_value) FILTER (WHERE expected_date < CURRENT_DATE), 0) AS overdue_value
             FROM tz_purchase_orders
             WHERE company_id = %s
-              AND status NOT IN ('received', 'cancelled')
+              AND LOWER(status) NOT IN ('received', 'cancelled')
         """, (company_id,))
         totals = cur.fetchone()
 
@@ -1050,7 +1136,7 @@ def get_open_pos(conn, company_id: str) -> dict:
             SELECT vendor_name, COUNT(*), COALESCE(SUM(po_value), 0)
             FROM tz_purchase_orders
             WHERE company_id = %s
-              AND status NOT IN ('received', 'cancelled')
+              AND LOWER(status) NOT IN ('received', 'cancelled')
             GROUP BY vendor_name
             ORDER BY COALESCE(SUM(po_value), 0) DESC
             LIMIT {MAX_VENDORS}
@@ -1149,7 +1235,7 @@ def get_overdue_orders(conn, company_id: str) -> dict:
             FROM tz_sales_orders
             WHERE company_id = %s
               AND delivery_date < CURRENT_DATE
-              AND status NOT IN ('dispatched', 'cancelled')
+              AND LOWER(status) NOT IN ('dispatched', 'cancelled')
             ORDER BY days_overdue DESC
             LIMIT {MAX_INVOICES}
         """, (company_id,))
@@ -1160,7 +1246,7 @@ def get_overdue_orders(conn, company_id: str) -> dict:
             FROM tz_sales_orders
             WHERE company_id = %s
               AND delivery_date < CURRENT_DATE
-              AND status NOT IN ('dispatched', 'cancelled')
+              AND LOWER(status) NOT IN ('dispatched', 'cancelled')
         """, (company_id,))
         totals = cur.fetchone()
 
@@ -1506,7 +1592,7 @@ def get_sales_orders_list(
     """Paginated sales-order lines (date-windowed, searchable, status filter)."""
     extra_where, extra_params = ([], [])
     if status:
-        extra_where.append("status = %s")
+        extra_where.append("status ILIKE %s")
         extra_params.append(status)
     return _paged_list(
         conn, company_id, table="tz_sales_orders", pipeline="sales_orders",
@@ -1540,7 +1626,7 @@ def get_purchase_orders_list(
     """Paginated purchase-order lines (date-windowed, searchable, status filter)."""
     extra_where, extra_params = ([], [])
     if status:
-        extra_where.append("status = %s")
+        extra_where.append("status ILIKE %s")
         extra_params.append(status)
     return _paged_list(
         conn, company_id, table="tz_purchase_orders", pipeline="purchase_orders",
@@ -1574,7 +1660,7 @@ def get_production_list(
     """Paginated production process records (date-windowed, searchable, status filter)."""
     extra_where, extra_params = ([], [])
     if status:
-        extra_where.append("status = %s")
+        extra_where.append("status ILIKE %s")
         extra_params.append(status)
     return _paged_list(
         conn, company_id, table="tz_process_details", pipeline="process_details",

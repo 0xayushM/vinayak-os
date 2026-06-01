@@ -21,7 +21,7 @@ import psycopg2.extras
 from pydantic import BaseModel, field_validator, model_validator
 
 from vinayak.pipelines.base import BasePipeline
-from vinayak.pipelines.helpers import epoch_to_date
+from vinayak.pipelines.helpers import epoch_to_date, stable_row_id
 
 logger = logging.getLogger(__name__)
 
@@ -48,11 +48,7 @@ class PurchaseOrderRow(BaseModel):
     def remap_api_fields(cls, data):
         if not isinstance(data, dict):
             return data
-        raw_id = str(data.get("uuid") or data.get("document_id") or "").strip()
-        if not raw_id:
-            raise ValueError("Row has no uuid/document_id — cannot create raw_id")
-        return {
-            "raw_id":       raw_id,
+        mapped = {
             "po_date":      data.get("document_date"),
             "po_number":    data.get("document_no_text"),
             "vendor_name":  data.get("supplier_name"),
@@ -66,6 +62,10 @@ class PurchaseOrderRow(BaseModel):
             "expected_date": data.get("doc_delivery_date"),
             "status":       data.get("document_status"),
         }
+        # Stable content-hash id (not the volatile uuid) — prevents re-sync dupes.
+        # Immutable key only (value/status mutate across syncs → update in place).
+        mapped["raw_id"] = stable_row_id(mapped["po_number"])
+        return mapped
 
     @field_validator("po_date", "expected_date", mode="before")
     @classmethod

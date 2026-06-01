@@ -21,7 +21,7 @@ import psycopg2.extras
 from pydantic import BaseModel, field_validator, model_validator
 
 from vinayak.pipelines.base import BasePipeline
-from vinayak.pipelines.helpers import epoch_to_date
+from vinayak.pipelines.helpers import epoch_to_date, num, stable_row_id
 
 logger = logging.getLogger(__name__)
 
@@ -47,12 +47,8 @@ class GRNQIRRow(BaseModel):
     def remap_api_fields(cls, data):
         if not isinstance(data, dict):
             return data
-        raw_id = str(data.get("uuid") or data.get("document_id") or "").strip()
-        if not raw_id:
-            raise ValueError("Row has no uuid/document_id — cannot create raw_id")
         received = data.get("received_quantity")
-        return {
-            "raw_id":       raw_id,
+        mapped = {
             "grn_date":     data.get("inward_date"),
             "grn_number":   data.get("inward_number"),
             "vendor_name":  data.get("supplier_name"),
@@ -65,6 +61,10 @@ class GRNQIRRow(BaseModel):
             "rejected_qty": None,
             "accepted_qty": received,
         }
+        # Stable content-hash id (not the volatile uuid) — prevents re-sync dupes.
+        mapped["raw_id"] = stable_row_id(
+            mapped["grn_number"], mapped["item_code"], num(mapped["received_qty"]))
+        return mapped
 
     @field_validator("grn_date", mode="before")
     @classmethod

@@ -62,12 +62,16 @@ export interface RangeOpts { days?: number; start?: string; end?: string; }
 // ── Revenue panels ────────────────────────────────────────────────────────────
 export interface RevenueSummary extends WindowMeta {
   period_days:      number;
-  period_total:     number;
+  period_total:     number;   // goods basis (SUM line_total)
+  period_total_goods:    number;
+  period_total_invoiced: number;  // printed invoice grand total
   invoice_count:    number;
   customer_count:   number;
   avg_invoice_value: number;
   monthly_avg:      number;
+  monthly_avg_invoiced: number;
   ytd_total:        number;
+  ytd_invoiced:     number;
   ytd_year:         number;
 }
 
@@ -138,7 +142,12 @@ export function useQuoteSummary(days = 30) {
 }
 
 export interface PurchaseSummary {
-  period_total: number; invoice_count: number; vendor_count: number; monthly_avg: number;
+  period_total: number;   // goods basis (SUM line_total)
+  period_total_goods: number;
+  period_total_invoiced: number;  // printed invoice grand total
+  invoice_count: number; vendor_count: number;
+  monthly_avg: number; monthly_avg_invoiced: number;
+  window_from?: string | null; window_to?: string | null;
 }
 
 export function usePurchaseSummary(days = 30) {

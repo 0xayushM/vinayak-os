@@ -22,7 +22,7 @@ import psycopg2.extras
 from pydantic import BaseModel, field_validator, model_validator
 
 from vinayak.pipelines.base import BasePipeline
-from vinayak.pipelines.helpers import epoch_to_date
+from vinayak.pipelines.helpers import epoch_to_date, num, stable_row_id
 
 logger = logging.getLogger(__name__)
 
@@ -52,11 +52,7 @@ class SalesInvoiceRow(BaseModel):
     def remap_api_fields(cls, data):
         if not isinstance(data, dict):
             return data
-        raw_id = str(data.get("uuid") or data.get("document_id") or "").strip()
-        if not raw_id:
-            raise ValueError("Row has no uuid/document_id — cannot create raw_id")
-        return {
-            "raw_id":         raw_id,
+        mapped = {
             "invoice_date":   data.get("document_date"),
             "invoice_number": data.get("document_no_text"),
             "customer_name":  data.get("customer_name"),
@@ -73,6 +69,12 @@ class SalesInvoiceRow(BaseModel):
             "due_date":       data.get("payment_due_date"),
             "salesperson":    data.get("creator_name"),
         }
+        # Stable content-hash id (NOT the volatile TranzAct uuid) so re-syncing
+        # the same line upserts in place instead of inserting a duplicate.
+        mapped["raw_id"] = stable_row_id(
+            mapped["invoice_number"], mapped["sku_code"],
+            num(mapped["quantity"]), num(mapped["unit_price"]), num(mapped["line_total"]))
+        return mapped
 
     @field_validator("invoice_date", "due_date", mode="before")
     @classmethod

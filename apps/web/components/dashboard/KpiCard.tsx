@@ -38,9 +38,9 @@ export function KpiCard({
 }: KpiCardProps) {
   return (
     <div className="flex flex-col gap-1 h-full">
-      <div className="flex items-center gap-1.5">
-        <span className={cn("w-1.5 h-1.5 rounded-full shrink-0", DOT_CLASSES[accent])} />
-        <span className="text-[10.5px] font-medium text-[#7a6055] uppercase tracking-[0.08em] truncate">
+      <div className="flex items-start gap-1.5 min-h-[26px]">
+        <span className={cn("w-1.5 h-1.5 rounded-full shrink-0 mt-[5px]", DOT_CLASSES[accent])} />
+        <span className="text-[10.5px] font-medium text-[#7a6055] uppercase tracking-[0.08em] leading-tight">
           {label}
         </span>
       </div>

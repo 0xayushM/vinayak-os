@@ -21,6 +21,7 @@ import psycopg2.extras
 from pydantic import BaseModel, field_validator, model_validator
 
 from vinayak.pipelines.base import BasePipeline
+from vinayak.pipelines.helpers import stable_row_id
 
 logger = logging.getLogger(__name__)
 
@@ -41,11 +42,7 @@ class ProcessRoutingRow(BaseModel):
     def remap_api_fields(cls, data):
         if not isinstance(data, dict):
             return data
-        raw_id = str(data.get("uuid") or data.get("process_id") or "").strip()
-        if not raw_id:
-            raise ValueError("Row has no uuid/process_id — cannot create raw_id")
-        return {
-            "raw_id":          raw_id,
+        mapped = {
             "sku_code":        data.get("itemid"),
             "sku_name":        data.get("fg_name"),
             "process_name":    data.get("full_routing_name"),
@@ -53,6 +50,9 @@ class ProcessRoutingRow(BaseModel):
             "standard_hours":  None,
             "machine_centre":  None,
         }
+        # Stable content-hash id (not the volatile uuid) — prevents re-sync dupes.
+        mapped["raw_id"] = stable_row_id(mapped["sku_code"], mapped["process_name"])
+        return mapped
 
     @field_validator("sequence_number", mode="before")
     @classmethod
