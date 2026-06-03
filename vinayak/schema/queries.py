@@ -392,10 +392,13 @@ def get_customer_concentration(
     s, e = w["start"].isoformat(), w["end"].isoformat()
     with conn.cursor() as cur:
         cur.execute("""
-            SELECT customer_name, COALESCE(SUM(line_total), 0) AS revenue
+            -- Group on the customer ENTITY (customer_code), not the display name,
+            -- so two codes don't merge under a shared name and the count here ties
+            -- out with get_revenue_summary's #distinct customer_code.
+            SELECT MAX(customer_name) AS customer_name, COALESCE(SUM(line_total), 0) AS revenue
             FROM tz_sales_invoices
             WHERE company_id = %s AND invoice_date >= %s AND invoice_date <= %s
-            GROUP BY customer_name
+            GROUP BY COALESCE(customer_code, customer_name)
             ORDER BY revenue DESC
             LIMIT 5
         """, (company_id, s, e))
@@ -442,7 +445,7 @@ def get_top_customers_revenue(
                 WHERE company_id = %s AND invoice_date >= %s AND invoice_date <= %s
             )
             SELECT
-                customer_name,
+                MAX(customer_name) AS customer_name,
                 COALESCE(SUM(line_total), 0) AS revenue,
                 COUNT(DISTINCT invoice_number)  AS invoice_count,
                 ROUND(
@@ -451,7 +454,8 @@ def get_top_customers_revenue(
                 ) AS pct
             FROM tz_sales_invoices
             WHERE company_id = %s AND invoice_date >= %s AND invoice_date <= %s
-            GROUP BY customer_name
+            -- Group on the customer ENTITY (customer_code) with name as a label.
+            GROUP BY COALESCE(customer_code, customer_name)
             ORDER BY revenue DESC
             LIMIT {MAX_CUSTOMERS}
         """, (company_id, s, e, company_id, s, e))
@@ -958,39 +962,68 @@ def get_order_book_summary(conn, company_id: str) -> dict:
 def get_ar_summary(conn, company_id: str) -> dict:
     """
     O1 — AR aging buckets + overdue invoice list.
+
+    Aging is COMPUTED here from the invoice date (CURRENT_DATE − invoice_date),
+    not read from TranzAct's pre-bucketed `aging_bucket`. TranzAct's own aging can
+    be anchored to "last received" rather than the invoice date, so reading its
+    bucket straight through made dashboard aging drift from a freshly-computed
+    one. Overdue is measured against `due_date`. Only open balances
+    (outstanding_amount <> 0) are included.
+
     Returns: aging_buckets, overdue_count, overdue_value, top_exposures
     """
-    with conn.cursor() as cur:
-        cur.execute("""
+    # Shared derivation: age since invoice, days past due, bucket label.
+    base = """
+        WITH ar AS (
             SELECT
-                aging_bucket,
-                COUNT(*)                            AS count,
-                COALESCE(SUM(outstanding_amount), 0) AS value
+                customer_name, customer_code, outstanding_amount,
+                COALESCE(CURRENT_DATE - invoice_date, 0)        AS age_days,
+                (CURRENT_DATE - due_date)                       AS days_overdue
             FROM tz_ar_aging
-            WHERE company_id = %s
-            GROUP BY aging_bucket
-            ORDER BY aging_bucket
+            WHERE company_id = %s AND COALESCE(outstanding_amount, 0) <> 0
+        ),
+        bucketed AS (
+            SELECT *,
+                CASE
+                    WHEN age_days <= 30 THEN '0-30'
+                    WHEN age_days <= 60 THEN '31-60'
+                    WHEN age_days <= 90 THEN '61-90'
+                    ELSE '90+'
+                END AS bucket,
+                CASE
+                    WHEN age_days <= 30 THEN 1
+                    WHEN age_days <= 60 THEN 2
+                    WHEN age_days <= 90 THEN 3
+                    ELSE 4
+                END AS bucket_ord
+            FROM ar
+        )
+    """
+    with conn.cursor() as cur:
+        cur.execute(base + """
+            SELECT bucket, COUNT(*), COALESCE(SUM(outstanding_amount), 0)
+            FROM bucketed
+            GROUP BY bucket, bucket_ord
+            ORDER BY bucket_ord
         """, (company_id,))
         buckets = cur.fetchall()
 
-        cur.execute("""
+        cur.execute(base + """
             SELECT
-                COUNT(*) FILTER (WHERE days_overdue > 0) AS overdue_count,
-                COALESCE(SUM(outstanding_amount) FILTER (WHERE days_overdue > 0), 0) AS overdue_value,
-                COALESCE(SUM(outstanding_amount), 0) AS total_outstanding
-            FROM tz_ar_aging
-            WHERE company_id = %s
+                COUNT(*) FILTER (WHERE days_overdue > 0),
+                COALESCE(SUM(outstanding_amount) FILTER (WHERE days_overdue > 0), 0),
+                COALESCE(SUM(outstanding_amount), 0)
+            FROM bucketed
         """, (company_id,))
         summary = cur.fetchone()
 
-        cur.execute(f"""
+        cur.execute(base + f"""
             SELECT
-                customer_name,
+                MAX(customer_name) AS customer_name,
                 COALESCE(SUM(outstanding_amount), 0) AS outstanding,
-                MAX(days_overdue)                    AS oldest_days
-            FROM tz_ar_aging
-            WHERE company_id = %s
-            GROUP BY customer_name
+                MAX(age_days)                        AS oldest_days
+            FROM bucketed
+            GROUP BY COALESCE(customer_code, customer_name)
             ORDER BY outstanding DESC
             LIMIT {MAX_CUSTOMERS}
         """, (company_id,))
