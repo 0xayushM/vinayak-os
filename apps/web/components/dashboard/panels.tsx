@@ -97,7 +97,7 @@ export function RevenueKpiPanel({ range }: { range?: DateRange } = {}) {
       <div className="grid grid-cols-2 gap-4 pt-2">
         <KpiCard label="Revenue · goods value" value={formatCurrency(d?.period_total_goods ?? d?.period_total ?? 0, true)} accent="blue" sub={`${formatNumber(d?.invoice_count ?? 0)} invoices`} />
         <KpiCard label="Revenue · invoice total" value={formatCurrency(d?.period_total_invoiced ?? 0, true)} accent="emerald" sub="incl. tax / freight" />
-        <KpiCard label="Avg / Invoice" value={formatCurrency(d?.avg_invoice_value ?? 0, true)} accent="violet" />
+        <KpiCard label="Avg / Invoice" value={formatCurrency(d?.avg_invoice_value ?? 0, true)} accent="violet" sub="per printed invoice (incl. tax)" />
         <KpiCard label="Monthly Avg (12mo)" value={formatCurrency(d?.monthly_avg ?? 0, true)} accent="amber" sub={`invoiced ${formatCurrency(d?.monthly_avg_invoiced ?? 0, true)}`} />
         <KpiCard label={`YTD ${d?.ytd_year ?? ""} · goods`} value={formatCurrency(d?.ytd_total ?? 0, true)} accent="blue" sub={`${formatNumber(d?.customer_count ?? 0)} customers`} />
         <KpiCard label={`YTD ${d?.ytd_year ?? ""} · invoiced`} value={formatCurrency(d?.ytd_invoiced ?? 0, true)} accent="emerald" />

@@ -59,7 +59,8 @@ class ProcessDetailsRow(BaseModel):
         # Stable content-hash id (not the volatile uuid) — prevents re-sync dupes.
         # Immutable key only (produced/rejected qty mutate → update in place).
         mapped["raw_id"] = stable_row_id(
-            mapped["work_order_number"], mapped["sku_code"], mapped["process_name"])
+            mapped["work_order_number"], mapped["sku_code"], mapped["process_name"],
+            mapped["production_date"])
         return mapped
 
     @field_validator("production_date", mode="before")
