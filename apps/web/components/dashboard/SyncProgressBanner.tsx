@@ -14,7 +14,7 @@ import { CheckCircle, Circle, Loader2, XCircle, ChevronDown, ChevronUp } from "l
 import { cn } from "@/lib/utils/cn";
 import { apiFetch } from "@/lib/api";
 
-type PipelineStatus = "pending" | "running" | "success" | "failed";
+type PipelineStatus = "pending" | "running" | "success" | "failed" | "timed_out";
 
 interface Pipeline {
   key: string;
@@ -117,14 +117,19 @@ export function SyncProgressBanner() {
                 {p.status === "success" && <CheckCircle className="w-3 h-3 shrink-0 text-[#d4a070]" />}
                 {p.status === "running" && <Loader2 className="w-3 h-3 shrink-0 animate-spin text-[#C08457]" />}
                 {p.status === "failed"  && <XCircle className="w-3 h-3 shrink-0 text-red-400" />}
+                {p.status === "timed_out" && <XCircle className="w-3 h-3 shrink-0 text-amber-400" />}
                 {p.status === "pending" && <Circle className="w-3 h-3 shrink-0 text-zinc-700" />}
-                <span className={cn(
-                  "truncate",
-                  p.status === "success" ? "text-zinc-400"
-                  : p.status === "running" ? "text-[#F2DEC8]/90"
-                  : p.status === "failed"  ? "text-red-400"
-                  : "text-zinc-700",
-                )}>
+                <span
+                  title={p.error ?? undefined}
+                  className={cn(
+                    "truncate",
+                    p.status === "success" ? "text-zinc-400"
+                    : p.status === "running" ? "text-[#F2DEC8]/90"
+                    : p.status === "failed"  ? "text-red-400"
+                    : p.status === "timed_out" ? "text-amber-400"
+                    : "text-zinc-700",
+                  )}
+                >
                   {p.label}
                 </span>
               </li>
