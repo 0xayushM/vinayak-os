@@ -447,6 +447,99 @@ export interface SyncRun {
 }
 export interface SyncHealth { runs: SyncRun[]; stale_pipelines: string[]; healthy: boolean; }
 
+// ── Layer-2: business profile + memory facts ──────────────────────────────────
+export interface BusinessProfile {
+  industry: string | null;
+  sub_vertical: string | null;
+  fiscal_year_start: string | null;
+  gst_registered: boolean | null;
+  base_currency: string | null;
+  healthy_margin_pct: number | null;
+  seasonality: string | null;
+  key_customers: unknown[] | null;
+  kpis: string | null;
+  extras: Record<string, unknown> | null;
+  updated_at: string | null;
+}
+
+export interface MemoryFact {
+  id: string;
+  entity_type: string | null;
+  entity_ref: string | null;
+  claim_key: string | null;
+  claim_value: unknown;
+  origin: string | null;
+  confidence: number | null;
+  created_at: string | null;
+  valid_until: string | null;
+  last_validated_at: string | null;
+  status: "active" | "stale" | "superseded";
+  superseded_by: string | null;
+  stale_reason: string | null;
+}
+
+export function useProfile() {
+  return useSWR<{ profile: BusinessProfile | null }>(
+    "/api/be/dashboard/profile", fetcher, { revalidateOnFocus: false },
+  );
+}
+
+export async function saveProfile(body: Partial<BusinessProfile>): Promise<void> {
+  const res = await apiFetch("/api/be/dashboard/profile", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+}
+
+export function useMemory(entityRef?: string) {
+  const qs = entityRef ? `?entity_ref=${encodeURIComponent(entityRef)}` : "";
+  return useSWR<{ facts: MemoryFact[] }>(
+    `/api/be/dashboard/memory${qs}`, fetcher, { revalidateOnFocus: false },
+  );
+}
+
+export async function addFact(body: {
+  entity_type: string; entity_ref: string; claim_key: string;
+  claim_value: unknown; origin?: string; valid_until?: string | null;
+}): Promise<void> {
+  const res = await apiFetch("/api/be/dashboard/memory", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+}
+
+export async function deleteFact(id: string): Promise<void> {
+  const res = await apiFetch(`/api/be/dashboard/memory/${id}`, { method: "DELETE" });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+}
+
+export async function revalidateMemory(): Promise<{ time_stale: number; contradiction_stale: number }> {
+  const res = await apiFetch("/api/be/dashboard/memory/revalidate", { method: "POST" });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+// ── Layer-0 data quality (canonical mapping coverage) ─────────────────────────
+export interface IngestQuality {
+  objects: { object_type: string; mapped: number }[];
+  total_mapped: number;
+  issue_count: number;
+  coverage_pct: number;
+  top_issues: { object_type: string; field: string; reason: string; count: number }[];
+  checked_at: string;
+}
+
+export function useIngestQuality() {
+  return useSWR<IngestQuality>("/api/dashboard/ingest-quality", fetcher, {
+    refreshInterval: 5 * 60 * 1_000,
+    revalidateOnFocus: false,
+  });
+}
+
 export function useSyncHealth() {
   return useSWR<SyncHealth>("/api/dashboard/sync-health", fetcher, {
     refreshInterval: 5 * 60 * 1_000,

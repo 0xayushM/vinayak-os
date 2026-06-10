@@ -240,6 +240,11 @@ const ROUTES: Record<string, RouteConfig> = {
     }),
   },
 
+  "ingest-quality": {
+    path: "/dashboard/ingest/quality",
+    // Raw passthrough (no envelope) — Layer-0 canonical mapping coverage.
+  },
+
   "sync-health": {
     path: "/dashboard/sync/health",
     // FastAPI returns raw (no envelope); we reshape to SyncHealth.

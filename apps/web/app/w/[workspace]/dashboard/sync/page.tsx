@@ -1,9 +1,66 @@
 "use client";
 
-import { useSyncHealth } from "@/hooks/useDashboard";
-import { CheckCircle, AlertTriangle, XCircle, RefreshCw } from "lucide-react";
+import { useSyncHealth, useIngestQuality } from "@/hooks/useDashboard";
+import { CheckCircle, AlertTriangle, XCircle, RefreshCw, Database } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
 import { HistoryBackfill } from "@/components/dashboard/HistoryBackfill";
+
+const OBJECT_LABELS: Record<string, string> = {
+  customer: "Customers",
+  sales_invoice: "Sales invoices",
+  sales_invoice_line: "Invoice lines",
+  inventory_item: "Inventory items",
+  payment: "Receivables",
+};
+
+function DataQualityCard() {
+  const { data } = useIngestQuality();
+  if (!data) return null;
+  const clean = data.issue_count === 0;
+  return (
+    <div className="surface-card p-4 space-y-3">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Database className="w-4 h-4 text-[#C08457]" />
+          <span className="text-sm font-medium text-zinc-50">Canonical data quality</span>
+        </div>
+        <span className={cn("text-xs font-semibold tabular-nums", clean ? "text-[#d4a070]" : "text-amber-400")}>
+          {data.coverage_pct}% mapped
+        </span>
+      </div>
+      <p className="text-[11px] text-zinc-500">
+        How much of the synced Tranzact data mapped cleanly into the source-independent
+        canonical schema (Layer 0). Unmapped rows are logged, never guessed.
+      </p>
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+        {data.objects.map((o) => (
+          <div key={o.object_type} className="rounded-lg bg-white/[0.03] border border-white/[0.06] px-3 py-2">
+            <p className="text-[10px] text-zinc-500 uppercase tracking-wide">{OBJECT_LABELS[o.object_type] ?? o.object_type}</p>
+            <p className="text-base font-semibold text-[#F2DEC8]/90 tabular-nums">{o.mapped.toLocaleString("en-IN")}</p>
+          </div>
+        ))}
+      </div>
+      {clean ? (
+        <p className="text-[11px] text-[#d4a070] flex items-center gap-1.5">
+          <CheckCircle className="w-3.5 h-3.5" /> No unmapped rows — every record landed in the canonical schema.
+        </p>
+      ) : (
+        <div className="space-y-1">
+          <p className="text-[11px] text-amber-400 flex items-center gap-1.5">
+            <AlertTriangle className="w-3.5 h-3.5" /> {data.issue_count} unmapped row(s) — parser backlog:
+          </p>
+          <ul className="text-[11px] text-zinc-400 space-y-0.5">
+            {data.top_issues.map((it, i) => (
+              <li key={i} className="tabular-nums">
+                <span className="text-zinc-500">{it.object_type}.{it.field}</span> — {it.reason} ({it.count})
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
 
 function StatusIcon({ status }: { status: string }) {
   if (status === "success")
@@ -45,6 +102,9 @@ export default function SyncHealthPage() {
 
       {/* History coverage — how far back each report has been fetched */}
       <HistoryBackfill mode="coverage" />
+
+      {/* Layer-0 canonical mapping coverage */}
+      <DataQualityCard />
 
       {/* Health banner */}
       {data && (

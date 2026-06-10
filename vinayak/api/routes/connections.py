@@ -198,6 +198,20 @@ def _run_full_sync(email: str, password: str, company_id: str) -> None:
 
             with lock:
                 state["completed"] += 1
+
+        # Layer 0: map the freshly-synced tz_* rows into the canonical schema so
+        # the dashboard (which now reads canon_*) reflects the new data. Failures
+        # here don't fail the sync — the canonical layer just lags one cycle.
+        try:
+            from vinayak.canonical.tranzact_canonical import rebuild_canonical
+            cdb = psycopg2.connect(DATABASE_URL)
+            try:
+                stats = rebuild_canonical(cdb, company_id)
+                logger.info("Canonical rebuild for %s: %s", company_id, stats.upserted)
+            finally:
+                cdb.close()
+        except Exception as exc:  # noqa: BLE001
+            logger.error("Canonical rebuild failed for %s: %s", company_id, exc)
     except Exception as exc:  # noqa: BLE001
         logger.error("Full sync aborted for %s: %s", company_id, exc)
         with lock:

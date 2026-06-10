@@ -21,12 +21,14 @@ from __future__ import annotations
 import psycopg2
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel
 
 import logging
 logger = logging.getLogger(__name__)
 
 from vinayak.config import DATABASE_URL
 from vinayak.schema import queries
+from vinayak.memory import store as memory
 from vinayak.api.routes.workspaces import require_workspace
 
 router = APIRouter()
@@ -519,6 +521,111 @@ def sync_health(company_id: str = Depends(require_workspace)):
     finally:
         conn.close()
     return data
+
+
+@router.get("/ingest/quality")
+def ingest_quality(company_id: str = Depends(require_workspace)):
+    """Layer-0 data-quality: canonical mapping coverage + top unmapped issues."""
+    conn = _conn()
+    try:
+        data = queries.get_ingest_quality(conn, company_id)
+    finally:
+        conn.close()
+    return data
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# LAYER 2 — Business profile + memory facts
+# ════════════════════════════════════════════════════════════════════════════
+
+class ProfileIn(BaseModel):
+    industry: str | None = None
+    sub_vertical: str | None = None
+    fiscal_year_start: str | None = None
+    gst_registered: bool | None = None
+    base_currency: str | None = None
+    healthy_margin_pct: float | None = None
+    seasonality: str | None = None
+    key_customers: list | None = None
+    kpis: str | None = None
+    extras: dict | None = None
+
+
+class FactIn(BaseModel):
+    entity_type: str
+    entity_ref: str
+    claim_key: str
+    claim_value: object
+    origin: str = "user_confirmed"
+    confidence: float = 1.0
+    valid_until: str | None = None
+    source_msg_id: str | None = None
+
+
+@router.get("/profile")
+def get_profile(company_id: str = Depends(require_workspace)):
+    conn = _conn()
+    try:
+        return {"profile": memory.get_profile(conn, company_id)}
+    finally:
+        conn.close()
+
+
+@router.put("/profile")
+def put_profile(body: ProfileIn, company_id: str = Depends(require_workspace)):
+    conn = _conn()
+    try:
+        return {"profile": memory.upsert_profile(conn, company_id, body.model_dump(exclude_none=True))}
+    finally:
+        conn.close()
+
+
+@router.get("/memory")
+def list_memory(
+    company_id: str = Depends(require_workspace),
+    entity_ref: str | None = Query(None),
+):
+    conn = _conn()
+    try:
+        return {"facts": memory.active_facts(conn, company_id, entity_ref)}
+    finally:
+        conn.close()
+
+
+@router.post("/memory")
+def add_memory(body: FactIn, company_id: str = Depends(require_workspace)):
+    conn = _conn()
+    try:
+        fact = memory.write_fact(
+            conn, company_id,
+            entity_type=body.entity_type, entity_ref=body.entity_ref,
+            claim_key=body.claim_key, claim_value=body.claim_value,
+            origin=body.origin, confidence=body.confidence,
+            valid_until=body.valid_until, source_msg_id=body.source_msg_id,
+        )
+        return {"fact": fact}
+    finally:
+        conn.close()
+
+
+@router.delete("/memory/{fact_id}")
+def delete_memory(fact_id: str, company_id: str = Depends(require_workspace)):
+    conn = _conn()
+    try:
+        memory.supersede_fact(conn, company_id, fact_id)
+        return {"ok": True}
+    finally:
+        conn.close()
+
+
+@router.post("/memory/revalidate")
+def revalidate_memory(company_id: str = Depends(require_workspace)):
+    """Run the decay sweep: flag time-expired + data-contradicted facts as stale."""
+    conn = _conn()
+    try:
+        return memory.run_decay(conn, company_id)
+    finally:
+        conn.close()
 
 
 @router.post("/sync/trigger/{pipeline_name}")

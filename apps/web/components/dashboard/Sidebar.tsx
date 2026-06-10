@@ -7,7 +7,7 @@ import { usePathname } from "next/navigation";
 import {
   BarChart3, TrendingUp, Users, Package, ShoppingCart,
   CreditCard, Truck, Wrench, Activity, Settings, Zap, LogOut,
-  Menu, X, ChevronsUpDown, Plus, ExternalLink, Check, Loader2,
+  Menu, X, ChevronsUpDown, Plus, ExternalLink, Check, Loader2, Brain,
 } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
 import { useSyncHealth } from "@/hooks/useDashboard";
@@ -44,6 +44,12 @@ const NAV = [
       { label: "Inventory",             href: "/dashboard/inventory",  icon: BarChart3  },
       { label: "Production",            href: "/dashboard/production", icon: Wrench     },
       { label: "BOM Coverage",          href: "/dashboard/bom",        icon: Activity   },
+    ],
+  },
+  {
+    section: "Intelligence",
+    items: [
+      { label: "Business Brain",        href: "/dashboard/brain",      icon: Brain      },
     ],
   },
 ];
