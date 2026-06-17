@@ -30,6 +30,7 @@ from vinayak.config import DATABASE_URL
 from vinayak.schema import queries
 from vinayak.memory import store as memory
 from vinayak.api.routes.workspaces import require_workspace
+from vinayak.api.routes.auth import get_current_user, TokenPayload
 
 router = APIRouter()
 
@@ -624,6 +625,118 @@ def revalidate_memory(company_id: str = Depends(require_workspace)):
     conn = _conn()
     try:
         return memory.run_decay(conn, company_id)
+    finally:
+        conn.close()
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# LAYER 3 — AI reasoning (retrieve → reason → validate, behind 3 gates)
+# ════════════════════════════════════════════════════════════════════════════
+
+class AskIn(BaseModel):
+    question: str
+    thread_id: str | None = None
+
+
+class ThreadIn(BaseModel):
+    title: str | None = None
+
+
+@router.get("/eval/run")
+def eval_run(company_id: str = Depends(require_workspace)):
+    """Run the golden eval set for this workspace and return metrics + per-case
+    results. The lethal metric is unsupported_claim_rate (must be 0)."""
+    from vinayak.eval.harness import run_eval
+    conn = _conn()
+    try:
+        return run_eval(conn, company_id)
+    finally:
+        conn.close()
+
+
+@router.post("/ask")
+def ask(body: AskIn, company_id: str = Depends(require_workspace),
+        user: TokenPayload = Depends(get_current_user)):
+    """Answer a business question with calibrated confidence. Numbers are computed
+    deterministically from the query layer (scoped to THIS brand) and validated
+    before display. The turn is saved into the given thread (a new one is created
+    if no thread_id is supplied)."""
+    from vinayak.reasoning.engine import answer as reason_answer
+    from vinayak.reasoning import history
+    q = (body.question or "").strip()
+    if not q:
+        raise HTTPException(status_code=400, detail="Empty question.")
+    conn = _conn()
+    try:
+        thread_id = body.thread_id
+        if not thread_id or not history._owns_thread(conn, company_id, user.sub, thread_id):
+            thread_id = history.create_thread(conn, company_id, user.sub)["id"]
+        out = reason_answer(conn, company_id, q)
+        out["thread_id"] = thread_id
+        try:
+            out["id"] = history.save_turn(conn, company_id, user.sub, thread_id, q, out)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("chat history save failed: %s", exc)
+        return out
+    finally:
+        conn.close()
+
+
+# ── Chat threads (tabs) ──────────────────────────────────────────────────────
+@router.get("/chat/threads")
+def chat_threads(company_id: str = Depends(require_workspace),
+                 user: TokenPayload = Depends(get_current_user)):
+    from vinayak.reasoning import history
+    conn = _conn()
+    try:
+        return {"threads": history.list_threads(conn, company_id, user.sub)}
+    finally:
+        conn.close()
+
+
+@router.post("/chat/threads")
+def chat_thread_create(body: ThreadIn, company_id: str = Depends(require_workspace),
+                       user: TokenPayload = Depends(get_current_user)):
+    from vinayak.reasoning import history
+    conn = _conn()
+    try:
+        return {"thread": history.create_thread(conn, company_id, user.sub, body.title)}
+    finally:
+        conn.close()
+
+
+@router.get("/chat/threads/{thread_id}")
+def chat_thread_turns(thread_id: str, company_id: str = Depends(require_workspace),
+                      user: TokenPayload = Depends(get_current_user)):
+    from vinayak.reasoning import history
+    conn = _conn()
+    try:
+        return {"turns": history.list_turns(conn, company_id, user.sub, thread_id)}
+    finally:
+        conn.close()
+
+
+@router.patch("/chat/threads/{thread_id}")
+def chat_thread_rename(thread_id: str, body: ThreadIn,
+                       company_id: str = Depends(require_workspace),
+                       user: TokenPayload = Depends(get_current_user)):
+    from vinayak.reasoning import history
+    conn = _conn()
+    try:
+        history.rename_thread(conn, company_id, user.sub, thread_id, body.title or "New chat")
+        return {"ok": True}
+    finally:
+        conn.close()
+
+
+@router.delete("/chat/threads/{thread_id}")
+def chat_thread_delete(thread_id: str, company_id: str = Depends(require_workspace),
+                       user: TokenPayload = Depends(get_current_user)):
+    from vinayak.reasoning import history
+    conn = _conn()
+    try:
+        history.delete_thread(conn, company_id, user.sub, thread_id)
+        return {"ok": True}
     finally:
         conn.close()
 

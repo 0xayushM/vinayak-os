@@ -523,6 +523,108 @@ export async function revalidateMemory(): Promise<{ time_stale: number; contradi
   return res.json();
 }
 
+// ── Layer-3: AI reasoning (ask) ───────────────────────────────────────────────
+export interface AskClaim {
+  text: string;
+  type: "computed" | "inference" | "unknown";
+  evidence: string[];
+  assumption: string | null;
+}
+export interface AskEvidence { id: string; label: string; value: unknown; display: string; }
+export interface SuggestedFact { entity_type: string; entity_ref: string; claim_key: string; prompt: string; }
+export interface AnswerChart {
+  title: string; unit: string;
+  items: { name: string; value: number; display: string }[];
+}
+export interface AskResponse {
+  id?: string;
+  thread_id?: string;
+  question: string;
+  intent: string;
+  answer: string;
+  confidence_level: "CERTAIN" | "PROBABLE" | "UNCERTAIN";
+  claims: AskClaim[];
+  evidence: AskEvidence[];
+  assumptions: string[];
+  data_used: string[];
+  what_i_dont_know: string[];
+  suggested_fact: SuggestedFact | null;
+  gates: { data: string; rule: string; confidence: string };
+  chart: AnswerChart | null;
+  meta?: { routed_by: string; phrased_by: string; ai_active: boolean; model: string | null; tier: string | null };
+}
+
+export interface ChatTurn { id: string; question: string; answer: AskResponse; created_at: string | null; }
+export interface ChatThreadMeta { id: string; title: string; created_at: string; updated_at: string; turn_count: number; }
+
+async function beJson<T>(url: string, init?: RequestInit): Promise<T> {
+  const res = await apiFetch(url, init);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+export function useThreads() {
+  return useSWR<{ threads: ChatThreadMeta[] }>("/api/be/dashboard/chat/threads", fetcher, {
+    revalidateOnFocus: false,
+  });
+}
+
+export const createThread = (title?: string) =>
+  beJson<{ thread: ChatThreadMeta }>("/api/be/dashboard/chat/threads", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ title: title ?? null }),
+  }).then((r) => r.thread);
+
+export const fetchThreadTurns = (id: string) =>
+  beJson<{ turns: ChatTurn[] }>(`/api/be/dashboard/chat/threads/${id}`).then((r) => r.turns);
+
+export const renameThread = (id: string, title: string) =>
+  beJson(`/api/be/dashboard/chat/threads/${id}`, {
+    method: "PATCH", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ title }),
+  });
+
+export const deleteThread = (id: string) =>
+  beJson(`/api/be/dashboard/chat/threads/${id}`, { method: "DELETE" });
+
+export async function askQuestion(question: string, threadId?: string): Promise<AskResponse> {
+  const res = await apiFetch("/api/be/dashboard/ask", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ question, thread_id: threadId ?? null }),
+  });
+  if (!res.ok) {
+    const e = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(e.detail ?? `HTTP ${res.status}`);
+  }
+  return res.json();
+}
+
+// ── Layer-4: eval harness ─────────────────────────────────────────────────────
+export interface EvalMetrics {
+  cases_run: number;
+  passed: number;
+  intent_accuracy: number;
+  bucket_accuracy: number;
+  correct_refusal_rate: number;
+  unsupported_claim_rate: number;
+  must_not_say_violations: number;
+  ship_blocked: boolean;
+}
+export interface EvalCaseResult {
+  id: string; company: string; question: string; intent: string;
+  confidence: string; computed_claims: number; unsupported: number;
+  must_not_violations: string[]; passed: boolean;
+  checks: Record<string, boolean>;
+}
+export interface EvalReport { metrics: EvalMetrics; results: EvalCaseResult[]; }
+
+export function useEval() {
+  return useSWR<EvalReport>("/api/be/dashboard/eval/run", fetcher, {
+    revalidateOnFocus: false, revalidateOnMount: false,
+  });
+}
+
 // ── Layer-0 data quality (canonical mapping coverage) ─────────────────────────
 export interface IngestQuality {
   objects: { object_type: string; mapped: number }[];

@@ -7,11 +7,12 @@ import { usePathname } from "next/navigation";
 import {
   BarChart3, TrendingUp, Users, Package, ShoppingCart,
   CreditCard, Truck, Wrench, Activity, Settings, Zap, LogOut,
-  Menu, X, ChevronsUpDown, Plus, ExternalLink, Check, Loader2, Brain,
+  Menu, X, ChevronsUpDown, Plus, ExternalLink, Check, Loader2, Brain, Sparkles, ShieldCheck,
 } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
 import { useSyncHealth } from "@/hooks/useDashboard";
 import { apiFetch, workspacePath } from "@/lib/api";
+import { useChatDock } from "@/components/dashboard/ChatDock";
 
 const NAV = [
   {
@@ -49,7 +50,9 @@ const NAV = [
   {
     section: "Intelligence",
     items: [
+      { label: "Ask",                   href: "/dashboard/ask",        icon: Sparkles   },
       { label: "Business Brain",        href: "/dashboard/brain",      icon: Brain      },
+      // { label: "Answer Quality",        href: "/dashboard/eval",       icon: ShieldCheck },
     ],
   },
 ];
@@ -184,6 +187,7 @@ function WorkspaceSwitcher({ ws, onNavigate }: { ws: string | null; onNavigate?:
 function RailContent({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
   const { data: health } = useSyncHealth();
+  const dock = useChatDock();
   const ws = pathname.match(/^\/w\/([^/]+)/)?.[1] ?? null;
   const link = (suffix: string) => workspacePath(ws, suffix);
 
@@ -209,6 +213,19 @@ function RailContent({ onNavigate }: { onNavigate?: () => void }) {
                 const Icon = item.icon;
                 const href = link(item.href);
                 const active = pathname === href;
+                // "Ask" opens the docked AI panel instead of navigating.
+                if (item.href === "/dashboard/ask") {
+                  return (
+                    <button
+                      key={item.href}
+                      onClick={() => { dock.setOpen(true); onNavigate?.(); }}
+                      className="relative w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-[12.5px] text-zinc-400 hover:text-[#F2DEC8]/90 hover:bg-white/[0.03] transition-all duration-150"
+                    >
+                      <Icon className="w-3.5 h-3.5 shrink-0" />
+                      {item.label}
+                    </button>
+                  );
+                }
                 return (
                   <Link
                     key={item.href}
