@@ -68,10 +68,15 @@ def _company_sync(company_id: str) -> tuple[threading.Lock, dict]:
         return _sync_locks[company_id], _sync_states[company_id]
 
 
-# Wall-clock cap per pipeline during the initial sync. A report either finishes
-# fetching its 1-month window or, after 5 minutes, returns whatever landed so far
-# and the sync moves on — so one slow report (e.g. Production) can't stall it.
-PIPELINE_TIME_CAP_SECONDS = 300
+# Hard time limit per report. A report either finishes fetching its window
+# within PIPELINE_FETCH_TIMEOUT seconds, or it is abandoned and flagged so the
+# sync can never run endlessly. Two layers enforce it:
+#   • max_seconds — fetch_report stops paging once this elapses (cooperative).
+#   • a thread-join backstop (PIPELINE_HARD_TIMEOUT) — even if a single request
+#     hangs below the socket timeout or a step blocks outside the page loop, the
+#     orchestrator stops waiting and moves on, marking the report 'timed_out'.
+PIPELINE_FETCH_TIMEOUT = 90
+PIPELINE_HARD_TIMEOUT = PIPELINE_FETCH_TIMEOUT + 20  # grace for in-flight request
 
 
 def _full_sync_plan():
@@ -157,21 +162,56 @@ def _run_full_sync(email: str, password: str, company_id: str) -> None:
             with lock:
                 state["current"] = key
             _set(key, status="running")
-            try:
-                from_date = _incremental_from(PipelineCls, days_back, today)
-                rows = PipelineCls().run(
-                    from_date, today,
-                    company_id=company_id,
-                    max_seconds=PIPELINE_TIME_CAP_SECONDS,
-                    creds=creds,
+
+            # Run the report in a worker thread so a hung fetch can't stall the
+            # whole sync — we wait at most PIPELINE_HARD_TIMEOUT, then move on.
+            holder: dict = {"rows": None, "error": None}
+
+            def _work(PipelineCls=PipelineCls, days_back=days_back, holder=holder):
+                try:
+                    from_date = _incremental_from(PipelineCls, days_back, today)
+                    holder["rows"] = PipelineCls().run(
+                        from_date, today,
+                        company_id=company_id,
+                        max_seconds=PIPELINE_FETCH_TIMEOUT,
+                        creds=creds,
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    holder["error"] = str(exc)
+
+            worker = threading.Thread(target=_work, daemon=True)
+            worker.start()
+            worker.join(PIPELINE_HARD_TIMEOUT)
+
+            if worker.is_alive():
+                logger.error(
+                    "Full sync: %s exceeded %ds — abandoned (timed_out)",
+                    PipelineCls.__name__, PIPELINE_FETCH_TIMEOUT,
                 )
-                _set(key, status="success", rows=rows)
-            except Exception as exc:  # noqa: BLE001
-                logger.error("Full sync: %s failed: %s", PipelineCls.__name__, exc)
-                _set(key, status="failed", error=str(exc))
+                _set(key, status="timed_out",
+                     error=f"Report took longer than {PIPELINE_FETCH_TIMEOUT}s and was stopped.")
+            elif holder["error"]:
+                logger.error("Full sync: %s failed: %s", PipelineCls.__name__, holder["error"])
+                _set(key, status="failed", error=holder["error"])
+            else:
+                _set(key, status="success", rows=holder["rows"])
+
+            with lock:
+                state["completed"] += 1
+
+        # Layer 0: map the freshly-synced tz_* rows into the canonical schema so
+        # the dashboard (which now reads canon_*) reflects the new data. Failures
+        # here don't fail the sync — the canonical layer just lags one cycle.
+        try:
+            from vinayak.canonical.tranzact_canonical import rebuild_canonical
+            cdb = psycopg2.connect(DATABASE_URL)
+            try:
+                stats = rebuild_canonical(cdb, company_id)
+                logger.info("Canonical rebuild for %s: %s", company_id, stats.upserted)
             finally:
-                with lock:
-                    state["completed"] += 1
+                cdb.close()
+        except Exception as exc:  # noqa: BLE001
+            logger.error("Canonical rebuild failed for %s: %s", company_id, exc)
     except Exception as exc:  # noqa: BLE001
         logger.error("Full sync aborted for %s: %s", company_id, exc)
         with lock:

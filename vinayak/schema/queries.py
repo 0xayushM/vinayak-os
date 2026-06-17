@@ -92,7 +92,7 @@ def _parse_date(v: Any) -> date | None:
 # Keys are NOT user input — they are fixed identifiers, so f-string interpolation
 # here is safe (no SQL injection surface).
 _DATE_COLS = {
-    "tz_sales_invoices":     "invoice_date",
+    "canon_sales_invoice_flat":     "invoice_date",
     "tz_purchase_invoices":  "invoice_date",
     "tz_sales_orders":       "order_date",
     "tz_purchase_orders":    "po_date",
@@ -158,7 +158,7 @@ def _window_meta(w: dict) -> dict:
 
 
 # ── Dual-basis revenue helper (BUG 1 fix) ─────────────────────────────────────
-# tz_sales_invoices / tz_purchase_invoices are LINE-LEVEL: one row per invoice
+# canon_sales_invoice_flat / tz_purchase_invoices are LINE-LEVEL: one row per invoice
 # line, and every line repeats the same header `invoice_total`. Summing
 # invoice_total across lines therefore multiplies each invoice by its line count.
 # We expose two correct bases instead:
@@ -210,12 +210,12 @@ def _sales_monthly_avg(conn, company_id: str, data_to: date | None) -> tuple[flo
                    COALESCE((
                        SELECT SUM(inv_total) FROM (
                            SELECT invoice_number, MAX(invoice_total) AS inv_total
-                           FROM tz_sales_invoices
+                           FROM canon_sales_invoice_flat
                            WHERE company_id = %s AND invoice_date > %s AND invoice_date <= %s
                            GROUP BY invoice_number
                        ) d
                    ), 0)
-            FROM tz_sales_invoices
+            FROM canon_sales_invoice_flat
             WHERE company_id = %s AND invoice_date > %s AND invoice_date <= %s
             """,
             (company_id, floor.isoformat(), data_to.isoformat(),
@@ -244,18 +244,18 @@ def get_revenue_summary(
              monthly_avg (trailing-12mo true average), ytd_total, plus
              window_from/window_to/data_from/data_to.
     """
-    w = _resolve_window(conn, company_id, "tz_sales_invoices", start, end, period_days)
+    w = _resolve_window(conn, company_id, "canon_sales_invoice_flat", start, end, period_days)
     s, e = w["start"].isoformat(), w["end"].isoformat()
     # BUG 1 fix: compute both the goods (SUM line_total) and the invoiced
     # (per-invoice header) bases instead of the line-multiplied SUM(invoice_total).
     period_goods, period_invoiced = _dual_window_totals(
-        conn, "tz_sales_invoices", company_id, s, e)
+        conn, "canon_sales_invoice_flat", company_id, s, e)
     with conn.cursor() as cur:
         cur.execute("""
             SELECT
                 COUNT(DISTINCT invoice_number)   AS invoice_count,
                 COUNT(DISTINCT customer_code)    AS customer_count
-            FROM tz_sales_invoices
+            FROM canon_sales_invoice_flat
             WHERE company_id = %s AND invoice_date >= %s AND invoice_date <= %s
         """, (company_id, s, e))
         row = cur.fetchone()
@@ -264,7 +264,7 @@ def get_revenue_summary(
         anchor_year = (w["data_to"] or date.today()).year
         ystart, yend = date(anchor_year, 1, 1).isoformat(), date(anchor_year, 12, 31).isoformat()
     ytd_goods, ytd_invoiced = _dual_window_totals(
-        conn, "tz_sales_invoices", company_id, ystart, yend)
+        conn, "canon_sales_invoice_flat", company_id, ystart, yend)
 
     invoice_count = int(row[0] or 0)
     monthly_goods, monthly_invoiced = _sales_monthly_avg(conn, company_id, w["data_to"])
@@ -295,7 +295,7 @@ def get_revenue_trend(conn, company_id: str, months: int = 6) -> dict:
     available data so the chart is never empty. Gap-fills missing months with 0.
     Returns: months list [{month, revenue, invoice_count}]
     """
-    data_from, data_to = _date_range(conn, company_id, "tz_sales_invoices")
+    data_from, data_to = _date_range(conn, company_id, "canon_sales_invoice_flat")
     anchor = data_to or date.today()
     # Compute the first day of the window's earliest month, `months` back.
     y, m = anchor.year, anchor.month
@@ -311,7 +311,7 @@ def get_revenue_trend(conn, company_id: str, months: int = 6) -> dict:
                 TO_CHAR(invoice_date, 'YYYY-MM') AS month,
                 COALESCE(SUM(line_total), 0)     AS revenue,
                 COUNT(DISTINCT invoice_number)   AS invoice_count
-            FROM tz_sales_invoices
+            FROM canon_sales_invoice_flat
             WHERE company_id = %s AND invoice_date >= %s
             GROUP BY 1 ORDER BY 1
         """, (company_id, start_month.isoformat()))
@@ -348,14 +348,14 @@ def get_revenue_daily(
     anchored to latest data, or explicit range). Gap-fills missing days with 0.
     Returns: days list [{date, revenue, invoice_count}]
     """
-    w = _resolve_window(conn, company_id, "tz_sales_invoices", start, end, period_days)
+    w = _resolve_window(conn, company_id, "canon_sales_invoice_flat", start, end, period_days)
     s, e = w["start"], w["end"]
     with conn.cursor() as cur:
         cur.execute("""
             SELECT invoice_date,
                    COALESCE(SUM(line_total), 0),
                    COUNT(DISTINCT invoice_number)
-            FROM tz_sales_invoices
+            FROM canon_sales_invoice_flat
             WHERE company_id = %s AND invoice_date >= %s AND invoice_date <= %s
             GROUP BY invoice_date
         """, (company_id, s.isoformat(), e.isoformat()))
@@ -388,7 +388,7 @@ def get_customer_concentration(
     S3 — Customer revenue concentration (doughnut chart).
     Returns top 5 customers + 'Others' slice for the resolved window.
     """
-    w = _resolve_window(conn, company_id, "tz_sales_invoices", start, end, period_days)
+    w = _resolve_window(conn, company_id, "canon_sales_invoice_flat", start, end, period_days)
     s, e = w["start"].isoformat(), w["end"].isoformat()
     with conn.cursor() as cur:
         cur.execute("""
@@ -396,7 +396,7 @@ def get_customer_concentration(
             -- so two codes don't merge under a shared name and the count here ties
             -- out with get_revenue_summary's #distinct customer_code.
             SELECT MAX(customer_name) AS customer_name, COALESCE(SUM(line_total), 0) AS revenue
-            FROM tz_sales_invoices
+            FROM canon_sales_invoice_flat
             WHERE company_id = %s AND invoice_date >= %s AND invoice_date <= %s
             GROUP BY COALESCE(customer_code, customer_name)
             ORDER BY revenue DESC
@@ -406,7 +406,7 @@ def get_customer_concentration(
 
         cur.execute("""
             SELECT COALESCE(SUM(line_total), 0)
-            FROM tz_sales_invoices
+            FROM canon_sales_invoice_flat
             WHERE company_id = %s AND invoice_date >= %s AND invoice_date <= %s
         """, (company_id, s, e))
         total = float(cur.fetchone()[0] or 0)
@@ -435,13 +435,13 @@ def get_top_customers_revenue(
     S4 — Top N customers by revenue for the resolved window.
     Returns: customers list [{customer_name, revenue, invoice_count, pct_of_total}]
     """
-    w = _resolve_window(conn, company_id, "tz_sales_invoices", start, end, period_days)
+    w = _resolve_window(conn, company_id, "canon_sales_invoice_flat", start, end, period_days)
     s, e = w["start"].isoformat(), w["end"].isoformat()
     with conn.cursor() as cur:
         cur.execute(f"""
             WITH totals AS (
                 SELECT SUM(line_total) AS grand_total
-                FROM tz_sales_invoices
+                FROM canon_sales_invoice_flat
                 WHERE company_id = %s AND invoice_date >= %s AND invoice_date <= %s
             )
             SELECT
@@ -452,7 +452,7 @@ def get_top_customers_revenue(
                     100.0 * SUM(line_total) / NULLIF((SELECT grand_total FROM totals), 0),
                     1
                 ) AS pct
-            FROM tz_sales_invoices
+            FROM canon_sales_invoice_flat
             WHERE company_id = %s AND invoice_date >= %s AND invoice_date <= %s
             -- Group on the customer ENTITY (customer_code) with name as a label.
             GROUP BY COALESCE(customer_code, customer_name)
@@ -483,7 +483,7 @@ def get_top_skus_revenue(
     S5 — Top N SKUs by revenue for the resolved window.
     Returns: skus list [{sku_code, sku_name, revenue, quantity, invoice_count}]
     """
-    w = _resolve_window(conn, company_id, "tz_sales_invoices", start, end, period_days)
+    w = _resolve_window(conn, company_id, "canon_sales_invoice_flat", start, end, period_days)
     s, e = w["start"].isoformat(), w["end"].isoformat()
     with conn.cursor() as cur:
         cur.execute(f"""
@@ -493,13 +493,59 @@ def get_top_skus_revenue(
                 COALESCE(SUM(line_total), 0) AS revenue,
                 COALESCE(SUM(quantity), 0)   AS quantity,
                 COUNT(DISTINCT invoice_number) AS invoice_count
-            FROM tz_sales_invoices
+            FROM canon_sales_invoice_flat
             WHERE company_id = %s AND invoice_date >= %s AND invoice_date <= %s
               AND sku_code IS NOT NULL
             GROUP BY sku_code
             ORDER BY revenue DESC
             LIMIT {MAX_SKUS}
         """, (company_id, s, e))
+        rows = cur.fetchall()
+
+    ls = _last_sync(conn, "sales_invoices", company_id)
+    return {
+        "period_days": period_days,
+        "skus": [
+            {"sku_code": r[0], "sku_name": r[1], "revenue": float(r[2]),
+             "quantity": float(r[3]), "invoice_count": int(r[4])}
+            for r in rows
+        ],
+        **_window_meta(w),
+        "last_synced_at": _fmt(ls),
+        "stale": _is_stale(ls),
+    }
+
+
+def get_bottom_skus_revenue(
+    conn, company_id: str, period_days: int = 100000,
+    start: Any = None, end: Any = None, min_revenue: float = 0.0,
+) -> dict:
+    """
+    S5b — The LEAST-selling (worst-performing) SKUs by revenue for the window.
+    Only includes products that actually sold (revenue > min_revenue); items
+    that have never sold are not "weak sellers", they live in dead/non-moving
+    stock. The default window spans the whole dataset ("till now").
+    Returns: skus list [{sku_code, sku_name, revenue, quantity, invoice_count}]
+             ordered ascending (worst first).
+    """
+    w = _resolve_window(conn, company_id, "canon_sales_invoice_flat", start, end, period_days)
+    s, e = w["start"].isoformat(), w["end"].isoformat()
+    with conn.cursor() as cur:
+        cur.execute(f"""
+            SELECT
+                sku_code,
+                MAX(sku_name) AS sku_name,
+                COALESCE(SUM(line_total), 0) AS revenue,
+                COALESCE(SUM(quantity), 0)   AS quantity,
+                COUNT(DISTINCT invoice_number) AS invoice_count
+            FROM canon_sales_invoice_flat
+            WHERE company_id = %s AND invoice_date >= %s AND invoice_date <= %s
+              AND sku_code IS NOT NULL
+            GROUP BY sku_code
+            HAVING COALESCE(SUM(line_total), 0) > %s
+            ORDER BY revenue ASC
+            LIMIT {MAX_SKUS}
+        """, (company_id, s, e, min_revenue))
         rows = cur.fetchall()
 
     ls = _last_sync(conn, "sales_invoices", company_id)
@@ -528,7 +574,7 @@ def get_inventory_summary(conn, company_id: str) -> dict:
                 COUNT(DISTINCT sku_code)      AS total_skus,
                 COUNT(*) FILTER (WHERE quantity < 0) AS negative_stock_count,
                 COUNT(DISTINCT warehouse)     AS warehouse_count
-            FROM tz_inventory_valuation
+            FROM canon_inventory_flat
             WHERE company_id = %s
         """, (company_id,))
         row = cur.fetchone()
@@ -555,7 +601,7 @@ def get_inventory_by_category(conn, company_id: str) -> dict:
                 COALESCE(category, 'Uncategorised') AS category,
                 COALESCE(SUM(total_value), 0)        AS total_value,
                 COUNT(DISTINCT sku_code)             AS sku_count
-            FROM tz_inventory_valuation
+            FROM canon_inventory_flat
             WHERE company_id = %s
             GROUP BY 1
             ORDER BY total_value DESC
@@ -574,6 +620,60 @@ def get_inventory_by_category(conn, company_id: str) -> dict:
     }
 
 
+def get_dead_stock(conn, company_id: str, since_days: int = 90) -> dict:
+    """
+    'Sitting'/dead stock — items we HOLD (qty > 0) that have NOT sold in the
+    trailing `since_days` window. Movement is judged by whether the SKU appears
+    in sales; the window is anchored to the latest sale date (not today) so it
+    works even when synced data is a little old.
+    Returns: items [{sku_code, sku_name, category, quantity, total_value}],
+             dead_count, dead_value, since_days.
+    """
+    sales_from, sales_to = _date_range(conn, company_id, "canon_sales_invoice_flat")
+    anchor = sales_to or date.today()
+    cutoff = (anchor - timedelta(days=since_days)).isoformat()
+    with conn.cursor() as cur:
+        cur.execute(f"""
+            SELECT i.sku_code, i.sku_name, i.category, i.quantity, i.total_value
+            FROM canon_inventory_flat i
+            WHERE i.company_id = %s AND COALESCE(i.quantity, 0) > 0
+              AND NOT EXISTS (
+                  SELECT 1 FROM canon_sales_invoice_flat s
+                  WHERE s.company_id = i.company_id AND s.sku_code = i.sku_code
+                    AND s.invoice_date >= %s
+              )
+            ORDER BY i.total_value DESC NULLS LAST
+            LIMIT {MAX_SKUS}
+        """, (company_id, cutoff))
+        rows = cur.fetchall()
+
+        cur.execute("""
+            SELECT COUNT(*), COALESCE(SUM(total_value), 0)
+            FROM canon_inventory_flat i
+            WHERE i.company_id = %s AND COALESCE(i.quantity, 0) > 0
+              AND NOT EXISTS (
+                  SELECT 1 FROM canon_sales_invoice_flat s
+                  WHERE s.company_id = i.company_id AND s.sku_code = i.sku_code
+                    AND s.invoice_date >= %s
+              )
+        """, (company_id, cutoff))
+        dead_count, dead_value = cur.fetchone()
+
+    ls = _last_sync(conn, "inventory_valuation", company_id)
+    return {
+        "since_days": since_days,
+        "dead_count": int(dead_count or 0),
+        "dead_value": float(dead_value or 0),
+        "items": [
+            {"sku_code": r[0], "sku_name": r[1], "category": r[2],
+             "quantity": float(r[3] or 0), "total_value": float(r[4] or 0)}
+            for r in rows
+        ],
+        "last_synced_at": _fmt(ls),
+        "stale": _is_stale(ls),
+    }
+
+
 def get_top_stock_holdings(conn, company_id: str) -> dict:
     """
     S8 — Highest-value SKUs in stock (potential working-capital lock-up).
@@ -582,7 +682,7 @@ def get_top_stock_holdings(conn, company_id: str) -> dict:
     with conn.cursor() as cur:
         cur.execute(f"""
             SELECT sku_code, sku_name, category, quantity, total_value
-            FROM tz_inventory_valuation
+            FROM canon_inventory_flat
             WHERE company_id = %s AND quantity > 0
             ORDER BY total_value DESC
             LIMIT {MAX_SKUS}
@@ -644,7 +744,8 @@ def _purchase_monthly_avg(conn, company_id: str) -> tuple[float, float]:
     return float(goods or 0) / n, float(invoiced or 0) / n
 
 
-def get_purchases_summary(conn, company_id: str, period_days: int = 30) -> dict:
+def get_purchases_summary(conn, company_id: str, period_days: int = 30,
+                          start: Any = None, end: Any = None) -> dict:
     """
     S9 — Purchase KPIs.
     Returns: period_spend (+ goods/invoiced bases), monthly_avg, vendor_count,
@@ -652,7 +753,7 @@ def get_purchases_summary(conn, company_id: str, period_days: int = 30) -> dict:
     """
     # BUG 2 fix: anchor the window to the latest available data, not today, so
     # this lines up with the revenue panels even when sync data is not current.
-    w = _resolve_window(conn, company_id, "tz_purchase_invoices", None, None, period_days)
+    w = _resolve_window(conn, company_id, "tz_purchase_invoices", start, end, period_days)
     s, e = w["start"].isoformat(), w["end"].isoformat()
     # BUG 1 fix: dual basis instead of line-multiplied SUM(invoice_total).
     period_goods, period_invoiced = _dual_window_totals(
@@ -695,13 +796,14 @@ def get_purchases_summary(conn, company_id: str, period_days: int = 30) -> dict:
     }
 
 
-def get_top_vendors_spend(conn, company_id: str, period_days: int = 30) -> dict:
+def get_top_vendors_spend(conn, company_id: str, period_days: int = 30,
+                          start: Any = None, end: Any = None) -> dict:
     """
     S10 — Top N vendors by purchase spend.
     Returns: vendors list [{vendor_name, spend, invoice_count, pct_of_total}]
     """
     # BUG 2 fix: anchor to latest data; BUG 1 fix: line_total basis (goods).
-    w = _resolve_window(conn, company_id, "tz_purchase_invoices", None, None, period_days)
+    w = _resolve_window(conn, company_id, "tz_purchase_invoices", start, end, period_days)
     s, e = w["start"].isoformat(), w["end"].isoformat()
     with conn.cursor() as cur:
         cur.execute(f"""
@@ -979,7 +1081,7 @@ def get_ar_summary(conn, company_id: str) -> dict:
                 customer_name, customer_code, outstanding_amount,
                 COALESCE(CURRENT_DATE - invoice_date, 0)        AS age_days,
                 (CURRENT_DATE - due_date)                       AS days_overdue
-            FROM tz_ar_aging
+            FROM canon_ar_flat
             WHERE company_id = %s AND COALESCE(outstanding_amount, 0) <> 0
         ),
         bucketed AS (
@@ -1061,7 +1163,7 @@ def get_ar_customer_exposure(conn, company_id: str) -> dict:
                 COUNT(*)                                                         AS invoice_count,
                 MAX(days_overdue)                                                AS oldest_days,
                 COALESCE(SUM(outstanding_amount) FILTER (WHERE days_overdue > 0), 0) AS overdue_value
-            FROM tz_ar_aging
+            FROM canon_ar_flat
             WHERE company_id = %s
             GROUP BY customer_name
             ORDER BY outstanding DESC
@@ -1339,7 +1441,7 @@ def get_sales_invoices_list(
     free-text `search` over customer_name / invoice_number / sku_name / sku_code.
     Returns: rows, total_count, page, page_size, page_count, window/data meta.
     """
-    w = _resolve_window(conn, company_id, "tz_sales_invoices", start, end,
+    w = _resolve_window(conn, company_id, "canon_sales_invoice_flat", start, end,
                         period_days=10**6)  # huge default → full data span when unset
     # If neither bound supplied, span the whole dataset.
     if not start and not end and w["data_from"]:
@@ -1369,7 +1471,7 @@ def get_sales_invoices_list(
     with conn.cursor() as cur:
         cur.execute(
             f"SELECT COUNT(*), COALESCE(SUM(line_total),0) "  # noqa: S608
-            f"FROM tz_sales_invoices WHERE {where_sql}",
+            f"FROM canon_sales_invoice_flat WHERE {where_sql}",
             params,
         )
         total_count, filtered_total = cur.fetchone()
@@ -1378,7 +1480,7 @@ def get_sales_invoices_list(
             f"""
             SELECT invoice_date, invoice_number, customer_name, sku_code, sku_name,
                    quantity, unit_price, line_total, invoice_total, payment_status, salesperson
-            FROM tz_sales_invoices
+            FROM canon_sales_invoice_flat
             WHERE {where_sql}
             ORDER BY {order_col} {order_dir} NULLS LAST, invoice_number
             LIMIT %s OFFSET %s
@@ -1457,7 +1559,7 @@ def get_ar_invoices_list(
     with conn.cursor() as cur:
         cur.execute(
             f"SELECT COUNT(*), COALESCE(SUM(outstanding_amount),0) "  # noqa: S608
-            f"FROM tz_ar_aging WHERE {where_sql}",
+            f"FROM canon_ar_flat WHERE {where_sql}",
             params,
         )
         total_count, filtered_total = cur.fetchone()
@@ -1466,7 +1568,7 @@ def get_ar_invoices_list(
             f"""
             SELECT customer_name, invoice_number, invoice_date, due_date,
                    invoice_amount, outstanding_amount, days_overdue, aging_bucket
-            FROM tz_ar_aging
+            FROM canon_ar_flat
             WHERE {where_sql}
             ORDER BY {order_col} {order_dir} NULLS LAST, customer_name
             LIMIT %s OFFSET %s
@@ -1729,7 +1831,7 @@ def get_inventory_list(
         extra_where.append("category = %s")
         extra_params.append(category)
     return _paged_list(
-        conn, company_id, table="tz_inventory_valuation", pipeline="inventory_valuation",
+        conn, company_id, table="canon_inventory_flat", pipeline="inventory_valuation",
         date_col=None, search=search,
         search_cols=["sku_code", "sku_name", "category", "warehouse"],
         sum_col="total_value",
@@ -1752,6 +1854,234 @@ def get_inventory_list(
 # ════════════════════════════════════════════════════════════════════════════
 # UTILITY
 # ════════════════════════════════════════════════════════════════════════════
+
+# ════════════════════════════════════════════════════════════════════════════
+# ANALYTICAL HANDLERS — Wave 1 (canonical-backed, so numbers are guaranteed)
+# ════════════════════════════════════════════════════════════════════════════
+
+def _sales_window(conn, company_id: str) -> tuple[date | None, date | None]:
+    return _date_range(conn, company_id, "canon_sales_invoice_flat")
+
+
+def get_collections_priority(conn, company_id: str) -> dict:
+    """Who to chase first: overdue receivables ranked by recovery impact
+    (amount × days overdue). Also surfaces how concentrated the overdue is."""
+    with conn.cursor() as cur:
+        cur.execute("""
+            WITH ar AS (
+                SELECT customer_name,
+                       COALESCE(SUM(outstanding_amount), 0) AS outstanding,
+                       MAX(CURRENT_DATE - due_date)         AS days_overdue
+                FROM canon_ar_flat
+                WHERE company_id = %s AND COALESCE(outstanding_amount,0) > 0
+                  AND (CURRENT_DATE - due_date) > 0
+                GROUP BY customer_name
+            )
+            SELECT customer_name, outstanding, days_overdue,
+                   outstanding * GREATEST(days_overdue, 1) AS impact
+            FROM ar ORDER BY impact DESC LIMIT 10
+        """, (company_id,))
+        rows = cur.fetchall()
+        cur.execute("""
+            SELECT COALESCE(SUM(outstanding_amount),0)
+            FROM canon_ar_flat
+            WHERE company_id = %s AND COALESCE(outstanding_amount,0) > 0 AND (CURRENT_DATE - due_date) > 0
+        """, (company_id,))
+        total_overdue = float(cur.fetchone()[0] or 0)
+    items = [{"customer_name": r[0], "outstanding": float(r[1]), "days_overdue": int(r[2] or 0)} for r in rows]
+    top_share = (items[0]["outstanding"] / total_overdue * 100) if (items and total_overdue) else 0
+    return {"items": items, "total_overdue": total_overdue, "top_share_pct": round(top_share, 1)}
+
+
+def get_dso(conn, company_id: str, days: int = 90) -> dict:
+    """Days Sales Outstanding ≈ outstanding ÷ (sales per day over trailing window).
+    Anchored to the latest sales date so it works on slightly-stale data."""
+    _f, data_to = _sales_window(conn, company_id)
+    anchor = data_to or date.today()
+    s = (anchor - timedelta(days=days)).isoformat()
+    e = anchor.isoformat()
+    with conn.cursor() as cur:
+        cur.execute("SELECT COALESCE(SUM(line_total),0) FROM canon_sales_invoice_flat "
+                    "WHERE company_id=%s AND invoice_date>=%s AND invoice_date<=%s", (company_id, s, e))
+        sales = float(cur.fetchone()[0] or 0)
+        cur.execute("SELECT COALESCE(SUM(outstanding_amount),0) FROM canon_ar_flat "
+                    "WHERE company_id=%s AND COALESCE(outstanding_amount,0)>0", (company_id,))
+        outstanding = float(cur.fetchone()[0] or 0)
+    per_day = sales / days if days else 0
+    dso = (outstanding / per_day) if per_day else None
+    return {"dso_days": round(dso) if dso is not None else None,
+            "outstanding": outstanding, "sales_window": sales, "days": days}
+
+
+def get_customer_changes(conn, company_id: str, window_days: int = 30) -> dict:
+    """Customers who grew or shrank: revenue in the latest window vs the window
+    before it, anchored to the latest sales date."""
+    _f, data_to = _sales_window(conn, company_id)
+    if not data_to:
+        return {"up": [], "down": []}
+    rec_s = (data_to - timedelta(days=window_days - 1)).isoformat()
+    rec_e = data_to.isoformat()
+    pri_s = (data_to - timedelta(days=2 * window_days - 1)).isoformat()
+    pri_e = (data_to - timedelta(days=window_days)).isoformat()
+
+    def by_cust(s, e):
+        with conn.cursor() as cur:
+            cur.execute("SELECT customer_name, COALESCE(SUM(line_total),0) FROM canon_sales_invoice_flat "
+                        "WHERE company_id=%s AND invoice_date>=%s AND invoice_date<=%s GROUP BY customer_name",
+                        (company_id, s, e))
+            return {r[0]: float(r[1]) for r in cur.fetchall()}
+
+    recent, prior = by_cust(rec_s, rec_e), by_cust(pri_s, pri_e)
+    movers = []
+    for name in set(recent) | set(prior):
+        r, p = recent.get(name, 0.0), prior.get(name, 0.0)
+        movers.append({"customer_name": name, "recent": r, "prior": p, "delta": r - p})
+    up = sorted([m for m in movers if m["delta"] > 0], key=lambda m: -m["delta"])[:5]
+    down = sorted([m for m in movers if m["delta"] < 0], key=lambda m: m["delta"])[:5]
+    return {"up": up, "down": down, "window_days": window_days}
+
+
+def get_customer_movement(conn, company_id: str, recent_days: int = 60) -> dict:
+    """New customers (first purchase recently) and lapsed ones (used to buy, but
+    nothing recently) ranked by the historical value now at risk."""
+    _f, data_to = _sales_window(conn, company_id)
+    if not data_to:
+        return {"new": [], "lapsed": []}
+    cutoff = (data_to - timedelta(days=recent_days)).isoformat()
+    with conn.cursor() as cur:
+        cur.execute("""
+            SELECT customer_name, MIN(invoice_date) AS first_d, MAX(invoice_date) AS last_d,
+                   COALESCE(SUM(line_total),0) AS lifetime
+            FROM canon_sales_invoice_flat WHERE company_id=%s GROUP BY customer_name
+        """, (company_id,))
+        rows = cur.fetchall()
+    new, lapsed = [], []
+    for name, first_d, last_d, lifetime in rows:
+        if first_d and first_d.isoformat() >= cutoff:
+            new.append({"customer_name": name, "since": str(first_d), "lifetime": float(lifetime)})
+        elif last_d and last_d.isoformat() < cutoff:
+            lapsed.append({"customer_name": name, "last_purchase": str(last_d),
+                           "lifetime": float(lifetime),
+                           "days_since": (data_to - last_d).days})
+    new.sort(key=lambda c: -c["lifetime"])
+    lapsed.sort(key=lambda c: -c["lifetime"])
+    return {"new": new[:6], "lapsed": lapsed[:6], "recent_days": recent_days}
+
+
+def get_reorder_alert(conn, company_id: str, cover_days: int = 14, velocity_days: int = 90) -> dict:
+    """Items about to run out: days-of-cover = stock on hand ÷ recent daily sales
+    velocity. Flags fast movers with low cover."""
+    _f, data_to = _sales_window(conn, company_id)
+    anchor = data_to or date.today()
+    since = (anchor - timedelta(days=velocity_days)).isoformat()
+    with conn.cursor() as cur:
+        cur.execute(f"""
+            WITH vel AS (
+                SELECT sku_code, COALESCE(SUM(quantity),0)/{velocity_days}.0 AS per_day
+                FROM canon_sales_invoice_flat
+                WHERE company_id=%s AND invoice_date>=%s GROUP BY sku_code
+            )
+            SELECT i.sku_code, i.sku_name, i.quantity, v.per_day,
+                   i.quantity / NULLIF(v.per_day,0) AS cover
+            FROM canon_inventory_flat i JOIN vel v ON v.sku_code = i.sku_code
+            WHERE i.company_id=%s AND v.per_day > 0 AND COALESCE(i.quantity,0) >= 0
+              AND i.quantity / NULLIF(v.per_day,0) < %s
+            ORDER BY cover ASC LIMIT {MAX_SKUS}
+        """, (company_id, since, company_id, cover_days))
+        rows = cur.fetchall()
+    return {"cover_days": cover_days, "items": [
+        {"sku_code": r[0], "sku_name": r[1], "qty_on_hand": float(r[2] or 0),
+         "per_day": round(float(r[3] or 0), 2), "days_of_cover": round(float(r[4] or 0))}
+        for r in rows
+    ]}
+
+
+def get_inventory_turnover(conn, company_id: str, window_days: int = 90) -> dict:
+    """Approximate stock turns = annualised sales ÷ stock value (true turns use
+    COGS, which we don't have — so this is a sales-based proxy). DIO = 365/turns."""
+    _f, data_to = _sales_window(conn, company_id)
+    anchor = data_to or date.today()
+    since = (anchor - timedelta(days=window_days)).isoformat()
+    with conn.cursor() as cur:
+        cur.execute("SELECT COALESCE(SUM(line_total),0) FROM canon_sales_invoice_flat "
+                    "WHERE company_id=%s AND invoice_date>=%s", (company_id, since))
+        sales = float(cur.fetchone()[0] or 0)
+        cur.execute("SELECT COALESCE(SUM(total_value),0) FROM canon_inventory_flat WHERE company_id=%s", (company_id,))
+        inv = float(cur.fetchone()[0] or 0)
+    annual = sales * (365.0 / window_days)
+    turns = (annual / inv) if inv else None
+    return {"turns": round(turns, 1) if turns else None,
+            "dio_days": round(365 / turns) if turns else None,
+            "inventory_value": inv, "annual_sales": annual}
+
+
+def get_sales_by_category(conn, company_id: str, start=None, end=None) -> dict:
+    """Sales split by product category for the window (default: full data span)."""
+    w = _resolve_window(conn, company_id, "canon_sales_invoice_flat", start, end, period_days=10**6)
+    if not start and not end and w["data_from"]:
+        w["start"] = w["data_from"]
+    s, e = w["start"].isoformat(), w["end"].isoformat()
+    with conn.cursor() as cur:
+        cur.execute("""
+            SELECT COALESCE(category,'Uncategorised'), COALESCE(SUM(line_total),0)
+            FROM canon_sales_invoice_flat
+            WHERE company_id=%s AND invoice_date>=%s AND invoice_date<=%s
+            GROUP BY 1 ORDER BY 2 DESC LIMIT %s
+        """, (company_id, s, e, MAX_CATEGORIES))
+        rows = cur.fetchall()
+    total = sum(float(r[1]) for r in rows)
+    return {"categories": [{"category": r[0], "revenue": float(r[1]),
+                            "pct": round(100 * float(r[1]) / total, 1) if total else 0} for r in rows],
+            "total": total, **_window_meta(w)}
+
+
+def get_ingest_quality(conn, company_id: str) -> dict:
+    """
+    Layer-0 data-quality view: how much of the source mapped cleanly into the
+    canonical schema, and the top unmapped issues. Per the product doc, this
+    ships before the AI chat — garbage in, garbage out.
+    Returns: objects [{object_type, mapped}], issue_count, top_issues.
+    """
+    objects = {
+        "customer":            "canon_customer",
+        "sales_invoice":       "canon_sales_invoice",
+        "sales_invoice_line":  "canon_sales_invoice_line",
+        "inventory_item":      "canon_inventory_item",
+        "payment":             "canon_payment",
+    }
+    out_objects = []
+    with conn.cursor() as cur:
+        for obj, table in objects.items():
+            cur.execute(f"SELECT COUNT(*) FROM {table} WHERE company_id = %s", (company_id,))  # noqa: S608
+            out_objects.append({"object_type": obj, "mapped": int(cur.fetchone()[0] or 0)})
+
+        cur.execute("SELECT COUNT(*) FROM ingest_issues WHERE company_id = %s", (company_id,))
+        issue_count = int(cur.fetchone()[0] or 0)
+
+        cur.execute("""
+            SELECT object_type, field, reason, COUNT(*) AS n
+            FROM ingest_issues
+            WHERE company_id = %s
+            GROUP BY object_type, field, reason
+            ORDER BY n DESC
+            LIMIT 10
+        """, (company_id,))
+        top_issues = [
+            {"object_type": r[0], "field": r[1], "reason": r[2], "count": int(r[3])}
+            for r in cur.fetchall()
+        ]
+
+    total_mapped = sum(o["mapped"] for o in out_objects)
+    coverage = total_mapped / (total_mapped + issue_count) if (total_mapped + issue_count) else 1.0
+    return {
+        "objects": out_objects,
+        "total_mapped": total_mapped,
+        "issue_count": issue_count,
+        "coverage_pct": round(coverage * 100, 1),
+        "top_issues": top_issues,
+        "checked_at": _fmt(_now_utc()),
+    }
+
 
 def get_sync_health(conn, company_id: str) -> dict:
     """
