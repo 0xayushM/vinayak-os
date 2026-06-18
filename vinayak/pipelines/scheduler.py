@@ -3,21 +3,18 @@ pipelines/scheduler.py
 ───────────────────────
 APScheduler configuration for all 10 Vinayak Brain OS pipelines.
 
-Schedule summary (all times in IST, Asia/Kolkata):
+Every job runs an INCREMENTAL refresh (newest pages only — TranzAct has no
+server-side date filter) via the cursor-aware sync, and rebuilds the canonical
+layer. It never disturbs an in-progress migration. The full historical
+migration is triggered separately (Settings → "Sync all").
 
-  Hourly jobs  — run every hour at the specified minute offset:
-    :00  ar_aging          — today only (point-in-time AR snapshot)
-    :08  sales_orders      — last 7 days
-    :16  purchase_orders   — last 7 days
-    :24  inventory_valuation — snapshot (no date window)
-    :32  process_details   — last 7 days
+Schedule summary — all jobs run HOURLY, staggered by minute (IST):
 
-  Daily jobs   — run once at 3 AM IST, staggered by 5 minutes:
-    03:00  sales_invoices      — last 30 days
-    03:05  purchase_invoices   — last 30 days
-    03:10  grn_qir             — last 30 days
-    03:15  sales_quotations    — last 30 days
-    03:20  process_routing     — last 30 days
+    :00 ar_aging          :32 process_details
+    :08 sales_orders      :40 sales_invoices
+    :16 purchase_orders   :44 purchase_invoices
+    :24 inventory_valuation :48 grn_qir
+    :52 sales_quotations  :56 process_routing
 
 Usage:
     from vinayak.pipelines.scheduler import scheduler, start_scheduler, stop_scheduler
@@ -29,7 +26,6 @@ Usage:
 from __future__ import annotations
 
 import logging
-from datetime import date, timedelta
 from typing import Callable, Iterator
 
 import psycopg2
@@ -104,66 +100,69 @@ def _iter_company_creds() -> Iterator[tuple[str, TranzactCreds]]:
             logger.error("Scheduler: failed to load creds for %s: %s", company_id, exc)
 
 
-def _run_for_all(pipeline, name: str, days_back: int) -> None:
-    """Run `pipeline` for every company with stored TranzAct creds.
+def _run_for_all(name: str) -> None:
+    """Incremental (newest-only) refresh of report `name` for every connected
+    company — the hourly background sync.
 
-    days_back=0 → today-only snapshot (e.g. AR aging, inventory valuation).
-    A failure for one brand is logged and never aborts the others.
+    Delegates to the cursor-aware per-report sync in refresh_only mode, which
+    pulls just the newest pages, upserts (content-hash dedup), and rebuilds the
+    canonical layer. It never disturbs an in-progress migration. A failure for
+    one brand is logged and never aborts the others.
     """
-    today = date.today()
-    from_date = today - timedelta(days=days_back)
+    from vinayak.api.routes.connections import _run_single_pipeline
     companies = list(_iter_company_creds())
     if not companies:
         logger.info("Scheduler: %s — no connected workspaces, skipping", name)
         return
     for company_id, creds in companies:
-        logger.info("Scheduler: %s for %s (%s → %s)", name, company_id, from_date, today)
+        logger.info("Scheduler: hourly refresh %s for %s", name, company_id)
         try:
-            pipeline.run(from_date, today, company_id=company_id, creds=creds)
+            _run_single_pipeline(company_id, creds.email, creds.password,
+                                  name, refresh_only=True)
         except Exception as exc:  # noqa: BLE001
-            logger.error("Scheduler: %s failed for %s: %s", name, company_id, exc)
+            logger.error("Scheduler: %s refresh failed for %s: %s", name, company_id, exc)
 
 
 # ── Job functions ─────────────────────────────────────────────────────────────
 
 def _run_ar_aging() -> None:
-    _run_for_all(_ar_aging, "ar_aging", days_back=0)
+    _run_for_all("ar_aging")
 
 
 def _run_sales_orders() -> None:
-    _run_for_all(_sales_orders, "sales_orders", days_back=7)
+    _run_for_all("sales_orders")
 
 
 def _run_purchase_orders() -> None:
-    _run_for_all(_purchase_orders, "purchase_orders", days_back=7)
+    _run_for_all("purchase_orders")
 
 
 def _run_inventory_valuation() -> None:
-    _run_for_all(_inventory_valuation, "inventory_valuation", days_back=0)
+    _run_for_all("inventory_valuation")
 
 
 def _run_process_details() -> None:
-    _run_for_all(_process_details, "process_details", days_back=7)
+    _run_for_all("process_details")
 
 
 def _run_sales_invoices() -> None:
-    _run_for_all(_sales_invoices, "sales_invoices", days_back=30)
+    _run_for_all("sales_invoices")
 
 
 def _run_purchase_invoices() -> None:
-    _run_for_all(_purchase_invoices, "purchase_invoices", days_back=30)
+    _run_for_all("purchase_invoices")
 
 
 def _run_grn_qir() -> None:
-    _run_for_all(_grn_qir, "grn_qir", days_back=30)
+    _run_for_all("grn_qir")
 
 
 def _run_sales_quotations() -> None:
-    _run_for_all(_sales_quotations, "sales_quotations", days_back=30)
+    _run_for_all("sales_quotations")
 
 
 def _run_process_routing() -> None:
-    _run_for_all(_process_routing, "process_routing", days_back=30)
+    _run_for_all("process_routing")
 
 
 # ── Scheduler instance ────────────────────────────────────────────────────────
@@ -217,51 +216,51 @@ scheduler.add_job(
     misfire_grace_time=300,
 )
 
-# -- Daily jobs at 3 AM IST (staggered by 5 minutes each) --------------------
+# -- Formerly-daily reports — now also hourly (newest-only refresh) ----------
 
 scheduler.add_job(
     _run_sales_invoices,
-    trigger=CronTrigger(hour=3, minute=0, timezone=_IST),
-    id="sales_invoices_daily",
-    name="Sales Invoices (daily, 03:00 IST)",
+    trigger=CronTrigger(minute=40, timezone=_IST),
+    id="sales_invoices_hourly",
+    name="Sales Invoices (hourly, :40)",
     replace_existing=True,
-    misfire_grace_time=600,
+    misfire_grace_time=300,
 )
 
 scheduler.add_job(
     _run_purchase_invoices,
-    trigger=CronTrigger(hour=3, minute=5, timezone=_IST),
-    id="purchase_invoices_daily",
-    name="Purchase Invoices (daily, 03:05 IST)",
+    trigger=CronTrigger(minute=44, timezone=_IST),
+    id="purchase_invoices_hourly",
+    name="Purchase Invoices (hourly, :44)",
     replace_existing=True,
-    misfire_grace_time=600,
+    misfire_grace_time=300,
 )
 
 scheduler.add_job(
     _run_grn_qir,
-    trigger=CronTrigger(hour=3, minute=10, timezone=_IST),
-    id="grn_qir_daily",
-    name="GRN / QIR (daily, 03:10 IST)",
+    trigger=CronTrigger(minute=48, timezone=_IST),
+    id="grn_qir_hourly",
+    name="GRN / QIR (hourly, :48)",
     replace_existing=True,
-    misfire_grace_time=600,
+    misfire_grace_time=300,
 )
 
 scheduler.add_job(
     _run_sales_quotations,
-    trigger=CronTrigger(hour=3, minute=15, timezone=_IST),
-    id="sales_quotations_daily",
-    name="Sales Quotations (daily, 03:15 IST)",
+    trigger=CronTrigger(minute=52, timezone=_IST),
+    id="sales_quotations_hourly",
+    name="Sales Quotations (hourly, :52)",
     replace_existing=True,
-    misfire_grace_time=600,
+    misfire_grace_time=300,
 )
 
 scheduler.add_job(
     _run_process_routing,
-    trigger=CronTrigger(hour=3, minute=20, timezone=_IST),
-    id="process_routing_daily",
-    name="Process Routing (daily, 03:20 IST)",
+    trigger=CronTrigger(minute=56, timezone=_IST),
+    id="process_routing_hourly",
+    name="Process Routing (hourly, :56)",
     replace_existing=True,
-    misfire_grace_time=600,
+    misfire_grace_time=300,
 )
 
 

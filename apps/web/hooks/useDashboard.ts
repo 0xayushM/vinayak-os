@@ -75,7 +75,7 @@ export interface RevenueSummary extends WindowMeta {
   ytd_year:         number;
 }
 
-export function useRevenueSummary(opts: RangeOpts = { days: 30 }) {
+export function useRevenueSummary(opts: RangeOpts = {}) {
   return useSWR<PanelResponse<RevenueSummary>>(
     `/api/dashboard/revenue-summary${rangeQuery(opts)}`,
     fetcher,
@@ -86,9 +86,9 @@ export function useRevenueSummary(opts: RangeOpts = { days: 30 }) {
 export interface RevenueTrendMonth { month: string; revenue: number; invoice_count: number; }
 export interface RevenueTrend { months: RevenueTrendMonth[]; data_from: string | null; data_to: string | null; }
 
-export function useRevenueTrend(months = 6) {
+export function useRevenueTrend(opts: RangeOpts = {}) {
   return useSWR<PanelResponse<RevenueTrend>>(
-    `/api/dashboard/revenue-trend?months=${months}`,
+    `/api/dashboard/revenue-trend${rangeQuery(opts)}`,
     fetcher,
     swrDaily,
   );
@@ -97,7 +97,7 @@ export function useRevenueTrend(months = 6) {
 export interface RevenueDailyPoint { date: string; revenue: number; invoice_count: number; }
 export interface RevenueDaily extends WindowMeta { days: RevenueDailyPoint[]; }
 
-export function useRevenueDaily(opts: RangeOpts = { days: 90 }) {
+export function useRevenueDaily(opts: RangeOpts = {}) {
   return useSWR<PanelResponse<RevenueDaily>>(
     `/api/dashboard/revenue-daily${rangeQuery(opts)}`,
     fetcher,
@@ -108,7 +108,7 @@ export function useRevenueDaily(opts: RangeOpts = { days: 90 }) {
 export interface CustomerSlice { name: string; revenue: number; pct: number; }
 export interface CustomerConcentration extends WindowMeta { slices: CustomerSlice[]; }
 
-export function useCustomerConcentration(opts: RangeOpts = { days: 30 }) {
+export function useCustomerConcentration(opts: RangeOpts = {}) {
   return useSWR<PanelResponse<CustomerConcentration>>(
     `/api/dashboard/customer-concentration${rangeQuery(opts)}`,
     fetcher,
@@ -119,7 +119,7 @@ export function useCustomerConcentration(opts: RangeOpts = { days: 30 }) {
 export interface TopSku { sku_code: string; item_name: string; qty_sold: number; revenue: number; }
 export interface TopSkus extends WindowMeta { skus: TopSku[]; }
 
-export function useTopSkus(opts: RangeOpts = { days: 30 }) {
+export function useTopSkus(opts: RangeOpts = {}) {
   return useSWR<PanelResponse<TopSkus>>(
     `/api/dashboard/top-skus${rangeQuery(opts)}`,
     fetcher,
@@ -133,9 +133,9 @@ export interface QuoteSummary {
   conversion_rate: number;
 }
 
-export function useQuoteSummary(days = 30) {
+export function useQuoteSummary(opts: RangeOpts = {}) {
   return useSWR<PanelResponse<QuoteSummary>>(
-    `/api/dashboard/quote-summary?days=${days}`,
+    `/api/dashboard/quote-summary${rangeQuery(opts)}`,
     fetcher,
     swrDaily,
   );
@@ -150,9 +150,9 @@ export interface PurchaseSummary {
   window_from?: string | null; window_to?: string | null;
 }
 
-export function usePurchaseSummary(days = 30) {
+export function usePurchaseSummary(opts: RangeOpts = {}) {
   return useSWR<PanelResponse<PurchaseSummary>>(
-    `/api/dashboard/purchase-summary?days=${days}`,
+    `/api/dashboard/purchase-summary${rangeQuery(opts)}`,
     fetcher,
     swrDaily,
   );
@@ -161,9 +161,9 @@ export function usePurchaseSummary(days = 30) {
 export interface TopVendor { vendor_name: string; spend: number; invoice_count: number; }
 export interface TopVendors { vendors: TopVendor[]; }
 
-export function useTopVendors(days = 30) {
+export function useTopVendors(opts: RangeOpts = {}) {
   return useSWR<PanelResponse<TopVendors>>(
-    `/api/dashboard/top-vendors?days=${days}`,
+    `/api/dashboard/top-vendors${rangeQuery(opts)}`,
     fetcher,
     swrDaily,
   );
@@ -246,9 +246,9 @@ export interface GrnSummary {
   received_count: number; total_value: number; pending_qir: number; rejection_rate: number;
 }
 
-export function useGrnSummary(days = 30) {
+export function useGrnSummary(opts: RangeOpts = {}) {
   return useSWR<PanelResponse<GrnSummary>>(
-    `/api/dashboard/grn-summary?days=${days}`,
+    `/api/dashboard/grn-summary${rangeQuery(opts)}`,
     fetcher,
     swrDaily,
   );
@@ -258,9 +258,9 @@ export interface ProductionSummary {
   wip_count: number; wip_value: number; completed_count: number; avg_cycle_days: number;
 }
 
-export function useProductionSummary() {
+export function useProductionSummary(opts: RangeOpts = {}) {
   return useSWR<PanelResponse<ProductionSummary>>(
-    "/api/dashboard/production-summary",
+    `/api/dashboard/production-summary${rangeQuery(opts)}`,
     fetcher,
     swrHourly,
   );

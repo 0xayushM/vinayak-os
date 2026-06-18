@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
 import { useNotifications, type NotificationLevel } from "./NotificationsProvider";
+import { MigrationProgress } from "./MigrationProgress";
 
 const LEVEL_ICON: Record<NotificationLevel, React.ReactNode> = {
   success: <CheckCircle2 className="w-4 h-4 text-[#d4a070]" />,
@@ -97,6 +98,9 @@ export function NotificationBell() {
         </div>
 
         <div className="flex-1 overflow-y-auto">
+          {/* Live data-sync progress (only while a sync is running) */}
+          <MigrationProgress />
+
           {notifications.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-full gap-2 text-zinc-600 px-6 text-center">
               <Clock className="w-6 h-6" />

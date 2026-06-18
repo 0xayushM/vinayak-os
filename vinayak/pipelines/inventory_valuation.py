@@ -5,7 +5,7 @@ Pulls TranzAct report 9 (Inventory Valuation) and caches the result in
 tz_inventory_valuation.
 
 No date filter is applied — this report always returns a full snapshot of
-current stock positions, so _get_filters() returns {}.
+current stock positions (the whole report is fetched every run).
 
 Dashboard panels fed:
   - Total inventory value and on-hand quantity
@@ -27,7 +27,6 @@ from vinayak.pipelines.base import BasePipeline
 from vinayak.pipelines.helpers import stable_row_id
 
 logger = logging.getLogger(__name__)
-
 
 # ── Row schema ────────────────────────────────────────────────────────────────
 
@@ -76,7 +75,6 @@ class InventoryValuationRow(BaseModel):
             return v.strip().lower() in ("true", "1", "yes", "y")
         return False
 
-
 # ── Pipeline ──────────────────────────────────────────────────────────────────
 
 class InventoryValuationPipeline(BasePipeline):
@@ -84,10 +82,6 @@ class InventoryValuationPipeline(BasePipeline):
     REPORT_ID = "9"
     TABLE_NAME = "tz_inventory_valuation"
     RowSchema = InventoryValuationRow
-
-    def _get_filters(self, from_date: str, to_date: str) -> dict:
-        # Inventory valuation is a point-in-time snapshot — no date window.
-        return {}
 
     def _upsert(self, conn, rows: list[InventoryValuationRow], company_id: str) -> int:
         if not rows:

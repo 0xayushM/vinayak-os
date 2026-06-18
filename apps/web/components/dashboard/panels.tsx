@@ -35,10 +35,18 @@ import {
 import { formatCurrency, formatNumber } from "@/lib/utils/cn";
 
 // ── Shared helpers ────────────────────────────────────────────────────────────
-/** A page-level date range (start/end) → the hook's RangeOpts shape. */
-function toRangeOpts(range: DateRange | undefined, days: number): RangeOpts {
+/** A page-level date range (start/end) → the hook's RangeOpts shape.
+ *  With no explicit range we send nothing, so the backend returns the brand's
+ *  full data coverage. The top-right date picker is the only thing that narrows
+ *  the view — there is no default day window. */
+function toRangeOpts(range: DateRange | undefined): RangeOpts {
   if (range?.start || range?.end) return { start: range.start, end: range.end };
-  return { days };
+  return {};
+}
+
+/** Subtitle that reflects whether the global date picker is narrowing the view. */
+function rangeSubtitle(range: DateRange | undefined, allLabel = "All data"): string {
+  return range?.start || range?.end ? "Selected range" : allLabel;
 }
 
 /** Pretty-print an ISO date (YYYY-MM-DD or full ISO) → "12 Apr 2026". */
@@ -83,13 +91,12 @@ function fmt(label: string): (v: any) => [string, string] {
 
 // ── Revenue ─────────────────────────────────────────────────────────────────
 export function RevenueKpiPanel({ range }: { range?: DateRange } = {}) {
-  const { data, error, isLoading } = useRevenueSummary(toRangeOpts(range, 30));
+  const { data, error, isLoading } = useRevenueSummary(toRangeOpts(range));
   const d = data?.data;
-  const ranged = !!(range?.start || range?.end);
   return (
     <PanelWrapper
       title="Revenue Overview"
-      subtitle={ranged ? "Selected range" : "Latest 30 days of data"}
+      subtitle={rangeSubtitle(range)}
       meta={data?.meta}
       loading={isLoading}
       error={error}
@@ -99,12 +106,12 @@ export function RevenueKpiPanel({ range }: { range?: DateRange } = {}) {
         <KpiCard label="Revenue · invoice total" value={formatCurrency(d?.period_total_invoiced ?? 0, true)} accent="emerald" sub="incl. tax / freight" />
         <KpiCard label="Avg / Invoice" value={formatCurrency(d?.avg_invoice_value ?? 0, true)} accent="violet" sub="per printed invoice (incl. tax)" />
         <KpiCard label="Monthly Avg (12mo)" value={formatCurrency(d?.monthly_avg ?? 0, true)} accent="amber" sub={`invoiced ${formatCurrency(d?.monthly_avg_invoiced ?? 0, true)}`} />
-        <KpiCard label={`YTD ${d?.ytd_year ?? ""} · goods`} value={formatCurrency(d?.ytd_total ?? 0, true)} accent="blue" sub={`${formatNumber(d?.customer_count ?? 0)} customers`} />
-        <KpiCard label={`YTD ${d?.ytd_year ?? ""} · invoiced`} value={formatCurrency(d?.ytd_invoiced ?? 0, true)} accent="emerald" />
+        {/* <KpiCard label={`YTD ${d?.ytd_year ?? ""} · goods`} value={formatCurrency(d?.ytd_total ?? 0, true)} accent="blue" sub={`${formatNumber(d?.customer_count ?? 0)} customers`} />
+        <KpiCard label={`YTD ${d?.ytd_year ?? ""} · invoiced`} value={formatCurrency(d?.ytd_invoiced ?? 0, true)} accent="emerald" /> */}
       </div>
-      <p className="text-[10.5px] text-zinc-600 pt-2">
+      {/* <p className="text-[10.5px] text-zinc-600 pt-2">
         Goods value = sum of line items (ex-tax). Invoice total = printed invoice grand total (incl. tax/freight).
-      </p>
+      </p> */}
       <CoverageNote from={d?.window_from} to={d?.window_to} />
     </PanelWrapper>
   );
@@ -112,13 +119,12 @@ export function RevenueKpiPanel({ range }: { range?: DateRange } = {}) {
 
 // Daily revenue line/area chart — the analytics centerpiece.
 export function RevenueDailyPanel({ range }: { range?: DateRange } = {}) {
-  const { data, error, isLoading } = useRevenueDaily(toRangeOpts(range, 90));
+  const { data, error, isLoading } = useRevenueDaily(toRangeOpts(range));
   const days = data?.data?.days ?? [];
-  const ranged = !!(range?.start || range?.end);
   return (
     <PanelWrapper
       title="Daily Revenue"
-      subtitle={ranged ? "Selected range" : "Latest 90 days of data"}
+      subtitle={rangeSubtitle(range)}
       meta={data?.meta}
       loading={isLoading}
       error={error}
@@ -144,11 +150,11 @@ export function RevenueDailyPanel({ range }: { range?: DateRange } = {}) {
   );
 }
 
-export function RevenueTrendPanel() {
-  const { data, error, isLoading } = useRevenueTrend(6);
+export function RevenueTrendPanel({ range }: { range?: DateRange } = {}) {
+  const { data, error, isLoading } = useRevenueTrend(toRangeOpts(range));
   const months = data?.data?.months ?? [];
   return (
-    <PanelWrapper title="Revenue Trend" subtitle="6-month bar chart" meta={data?.meta} loading={isLoading} error={error}>
+    <PanelWrapper title="Revenue Trend" subtitle={rangeSubtitle(range, "Monthly · all data")} meta={data?.meta} loading={isLoading} error={error}>
       <ResponsiveContainer width="100%" height={180}>
         <BarChart data={months} margin={{ top: 4, right: 8, left: -20, bottom: 0 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="rgba(192,132,87,0.08)" vertical={false} />
@@ -163,7 +169,7 @@ export function RevenueTrendPanel() {
 }
 
 export function CustomerConcentrationPanel({ range }: { range?: DateRange } = {}) {
-  const { data, error, isLoading } = useCustomerConcentration(toRangeOpts(range, 30));
+  const { data, error, isLoading } = useCustomerConcentration(toRangeOpts(range));
   const slices = data?.data?.slices ?? [];
   return (
     <PanelWrapper title="Customer Concentration" subtitle="Top 5 + Others" meta={data?.meta} loading={isLoading} error={error}>
@@ -195,12 +201,11 @@ export function CustomerConcentrationPanel({ range }: { range?: DateRange } = {}
 }
 
 export function TopSkusPanel({ range }: { range?: DateRange } = {}) {
-  const { data, error, isLoading } = useTopSkus(toRangeOpts(range, 30));
+  const { data, error, isLoading } = useTopSkus(toRangeOpts(range));
   const skus = data?.data?.skus ?? [];
   const max  = skus[0]?.revenue ?? 1;
-  const ranged = !!(range?.start || range?.end);
   return (
-    <PanelWrapper title="Top SKUs by Revenue" subtitle={ranged ? "Selected range" : "Latest 30 days of data"} meta={data?.meta} loading={isLoading} error={error}>
+    <PanelWrapper title="Top SKUs by Revenue" subtitle={rangeSubtitle(range)} meta={data?.meta} loading={isLoading} error={error}>
       <div className="space-y-2 pt-1">
         {skus.slice(0, 8).map((s) => (
           <div key={s.sku_code} className="flex items-center gap-2 text-xs">
@@ -220,7 +225,7 @@ export function TopSkusPanel({ range }: { range?: DateRange } = {}) {
 
 // Detailed Top-SKU table (used on the SKUs page) — sortable + paginated.
 export function TopSkusTablePanel({ range }: { range?: DateRange } = {}) {
-  const { data, error, isLoading } = useTopSkus(toRangeOpts(range, 30));
+  const { data, error, isLoading } = useTopSkus(toRangeOpts(range));
   const skus = data?.data?.skus ?? [];
   type Sku = (typeof skus)[number];
   return (
@@ -245,11 +250,11 @@ export function TopSkusTablePanel({ range }: { range?: DateRange } = {}) {
   );
 }
 
-export function QuotePipelinePanel() {
-  const { data, error, isLoading } = useQuoteSummary(30);
+export function QuotePipelinePanel({ range }: { range?: DateRange } = {}) {
+  const { data, error, isLoading } = useQuoteSummary(toRangeOpts(range));
   const d = data?.data;
   return (
-    <PanelWrapper title="Quote Pipeline" subtitle="Last 30 days" meta={data?.meta} loading={isLoading} error={error}>
+    <PanelWrapper title="Quote Pipeline" subtitle={rangeSubtitle(range)} meta={data?.meta} loading={isLoading} error={error}>
       <div className="grid grid-cols-3 gap-4 pt-2">
         <KpiCard label="Open Quotes" value={formatNumber(d?.open_count ?? 0)} accent="blue" sub={formatCurrency(d?.open_value ?? 0, true)} />
         <KpiCard label="Won" value={formatNumber(d?.won_count ?? 0)} accent="emerald" sub={formatCurrency(d?.won_value ?? 0, true)} />
@@ -259,11 +264,11 @@ export function QuotePipelinePanel() {
   );
 }
 
-export function PurchaseSummaryPanel() {
-  const { data, error, isLoading } = usePurchaseSummary(30);
+export function PurchaseSummaryPanel({ range }: { range?: DateRange } = {}) {
+  const { data, error, isLoading } = usePurchaseSummary(toRangeOpts(range));
   const d = data?.data;
   return (
-    <PanelWrapper title="Purchases" subtitle="Last 30 days" meta={data?.meta} loading={isLoading} error={error}>
+    <PanelWrapper title="Purchases" subtitle={rangeSubtitle(range)} meta={data?.meta} loading={isLoading} error={error}>
       <div className="grid grid-cols-2 gap-4 pt-2">
         <KpiCard label="Spend · goods value" value={formatCurrency(d?.period_total_goods ?? d?.period_total ?? 0, true)} accent="amber" sub={`${d?.invoice_count ?? 0} invoices`} />
         <KpiCard label="Spend · invoice total" value={formatCurrency(d?.period_total_invoiced ?? 0, true)} accent="emerald" sub="incl. tax / freight" />
@@ -277,12 +282,12 @@ export function PurchaseSummaryPanel() {
   );
 }
 
-export function TopVendorsPanel() {
-  const { data, error, isLoading } = useTopVendors(30);
+export function TopVendorsPanel({ range }: { range?: DateRange } = {}) {
+  const { data, error, isLoading } = useTopVendors(toRangeOpts(range));
   const vendors = data?.data?.vendors ?? [];
   const max = vendors[0]?.spend ?? 1;
   return (
-    <PanelWrapper title="Top Vendors by Spend" subtitle="Last 30 days" meta={data?.meta} loading={isLoading} error={error}>
+    <PanelWrapper title="Top Vendors by Spend" subtitle={rangeSubtitle(range)} meta={data?.meta} loading={isLoading} error={error}>
       <div className="space-y-2 pt-1">
         {vendors.slice(0, 8).map((v) => (
           <div key={v.vendor_name} className="flex items-center gap-2 text-xs">
@@ -535,11 +540,11 @@ export function InventoryCategoryTablePanel() {
   );
 }
 
-export function GrnPanel() {
-  const { data, error, isLoading } = useGrnSummary(30);
+export function GrnPanel({ range }: { range?: DateRange } = {}) {
+  const { data, error, isLoading } = useGrnSummary(toRangeOpts(range));
   const d = data?.data;
   return (
-    <PanelWrapper title="GRN / Goods Received" subtitle="Last 30 days" meta={data?.meta} loading={isLoading} error={error}>
+    <PanelWrapper title="GRN / Goods Received" subtitle={rangeSubtitle(range)} meta={data?.meta} loading={isLoading} error={error}>
       <div className="grid grid-cols-3 gap-4 pt-2">
         <KpiCard label="GRNs Received" value={formatNumber(d?.received_count ?? 0)} accent="blue" sub={formatCurrency(d?.total_value ?? 0, true)} />
         <KpiCard label="Pending QIR" value={formatNumber(d?.pending_qir ?? 0)} accent="amber" />
@@ -549,11 +554,11 @@ export function GrnPanel() {
   );
 }
 
-export function ProductionPanel() {
-  const { data, error, isLoading } = useProductionSummary();
+export function ProductionPanel({ range }: { range?: DateRange } = {}) {
+  const { data, error, isLoading } = useProductionSummary(toRangeOpts(range));
   const d = data?.data;
   return (
-    <PanelWrapper title="Production" subtitle="WIP & completed jobs" meta={data?.meta} loading={isLoading} error={error}>
+    <PanelWrapper title="Production" subtitle={rangeSubtitle(range, "WIP & completed jobs")} meta={data?.meta} loading={isLoading} error={error}>
       <div className="grid grid-cols-3 gap-4 pt-2">
         <KpiCard label="WIP Jobs" value={formatNumber(d?.wip_count ?? 0)} accent="blue" sub={formatCurrency(d?.wip_value ?? 0, true)} />
         <KpiCard label="Completed" value={formatNumber(d?.completed_count ?? 0)} accent="emerald" />

@@ -45,31 +45,7 @@ PIPELINE_CADENCE: dict[str, str] = {
     "process_details":      "hourly",
 }
 
-# ── Date-window helpers ──────────────────────────────────────────────────────
-# Returns the date-filter dict to pass to fetch_report().
-# ⚠️  Update filter key names after the Day 1 API handshake test
-#     to match what TranzAct actually accepts.
-
-def get_filters(pipeline_name: str, from_date: str, to_date: str) -> dict:
-    """
-    Return the filters payload for a given pipeline.
-
-    Args:
-        pipeline_name: key from REPORT_IDS
-        from_date:     ISO date string, e.g. "2026-01-01"
-        to_date:       ISO date string, e.g. "2026-01-31"
-
-    Returns:
-        dict to merge into the fetch_report() `filters` argument.
-    """
-    if pipeline_name == "inventory_valuation":
-        # Inventory report typically has no date range — fetches current stock.
-        # Confirm on Day 1 whether TranzAct accepts date filters here.
-        return {}
-
-    return {
-        "filters": {
-            "from_date": from_date,
-            "to_date":   to_date,
-        }
-    }
+# NOTE: TranzAct's /generate_report has no usable server-side date filter — every
+# probed shape returned the full report — so pipelines fetch the COMPLETE report
+# each run (see vinayak/adapters/tranzact/client.py). There is therefore no
+# date-window helper here anymore.

@@ -20,7 +20,7 @@ export default function DashboardOverview({ params }: { params: Promise<{ worksp
 
   // Pull data coverage bounds to show in the date picker label
   const { data: revData } = useRevenueSummary(
-    range.start || range.end ? { start: range.start, end: range.end } : { days: 30 }
+    range.start || range.end ? { start: range.start, end: range.end } : {}
   );
   const cov = revData?.data;
 
@@ -54,13 +54,13 @@ export default function DashboardOverview({ params }: { params: Promise<{ worksp
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
           <RevenueKpiPanel range={range} />
-          <RevenueTrendPanel />
+          <RevenueTrendPanel range={range} />
           <CustomerConcentrationPanel range={range} />
           <TopSkusPanel range={range} />
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mt-4">
-          <QuotePipelinePanel />
-          <PurchaseSummaryPanel />
+          <QuotePipelinePanel range={range} />
+          <PurchaseSummaryPanel range={range} />
           <BomCoveragePanel />
           <PanelWrapper title="Top Vendors" subtitle="See Purchases page for full breakdown">
             <p className="text-xs text-zinc-600 pt-3">
@@ -80,8 +80,8 @@ export default function DashboardOverview({ params }: { params: Promise<{ worksp
           <OpenOrdersPanel />
           <OpenPosPanel />
           <InventoryPanel />
-          <GrnPanel />
-          <ProductionPanel />
+          <GrnPanel range={range} />
+          <ProductionPanel range={range} />
         </div>
       </section>
     </div>

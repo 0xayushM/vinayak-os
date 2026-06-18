@@ -19,8 +19,8 @@ export default function PurchasesPage() {
         <DateRangePicker value={range} onChange={setRange} dataFrom={cov?.data_from} dataTo={cov?.data_to} />
       </PageHeader>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <PurchaseSummaryPanel />
-        <TopVendorsPanel />
+        <PurchaseSummaryPanel range={range} />
+        <TopVendorsPanel range={range} />
       </div>
       <PurchaseInvoicesTablePanel range={range} />
     </div>

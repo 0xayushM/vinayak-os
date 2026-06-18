@@ -52,6 +52,11 @@ class TranzactCreds:
 _MIN_INTERVAL: float = 60.0 / TRANZACT_REQUESTS_PER_MINUTE  # seconds between calls
 _last_request_at: float = 0.0
 
+# Hard cap on pages per report fetch. TranzAct serves ~50 rows/page and ignores
+# per_page, so a year of invoices is a few hundred pages at most; this only
+# guards against an unbounded loop if the server stops sending total_items.
+_MAX_PAGES: int = 2000
+
 
 def _throttle() -> None:
     """Block until at least _MIN_INTERVAL seconds have passed since last request."""
@@ -79,16 +84,22 @@ def _get_rows(body: dict) -> list[dict]:
     return []
 
 
-def _get_total_pages(body: dict, per_page: int) -> int:
-    """Compute total pages from total_items / per_page."""
-    import math
+def _get_total_items(body: dict) -> int:
+    """Total row count the server reports for this report, or 0 if unknown.
+
+    NOTE: do NOT derive a page count from this divided by the per_page we
+    *requested*. TranzAct ignores per_page and serves a fixed page size (≈50),
+    so ceil(total_items / requested_per_page) under-counts the pages and the
+    fetch stops early, silently dropping the older rows. Pagination instead
+    loops until it has collected `total_items` rows (or a page comes back empty).
+    """
     data = body.get("data", {})
-    total_items = 0
     if isinstance(data, dict):
-        total_items = int(data.get("total_items", 0))
-    if total_items <= 0:
-        return 1
-    return math.ceil(total_items / per_page)
+        try:
+            return int(data.get("total_items", 0))
+        except (TypeError, ValueError):
+            return 0
+    return 0
 
 
 # ── Core request function ─────────────────────────────────────────────────────
@@ -192,31 +203,36 @@ def fetch_report(
     max_seconds: float | None = None,
     stats: dict | None = None,
     creds: TranzactCreds = ...,  # type: ignore[assignment]
+    start_page: int = 1,
+    max_pages: int | None = None,
 ) -> list[dict]:
     """
-    Fetch ALL rows of a TranzAct report across all pages.
+    Fetch rows of a TranzAct report by walking pages.
+
+    By default (start_page=1, max_pages=None) it pulls the ENTIRE report. Pass
+    start_page / max_pages to fetch one resumable CHUNK — the basis of the
+    cursor-driven migration (see docs/RESUMABLE_SYNC.md).
 
     Args:
         report_id:  String report ID (e.g. "29" for Sales Invoice Register)
-        filters:    Dict merged into the request payload (date ranges, etc.)
-        per_page:   Rows per page. Larger pages = fewer throttled requests =
-                    faster sync. Set to 200; reduce if you hit timeouts.
-        max_seconds: Wall-clock cap for the whole paginated fetch. When set,
-                    pagination stops once this many seconds have elapsed and the
-                    rows gathered so far are returned (partial result). Used by
-                    the initial sync so one slow report can't stall onboarding.
-        stats:      Optional dict the caller passes in to receive fetch metadata.
-                    Populated with {"truncated": bool, "pages_fetched": int}.
-                    `truncated` is True when the max_seconds cap stopped paging
-                    before all pages were retrieved — i.e. the result is partial
-                    and the oldest data was NOT reached.
+        filters:    Dict merged into the request payload (unused for report 29 —
+                    TranzAct has no server-side date filter).
+        per_page:   Page size we request. NOTE: TranzAct ignores this and serves
+                    a fixed page (~50 rows); `page` is therefore a 50-row index.
+        max_seconds: Wall-clock cap; paging stops once elapsed (partial result).
+        stats:      Optional dict populated with fetch metadata:
+                      truncated      — stopped early due to the time cap
+                      pages_fetched  — pages fetched THIS call
+                      last_page      — the last page number fetched
+                      total_items    — server-reported total row count
+                      reached_end    — a page returned no more data (fully done)
+                      more_available — there are likely more pages to fetch
+        creds:      Per-brand TranzAct credentials (required).
+        start_page: First page to request (>=1). Use for resume.
+        max_pages:  Max pages to fetch this call (chunk size). None = until done.
 
     Returns:
-        Flat list of row dicts — all pages concatenated.
-
-    Usage:
-        rows = fetch_report("29", {"filters": {"from_date": "2026-01-01",
-                                               "to_date":   "2026-01-31"}})
+        Flat list of row dicts for the pages fetched this call.
     """
     if creds is ...:
         raise ValueError(
@@ -225,8 +241,13 @@ def fetch_report(
             "the pipeline run — they are no longer read from environment variables."
         )
     all_rows: list[dict] = []
-    page = 1
+    page = max(1, start_page)
+    pages_this_call = 0
     truncated = False
+    reached_end = False
+    total_items = 0
+    last_page = page - 1
+    last_page_rows = 0
     deadline = (time.monotonic() + max_seconds) if max_seconds else None
 
     with requests.Session() as session:
@@ -235,9 +256,11 @@ def fetch_report(
                 truncated = True
                 logger.warning(
                     "fetch_report: report_id=%s hit %.0fs time cap at page %d — "
-                    "returning %d rows fetched so far (partial)",
+                    "returning %d rows this call (partial)",
                     report_id, max_seconds, page, len(all_rows),
                 )
+                break
+            if max_pages is not None and pages_this_call >= max_pages:
                 break
 
             payload: dict[str, Any] = {
@@ -247,31 +270,48 @@ def fetch_report(
             if filters:
                 payload.update(filters)
 
-            logger.debug(
-                "fetch_report: report_id=%s page=%d per_page=%d",
-                report_id, page, per_page,
-            )
-
             body = _post_with_retry(session, payload, creds)
             rows = _get_rows(body)
             all_rows.extend(rows)
+            total_items = _get_total_items(body)
+            pages_this_call += 1
+            last_page = page
+            last_page_rows = len(rows)
 
-            total_pages = _get_total_pages(body, per_page)
             logger.debug(
-                "fetch_report: got %d rows (page %d/%d)",
-                len(rows), page, total_pages,
+                "fetch_report: report_id=%s page=%d → %d rows (total_items=%s)",
+                report_id, page, len(rows), total_items or "?",
             )
 
-            if page >= total_pages or not rows:
+            # Page size is whatever the server decides (it ignores per_page), so
+            # we never derive a page count from total_items / per_page.
+            if not rows:
+                reached_end = True
+                break
+            # Only valid as an end-signal for a full walk from page 1.
+            if start_page == 1 and total_items and len(all_rows) >= total_items:
+                reached_end = True
+                break
+            if page >= _MAX_PAGES:
+                logger.warning(
+                    "fetch_report: report_id=%s hit safety cap of %d pages — stopping",
+                    report_id, _MAX_PAGES,
+                )
                 break
             page += 1
 
+    more_available = (not reached_end) and last_page_rows > 0
+
     if stats is not None:
         stats["truncated"] = truncated
-        stats["pages_fetched"] = page
+        stats["pages_fetched"] = pages_this_call
+        stats["last_page"] = last_page
+        stats["total_items"] = total_items
+        stats["reached_end"] = reached_end
+        stats["more_available"] = more_available
 
     logger.info(
-        "fetch_report: report_id=%s total rows=%d truncated=%s",
-        report_id, len(all_rows), truncated,
+        "fetch_report: report_id=%s pages=%d rows=%d last_page=%d more=%s",
+        report_id, pages_this_call, len(all_rows), last_page, more_available,
     )
     return all_rows

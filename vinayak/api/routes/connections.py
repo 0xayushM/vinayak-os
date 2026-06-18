@@ -26,8 +26,6 @@ import json
 import logging
 import os
 import threading
-from datetime import date, timedelta
-from typing import Optional
 
 import psycopg2
 import psycopg2.errors
@@ -80,8 +78,9 @@ PIPELINE_HARD_TIMEOUT = PIPELINE_FETCH_TIMEOUT + 20  # grace for in-flight reque
 
 
 def _full_sync_plan():
-    """(PipelineClass, from_days_back, key, label) for every pipeline, ordered
-    fast→slow so operational panels light up first."""
+    """(PipelineClass, key, label) for every pipeline, ordered fast→slow so
+    operational panels light up first. Every run fetches the complete report —
+    TranzAct has no usable server-side date filter."""
     from vinayak.pipelines.ar_aging import ARAgingPipeline
     from vinayak.pipelines.sales_orders import SalesOrdersPipeline
     from vinayak.pipelines.purchase_orders import PurchaseOrdersPipeline
@@ -93,22 +92,17 @@ def _full_sync_plan():
     from vinayak.pipelines.sales_quotations import SalesQuotationsPipeline
     from vinayak.pipelines.process_routing import ProcessRoutingPipeline
 
-    # Initial sync window: 1 month for every pipeline. The dashboard shows the
-    # most recent month immediately; older history is filled in afterwards by
-    # the nightly backward-backfill job (vinayak/jobs/backfill.py) or on demand
-    # via POST /connections/tranzact/history.
-    INITIAL_WINDOW_DAYS = 30
     return [
-        (ARAgingPipeline, INITIAL_WINDOW_DAYS, "ar_aging", "AR Aging"),
-        (SalesOrdersPipeline, INITIAL_WINDOW_DAYS, "sales_orders", "Sales Orders"),
-        (PurchaseOrdersPipeline, INITIAL_WINDOW_DAYS, "purchase_orders", "Purchase Orders"),
-        (InventoryValuationPipeline, INITIAL_WINDOW_DAYS, "inventory_valuation", "Inventory Valuation"),
-        (ProcessDetailsPipeline, INITIAL_WINDOW_DAYS, "process_details", "Production Details"),
-        (SalesInvoicesPipeline, INITIAL_WINDOW_DAYS, "sales_invoices", "Sales Invoices"),
-        (PurchaseInvoicesPipeline, INITIAL_WINDOW_DAYS, "purchase_invoices", "Purchase Invoices"),
-        (GRNQIRPipeline, INITIAL_WINDOW_DAYS, "grn_qir", "GRN / Quality"),
-        (SalesQuotationsPipeline, INITIAL_WINDOW_DAYS, "sales_quotations", "Sales Quotations"),
-        (ProcessRoutingPipeline, INITIAL_WINDOW_DAYS, "process_routing", "Process Routing"),
+        (ARAgingPipeline, "ar_aging", "AR Aging"),
+        (SalesOrdersPipeline, "sales_orders", "Sales Orders"),
+        (PurchaseOrdersPipeline, "purchase_orders", "Purchase Orders"),
+        (InventoryValuationPipeline, "inventory_valuation", "Inventory Valuation"),
+        (ProcessDetailsPipeline, "process_details", "Production Details"),
+        (SalesInvoicesPipeline, "sales_invoices", "Sales Invoices"),
+        (PurchaseInvoicesPipeline, "purchase_invoices", "Purchase Invoices"),
+        (GRNQIRPipeline, "grn_qir", "GRN / Quality"),
+        (SalesQuotationsPipeline, "sales_quotations", "Sales Quotations"),
+        (ProcessRoutingPipeline, "process_routing", "Process Routing"),
     ]
 
 
@@ -125,7 +119,7 @@ def _run_full_sync(email: str, password: str, company_id: str) -> None:
         state["current"]   = None
         state["pipelines"] = [
             {"key": key, "label": label, "status": "pending", "rows": None, "error": None}
-            for _, _, key, label in plan
+            for _, key, label in plan
         ]
 
     def _set(key, **fields):
@@ -135,30 +129,10 @@ def _run_full_sync(email: str, password: str, company_id: str) -> None:
                     p.update(fields)
                     break
 
-    def _incremental_from(PipelineCls, days_back: int, today: date) -> date:
-        default_from = today - timedelta(days=days_back)
-        try:
-            db = psycopg2.connect(DATABASE_URL)
-            try:
-                last = PipelineCls.get_last_success_date(db, company_id)
-            finally:
-                db.close()
-            if last is not None:
-                incremental = max(last - timedelta(days=1), default_from)
-                logger.info(
-                    "%s: incremental sync from %s (last success: %s)",
-                    PipelineCls.PIPELINE_NAME, incremental, last,
-                )
-                return incremental
-        except Exception as exc:
-            logger.warning("Could not query last sync date for %s: %s", PipelineCls.__name__, exc)
-        return default_from
-
     try:
         from vinayak.adapters.tranzact.client import TranzactCreds
         creds = TranzactCreds(email=email, password=password, base_url=TRANZACT_BASE_URL)
-        today = date.today()
-        for PipelineCls, days_back, key, _label in plan:
+        for PipelineCls, key, _label in plan:
             with lock:
                 state["current"] = key
             _set(key, status="running")
@@ -167,11 +141,9 @@ def _run_full_sync(email: str, password: str, company_id: str) -> None:
             # whole sync — we wait at most PIPELINE_HARD_TIMEOUT, then move on.
             holder: dict = {"rows": None, "error": None}
 
-            def _work(PipelineCls=PipelineCls, days_back=days_back, holder=holder):
+            def _work(PipelineCls=PipelineCls, holder=holder):
                 try:
-                    from_date = _incremental_from(PipelineCls, days_back, today)
                     holder["rows"] = PipelineCls().run(
-                        from_date, today,
                         company_id=company_id,
                         max_seconds=PIPELINE_FETCH_TIMEOUT,
                         creds=creds,
@@ -494,47 +466,276 @@ def full_sync_status(company_id: str = Depends(require_workspace)):
         return dict(state)
 
 
-# ── On-demand history backfill ───────────────────────────────────────────────
-# Per-company backfill state (mirrors the per-company sync state above).
-_backfill_locks:   dict[str, threading.Lock] = {}
-_backfill_running: dict[str, bool] = {}
-_backfill_meta_lock = threading.Lock()
+# ── Per-API resumable migration ───────────────────────────────────────────────
+# Each report can be migrated on its own from Settings. TranzAct has no usable
+# server-side date filter, so a large history is pulled by WALKING PAGES. A
+# persistent cursor (tz_sync_cursor) records how far each report has paged, so a
+# run resumes the REMAINING pages instead of re-fetching the whole report — and
+# a long migration survives a process restart. See docs/RESUMABLE_SYNC.md.
+#
+# The walk runs in a background thread (the user never waits) and persists the
+# cursor + rebuilds the canonical layer after every chunk, so the dashboard
+# fills in progressively.
+CHUNK_PAGES = 10          # pages fetched per chunk (~75s at the rate limit)
+REFRESH_PAGES = 4         # pages pulled on a routine refresh of a complete report
+CHUNK_MAX_SECONDS = 150   # per-chunk wall-clock safety cap
+
+_pipeline_states: dict[str, dict] = {}        # company_id -> {key -> transient run state}
+_pipeline_locks:  dict[str, threading.Lock] = {}
+_pipeline_meta_lock = threading.Lock()
 
 
-def _company_backfill(company_id: str) -> tuple[threading.Lock, dict]:
-    """Return (lock, running_cell) — running_cell is a 1-element list so the
-    worker thread can mutate it by reference."""
-    with _backfill_meta_lock:
-        if company_id not in _backfill_locks:
-            _backfill_locks[company_id] = threading.Lock()
-            _backfill_running[company_id] = False
-        return _backfill_locks[company_id], _backfill_running
+def _company_pipeline_state(company_id: str) -> tuple[threading.Lock, dict]:
+    """Transient (in-memory) run state: status / error / finished_at per report.
+    Durable progress lives in tz_sync_cursor."""
+    with _pipeline_meta_lock:
+        if company_id not in _pipeline_states:
+            _pipeline_locks[company_id] = threading.Lock()
+            _pipeline_states[company_id] = {
+                key: {"status": "idle", "error": None, "finished_at": None}
+                for _cls, key, _label in _full_sync_plan()
+            }
+        return _pipeline_locks[company_id], _pipeline_states[company_id]
 
 
-class HistoryBackfillRequest(BaseModel):
-    months: int = 1        # how many extra months of history to pull this call
-    floor_months: int = 12  # don't go further back than this many months total
+def _pipeline_by_key(key: str):
+    """Return (PipelineClass, label) for a plan key, or (None, None)."""
+    for cls, k, label in _full_sync_plan():
+        if k == key:
+            return cls, label
+    return None, None
 
 
-@router.post("/tranzact/history", summary="Pull older history (backward backfill)")
-def trigger_history_backfill(
-    body: HistoryBackfillRequest | None = None,
+# ── Cursor persistence (tz_sync_cursor) ───────────────────────────────────────
+
+def _ensure_cursor_table(conn) -> None:
+    """Create tz_sync_cursor if it doesn't exist (safety net for live DBs that
+    predate migration 007)."""
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS tz_sync_cursor (
+                company_id     TEXT NOT NULL,
+                pipeline_name  TEXT NOT NULL,
+                next_page      INT  NOT NULL DEFAULT 1,
+                total_items    INT,
+                rows_stored    INT  NOT NULL DEFAULT 0,
+                complete       BOOLEAN NOT NULL DEFAULT FALSE,
+                updated_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                PRIMARY KEY (company_id, pipeline_name)
+            )
+            """
+        )
+    conn.commit()
+
+
+def _read_cursor(conn, company_id: str, key: str) -> dict:
+    with conn.cursor() as cur:
+        cur.execute(
+            """SELECT next_page, total_items, rows_stored, complete
+                 FROM tz_sync_cursor WHERE company_id=%s AND pipeline_name=%s""",
+            (company_id, key),
+        )
+        row = cur.fetchone()
+    if not row:
+        return {"next_page": 1, "total_items": None, "rows_stored": 0, "complete": False}
+    return {"next_page": row[0], "total_items": row[1], "rows_stored": row[2], "complete": row[3]}
+
+
+def _write_cursor(conn, company_id: str, key: str, *, next_page: int,
+                  total_items, rows_stored: int, complete: bool) -> None:
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO tz_sync_cursor
+                   (company_id, pipeline_name, next_page, total_items, rows_stored, complete, updated_at)
+            VALUES (%s, %s, %s, %s, %s, %s, NOW())
+            ON CONFLICT (company_id, pipeline_name) DO UPDATE SET
+                next_page   = EXCLUDED.next_page,
+                total_items = EXCLUDED.total_items,
+                rows_stored = EXCLUDED.rows_stored,
+                complete    = EXCLUDED.complete,
+                updated_at  = NOW()
+            """,
+            (company_id, key, next_page, total_items, rows_stored, complete),
+        )
+    conn.commit()
+
+
+def _rebuild_canonical(company_id: str) -> None:
+    """Re-derive the canonical layer the dashboard reads from. Best-effort."""
+    try:
+        from vinayak.canonical.tranzact_canonical import rebuild_canonical
+        cdb = psycopg2.connect(DATABASE_URL)
+        try:
+            rebuild_canonical(cdb, company_id)
+        finally:
+            cdb.close()
+    except Exception as exc:  # noqa: BLE001
+        logger.error("Canonical rebuild for %s failed: %s", company_id, exc)
+
+
+def _run_single_pipeline(company_id: str, email: str, password: str,
+                         key: str, restart: bool = False,
+                         refresh_only: bool = False) -> None:
+    """Sync one report.
+
+    • refresh_only → pull just the newest pages (the daily/hourly incremental);
+      migration progress (next_page/complete) is left untouched unless the whole
+      report fits in the refresh window.
+    • otherwise → walk the remaining pages chunk-by-chunk, persisting the cursor
+      after each chunk, resuming from the stored cursor unless `restart` is set."""
+    import datetime as _dt
+    from vinayak.adapters.tranzact.client import TranzactCreds
+
+    lock, st = _company_pipeline_state(company_id)
+    PipelineCls, _label = _pipeline_by_key(key)
+    creds = TranzactCreds(email=email, password=password, base_url=TRANZACT_BASE_URL)
+
+    def _set(**fields):
+        with lock:
+            st[key].update(fields)
+
+    conn = psycopg2.connect(DATABASE_URL)
+    try:
+        _ensure_cursor_table(conn)
+        cur = _read_cursor(conn, company_id, key)
+    finally:
+        conn.close()
+
+    if restart:
+        cur = {"next_page": 1, "total_items": None, "rows_stored": 0, "complete": False}
+
+    _set(status="running", error=None)
+    try:
+        pipeline = PipelineCls()
+
+        # Newest-pages refresh: when the report is already migrated, or when an
+        # incremental (refresh_only) sync is requested. Pulls the top pages and
+        # upserts (content-hash dedup), without disturbing migration progress.
+        if refresh_only or (cur["complete"] and not restart):
+            res = pipeline.run_chunk(
+                company_id=company_id, creds=creds,
+                start_page=1, max_pages=REFRESH_PAGES, max_seconds=CHUNK_MAX_SECONDS,
+            )
+            _rebuild_canonical(company_id)
+            if res["reached_end"]:
+                # The whole report fit in the refresh window → fully covered.
+                next_page, rows_stored, complete = 1, res["rows_fetched"], True
+            else:
+                # Big report: keep migration progress as-is, just refresh totals.
+                next_page = cur["next_page"]
+                rows_stored = cur["rows_stored"]
+                complete = cur["complete"]
+            db = psycopg2.connect(DATABASE_URL)
+            try:
+                _write_cursor(db, company_id, key, next_page=next_page,
+                              total_items=res["total_items"],
+                              rows_stored=rows_stored, complete=complete)
+            finally:
+                db.close()
+            _set(status="success",
+                 finished_at=_dt.datetime.now(_dt.timezone.utc).isoformat())
+            return
+
+        # Migration walk: fetch chunks from next_page until the end is reached.
+        next_page = max(1, cur["next_page"])
+        rows_stored = cur["rows_stored"]
+        while True:
+            res = pipeline.run_chunk(
+                company_id=company_id, creds=creds,
+                start_page=next_page, max_pages=CHUNK_PAGES, max_seconds=CHUNK_MAX_SECONDS,
+            )
+            rows_stored += res["rows_fetched"]
+            next_page = res["last_page"] + 1
+            complete = res["reached_end"] or not res["more_available"]
+
+            _rebuild_canonical(company_id)
+            db = psycopg2.connect(DATABASE_URL)
+            try:
+                _write_cursor(
+                    db, company_id, key,
+                    next_page=1 if complete else next_page,
+                    total_items=res["total_items"],
+                    rows_stored=rows_stored, complete=complete,
+                )
+            finally:
+                db.close()
+            _set(status="running")
+
+            if complete or res["rows_fetched"] == 0:
+                break
+
+        _set(status="success",
+             finished_at=_dt.datetime.now(_dt.timezone.utc).isoformat())
+        logger.info("Migration %s for %s: complete (%s rows)", key, company_id, rows_stored)
+    except Exception as exc:  # noqa: BLE001
+        logger.error("Migration %s for %s failed: %s", key, company_id, exc)
+        _set(status="failed", error=str(exc),
+             finished_at=_dt.datetime.now(_dt.timezone.utc).isoformat())
+
+
+@router.get("/tranzact/sync/pipelines", summary="Per-report migration status")
+def pipeline_sync_status(company_id: str = Depends(require_workspace)):
+    """Per-report progress: running flag (in-memory) + durable cursor progress."""
+    lock, st = _company_pipeline_state(company_id)
+
+    cursors: dict[str, dict] = {}
+    conn = _conn()
+    try:
+        _ensure_cursor_table(conn)
+        for _cls, key, _label in _full_sync_plan():
+            cursors[key] = _read_cursor(conn, company_id, key)
+    except Exception as exc:
+        conn.close()
+        _raise_if_schema_missing(exc)
+    finally:
+        conn.close()
+
+    out = []
+    with lock:
+        for _cls, key, label in _full_sync_plan():
+            run = st[key]
+            c = cursors.get(key, {})
+            total = c.get("total_items")
+            stored = c.get("rows_stored", 0)
+            pct = (min(100, round(stored / total * 100)) if total else
+                   (100 if c.get("complete") else 0))
+            out.append({
+                "key": key,
+                "label": label,
+                "status": run["status"],
+                "error": run["error"],
+                "finished_at": run["finished_at"],
+                "rows_stored": stored,
+                "total_items": total,
+                "complete": bool(c.get("complete")),
+                "next_page": c.get("next_page", 1),
+                "percent": pct,
+            })
+    return {"pipelines": out}
+
+
+@router.post("/tranzact/sync/pipeline/{key}", summary="Run/resume one report's migration")
+def trigger_pipeline_sync(
+    key: str,
+    restart: bool = False,
     company_id: str = Depends(require_workspace),
 ):
-    """
-    Walk each pipeline's history one (or more) months further into the past,
-    on top of whatever has already been fetched. Returns immediately; the work
-    runs in a background thread. Safe to call repeatedly — it advances the
-    backfill watermark and stops once the floor is reached.
-    """
-    req = body or HistoryBackfillRequest()
-    bf_lock, bf_map = _company_backfill(company_id)
+    """Resume (or, with restart=true, re-walk from page 1) a single report's
+    page migration. Returns immediately; progress is polled via GET …/pipelines."""
+    PipelineCls, label = _pipeline_by_key(key)
+    if PipelineCls is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=f"Unknown report: {key}",
+        )
 
-    with bf_lock:
-        if bf_map[company_id]:
-            return {"status": "already_running"}
+    lock, st = _company_pipeline_state(company_id)
+    with lock:
+        if st[key]["status"] == "running":
+            return {"status": "already_running", "key": key}
+        st[key].update(status="running", error=None)
 
-    # Load this company's stored credentials.
     conn = _conn()
     try:
         with conn.cursor() as cur:
@@ -551,65 +752,119 @@ def trigger_history_backfill(
         conn.close()
 
     if not row:
+        with lock:
+            st[key].update(status="idle")
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="No TranzAct credentials found. Connect TranzAct first.",
         )
 
     creds = _decrypt(row[0])
-
-    def _worker(cid: str, email: str, password: str, months: int, floor_months: int):
-        bl, bm = _company_backfill(cid)
-        try:
-            from vinayak.jobs.backfill import backfill_company
-            summary = backfill_company(
-                cid, email, password, months=months, floor_months=floor_months,
-            )
-            logger.info("History backfill done for %s: %s", cid, summary)
-        except Exception as exc:  # noqa: BLE001
-            logger.error("History backfill failed for %s: %s", cid, exc)
-        finally:
-            with bl:
-                bm[cid] = False
-
-    with bf_lock:
-        bf_map[company_id] = True
-
     threading.Thread(
-        target=_worker,
-        args=(company_id, creds["email"], creds["password"], req.months, req.floor_months),
+        target=_run_single_pipeline,
+        args=(company_id, creds["email"], creds["password"], key, restart),
         daemon=True,
     ).start()
+    logger.info("Migration %s started: %s for %s", "restart" if restart else "resume", key, company_id)
+    return {"status": "started", "key": key, "label": label, "restart": restart}
 
-    logger.info("History backfill started for company %s (+%d months)", company_id, req.months)
-    return {"status": "started", "months": req.months, "floor_months": req.floor_months}
+
+# ── Sync ALL reports (onboarding) + incremental refresh (login / hourly) ───────
+_all_running: dict[str, bool] = {}
+_all_lock = threading.Lock()
 
 
-@router.get("/tranzact/history", summary="History backfill state + coverage")
-def history_backfill_status(company_id: str = Depends(require_workspace)):
-    """Report whether a backfill is running and how far back each pipeline goes."""
-    from vinayak.api.routes.connections import _full_sync_plan  # self-import safe
-
+def _load_tranzact_creds(company_id: str) -> dict | None:
+    """Decrypted {email, password} for the company's active TranzAct conn, or None."""
     conn = _conn()
-    coverage = []
     try:
-        for PipelineCls, _d, key, label in _full_sync_plan():
-            try:
-                oldest = PipelineCls.get_oldest_fetched_date(conn, company_id)
-            except Exception:
-                oldest = None
-            coverage.append({
-                "key": key,
-                "label": label,
-                "oldest_fetched_date": oldest.isoformat() if oldest else None,
-            })
+        with conn.cursor() as cur:
+            cur.execute(
+                """SELECT encrypted_credentials FROM tool_connections
+                    WHERE company_id = %s AND tool_name = 'tranzact' AND is_active = TRUE""",
+                (company_id,),
+            )
+            row = cur.fetchone()
+    except Exception as exc:
+        conn.close()
+        _raise_if_schema_missing(exc)
     finally:
         conn.close()
+    return _decrypt(row[0]) if row else None
 
-    bf_lock, bf_map = _company_backfill(company_id)
-    with bf_lock:
-        running = bf_map.get(company_id, False)
-    return {"running": running, "coverage": coverage}
+
+def _run_all_pipelines(company_id: str, email: str, password: str,
+                       refresh_only: bool = False, restart: bool = False) -> None:
+    """Run every report sequentially in one background thread (the shared rate
+    limiter serialises requests anyway).
+
+    • restart=True  → re-walk every report from page 1, re-checking the whole
+      report and re-adding any rows missing from the DB (content-hash upsert
+      dedups, so nothing duplicates). This is what a manual "Sync all" does.
+    • refresh_only=True → newest pages only (login/hourly incremental).
+    • neither → resume each report from its stored cursor.
+    """
+    with _all_lock:
+        if _all_running.get(company_id):
+            return
+        _all_running[company_id] = True
+    try:
+        for _cls, key, _label in _full_sync_plan():
+            try:
+                _run_single_pipeline(company_id, email, password, key,
+                                     restart=restart, refresh_only=refresh_only)
+            except Exception as exc:  # noqa: BLE001
+                logger.error("sync-all %s for %s failed: %s", key, company_id, exc)
+    finally:
+        with _all_lock:
+            _all_running[company_id] = False
+
+
+@router.post("/tranzact/sync/all", summary="Sync ALL reports (background, full re-check)")
+def trigger_sync_all(refresh_only: bool = False, restart: bool = True,
+                     company_id: str = Depends(require_workspace)):
+    """Manual "Sync all": by default re-walks EVERY report from page 1 (restart),
+    re-checking the whole report and re-adding any rows missing from the DB
+    (content-hash upsert dedups). Runs in the background and survives restarts.
+    Poll progress via GET …/sync/pipelines.
+
+    Pass restart=false to merely resume incomplete reports from their cursor."""
+    creds = _load_tranzact_creds(company_id)
+    if not creds:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No TranzAct credentials found. Connect TranzAct first.",
+        )
+    with _all_lock:
+        if _all_running.get(company_id):
+            return {"status": "already_running"}
+    threading.Thread(
+        target=_run_all_pipelines,
+        args=(company_id, creds["email"], creds["password"], refresh_only, restart),
+        daemon=True,
+    ).start()
+    logger.info("Sync-all started for %s (refresh_only=%s)", company_id, refresh_only)
+    return {"status": "started", "refresh_only": refresh_only}
+
+
+@router.post("/tranzact/sync/refresh", summary="Incremental newest-only refresh (login/hourly)")
+def trigger_sync_refresh(company_id: str = Depends(require_workspace)):
+    """Daily/login incremental: pull only the newest pages of every report. Safe
+    to fire on every login — it's a no-op if nothing's connected or already
+    running, and never disturbs an in-progress migration."""
+    creds = _load_tranzact_creds(company_id)
+    if not creds:
+        return {"status": "no_connection"}
+    with _all_lock:
+        if _all_running.get(company_id):
+            return {"status": "already_running"}
+    threading.Thread(
+        target=_run_all_pipelines,
+        args=(company_id, creds["email"], creds["password"], True),
+        daemon=True,
+    ).start()
+    logger.info("Incremental refresh started for %s", company_id)
+    return {"status": "started"}
 
 
 @router.delete("/{tool_name}", summary="Remove a tool connection")

@@ -11,7 +11,7 @@ import { useTopSkus } from "@/hooks/useDashboard";
 export default function SkusPage() {
   const [range, setRange] = useState<DateRange>({});
   // Reuse the SKU query just to surface the data-coverage span in the picker.
-  const { data } = useTopSkus(range.start || range.end ? { start: range.start, end: range.end } : { days: 30 });
+  const { data } = useTopSkus(range.start || range.end ? { start: range.start, end: range.end } : {});
   const cov = data?.data;
 
   return (

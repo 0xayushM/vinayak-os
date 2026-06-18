@@ -122,23 +122,29 @@ def _resolve_window(
     Resolve an effective [start, end] window plus the brand's full data coverage.
 
     Behaviour:
-      • Explicit start/end (range picker) are honoured when given.
-      • Otherwise the window is *anchored to the latest available data*, not to
-        today — so a brand whose newest invoice is in April still shows a
-        populated "last 30 days" instead of an empty window.
+      • With NO explicit filter the window spans the brand's *entire* data
+        coverage (data_from → data_to). Panels show everything by default; the
+        top-right date picker is the only thing that narrows the view.
+      • Explicit start/end (range picker) are honoured when given. If only one
+        bound is supplied, the other is filled from the data coverage.
+      • `period_days` is now only a fallback used when the dataset is empty (so
+        we never return None bounds).
 
     Returns: {start, end, data_from, data_to} (all `date` or None).
     """
     data_from, data_to = _date_range(conn, company_id, table)
     anchor = data_to or date.today()
 
-    eff_end = _parse_date(end) or anchor
     parsed_start = _parse_date(start)
-    if parsed_start is not None:
-        eff_start = parsed_start
-    else:
-        # Clamp the lookback so a very large period_days (used as a "whole
-        # dataset" sentinel) can't underflow below date.min and raise.
+    parsed_end = _parse_date(end)
+
+    # Default to the full coverage; explicit bounds override their side only.
+    eff_start = parsed_start or data_from
+    eff_end = parsed_end or data_to or anchor
+
+    # Empty-dataset fallback: no coverage to anchor to, so derive a trailing
+    # window from period_days (clamped so it can't underflow date.min).
+    if eff_start is None:
         lookback = min(period_days, (eff_end - date.min).days)
         eff_start = eff_end - timedelta(days=lookback)
     if eff_start > eff_end:
@@ -166,13 +172,21 @@ def _window_meta(w: dict) -> dict:
 #   • invoiced = SUM of per-invoice header total  — printed invoice grand total
 def _dual_window_totals(
     conn, table: str, company_id: str, s: str, e: str, date_col: str = "invoice_date",
+    goods_ex_tax: bool = False,
 ) -> tuple[float, float]:
-    """Return (goods_total, invoiced_total) for a [s, e] window on `table`."""
+    """Return (goods_total, invoiced_total) for a [s, e] window on `table`.
+
+    goods_ex_tax: when True, goods = SUM(line_total) - SUM(tax_amount). Needed for
+    raw tz_* tables whose line_total is TAX-INCLUSIVE (TranzAct's item_total_value).
+    canon_sales_invoice_flat already stores ex-tax line_total, so it passes False.
+    """
+    goods_expr = ("COALESCE(SUM(line_total), 0) - COALESCE(SUM(tax_amount), 0)"
+                  if goods_ex_tax else "COALESCE(SUM(line_total), 0)")
     with conn.cursor() as cur:
         cur.execute(
             f"""
             SELECT
-                COALESCE(SUM(line_total), 0) AS goods,
+                {goods_expr} AS goods,
                 COALESCE((
                     SELECT SUM(inv_total) FROM (
                         SELECT invoice_number, MAX(invoice_total) AS inv_total
@@ -289,21 +303,48 @@ def get_revenue_summary(
     }
 
 
-def get_revenue_trend(conn, company_id: str, months: int = 6) -> dict:
+def get_revenue_trend(
+    conn, company_id: str, months: int = 6,
+    start: Any = None, end: Any = None,
+) -> dict:
     """
-    S2 — Monthly revenue trend (bar/line chart data), anchored to the latest
-    available data so the chart is never empty. Gap-fills missing months with 0.
+    S2 — Monthly revenue trend (bar/line chart data). Gap-fills missing months
+    with 0 so the x-axis is continuous.
+
+    Behaviour:
+      • With NO explicit filter the trend spans the brand's *entire* data
+        coverage (data_from → data_to) — i.e. every month, no default window.
+      • Explicit start/end (top-right date picker) narrow the month span; a
+        single missing bound is filled from the data coverage.
+      • `months` is only a fallback used when the dataset is empty, so the chart
+        is never blank.
     Returns: months list [{month, revenue, invoice_count}]
     """
     data_from, data_to = _date_range(conn, company_id, "canon_sales_invoice_flat")
     anchor = data_to or date.today()
-    # Compute the first day of the window's earliest month, `months` back.
-    y, m = anchor.year, anchor.month
-    m -= (months - 1)
-    while m <= 0:
-        m += 12
-        y -= 1
-    start_month = date(y, m, 1)
+
+    parsed_start = _parse_date(start)
+    parsed_end = _parse_date(end)
+
+    # Effective span: explicit bounds override their side; otherwise full coverage.
+    eff_start = parsed_start or data_from
+    eff_end = parsed_end or data_to or anchor
+
+    # Empty-dataset fallback: derive a trailing `months`-month window.
+    if eff_start is None:
+        y, m = eff_end.year, eff_end.month
+        m -= (months - 1)
+        while m <= 0:
+            m += 12
+            y -= 1
+        eff_start = date(y, m, 1)
+    if eff_start > eff_end:
+        eff_start, eff_end = eff_end, eff_start
+
+    start_month = date(eff_start.year, eff_start.month, 1)
+    end_month = date(eff_end.year, eff_end.month, 1)
+    # Inclusive count of months between start_month and end_month.
+    span = (end_month.year - start_month.year) * 12 + (end_month.month - start_month.month) + 1
 
     with conn.cursor() as cur:
         cur.execute("""
@@ -312,15 +353,20 @@ def get_revenue_trend(conn, company_id: str, months: int = 6) -> dict:
                 COALESCE(SUM(line_total), 0)     AS revenue,
                 COUNT(DISTINCT invoice_number)   AS invoice_count
             FROM canon_sales_invoice_flat
-            WHERE company_id = %s AND invoice_date >= %s
+            WHERE company_id = %s AND invoice_date >= %s AND invoice_date < %s
             GROUP BY 1 ORDER BY 1
-        """, (company_id, start_month.isoformat()))
+        """, (
+            company_id,
+            start_month.isoformat(),
+            (date(end_month.year + (1 if end_month.month == 12 else 0),
+                  1 if end_month.month == 12 else end_month.month + 1, 1)).isoformat(),
+        ))
         found = {r[0]: (float(r[1]), int(r[2])) for r in cur.fetchall()}
 
     # Gap-fill every month in the window so the chart x-axis is continuous.
     series = []
     cy, cm = start_month.year, start_month.month
-    for _ in range(months):
+    for _ in range(span):
         key = f"{cy:04d}-{cm:02d}"
         rev, cnt = found.get(key, (0.0, 0))
         series.append({"month": key, "revenue": rev, "invoice_count": cnt})
@@ -363,9 +409,10 @@ def get_revenue_daily(
 
     days = []
     cur_d = s
-    # Cap at ~370 points to keep the payload small.
+    # Cap kept generous so the default "all data" view isn't truncated, while
+    # still bounding the payload for multi-year ranges (~4 years of daily points).
     guard = 0
-    while cur_d <= e and guard < 400:
+    while cur_d <= e and guard < 1500:
         rev, cnt = found.get(cur_d, (0.0, 0))
         days.append({"date": cur_d.isoformat(), "revenue": rev, "invoice_count": cnt})
         cur_d += timedelta(days=1)
@@ -721,7 +768,7 @@ def _purchase_monthly_avg(conn, company_id: str) -> tuple[float, float]:
         floor = data_to - timedelta(days=365)
         cur.execute(
             """
-            SELECT COALESCE(SUM(line_total), 0),
+            SELECT COALESCE(SUM(line_total), 0) - COALESCE(SUM(tax_amount), 0),
                    COUNT(DISTINCT date_trunc('month', invoice_date)),
                    COALESCE((
                        SELECT SUM(inv_total) FROM (
@@ -756,8 +803,9 @@ def get_purchases_summary(conn, company_id: str, period_days: int = 30,
     w = _resolve_window(conn, company_id, "tz_purchase_invoices", start, end, period_days)
     s, e = w["start"].isoformat(), w["end"].isoformat()
     # BUG 1 fix: dual basis instead of line-multiplied SUM(invoice_total).
+    # tz_purchase_invoices.line_total is tax-inclusive → ex-tax for the goods basis.
     period_goods, period_invoiced = _dual_window_totals(
-        conn, "tz_purchase_invoices", company_id, s, e)
+        conn, "tz_purchase_invoices", company_id, s, e, goods_ex_tax=True)
     with conn.cursor() as cur:
         cur.execute("""
             SELECT
@@ -841,13 +889,16 @@ def get_top_vendors_spend(conn, company_id: str, period_days: int = 30,
     }
 
 
-def get_production_summary(conn, company_id: str, period_days: int = 30) -> dict:
+def get_production_summary(
+    conn, company_id: str, period_days: int = 30,
+    start: Any = None, end: Any = None,
+) -> dict:
     """
     S11 — Production KPIs.
     Returns: fg_produced, rejected, reject_rate_pct, wip_count, completed_count
     """
-    # BUG 2 fix: anchor to latest available production data, not today.
-    w = _resolve_window(conn, company_id, "tz_process_details", None, None, period_days)
+    # No filter → full coverage; start/end (date picker) narrow the window.
+    w = _resolve_window(conn, company_id, "tz_process_details", start, end, period_days)
     s, e = w["start"].isoformat(), w["end"].isoformat()
     with conn.cursor() as cur:
         # TranzAct stores status_text as 'WIP' / 'Pending' / 'Planned' (mixed
@@ -887,7 +938,10 @@ def get_production_summary(conn, company_id: str, period_days: int = 30) -> dict
     }
 
 
-def get_quote_summary(conn, company_id: str, period_days: int = 30) -> dict:
+def get_quote_summary(
+    conn, company_id: str, period_days: int = 30,
+    start: Any = None, end: Any = None,
+) -> dict:
     """
     S13 — Sales quotation pipeline KPIs.
 
@@ -895,8 +949,8 @@ def get_quote_summary(conn, company_id: str, period_days: int = 30) -> dict:
     its status explicitly says so. Everything not won/lost/cancelled is open.
     Returns: open_count, open_value, won_count, won_value, conversion_rate.
     """
-    # BUG 2 fix: anchor to latest available quotation data, not today.
-    w = _resolve_window(conn, company_id, "tz_sales_quotations", None, None, period_days)
+    # No filter → full coverage; start/end (date picker) narrow the window.
+    w = _resolve_window(conn, company_id, "tz_sales_quotations", start, end, period_days)
     s, e = w["start"].isoformat(), w["end"].isoformat()
     with conn.cursor() as cur:
         cur.execute("""
@@ -942,7 +996,10 @@ def get_quote_summary(conn, company_id: str, period_days: int = 30) -> dict:
     }
 
 
-def get_grn_summary(conn, company_id: str, period_days: int = 30) -> dict:
+def get_grn_summary(
+    conn, company_id: str, period_days: int = 30,
+    start: Any = None, end: Any = None,
+) -> dict:
     """
     S14 — Goods Received Note KPIs.
 
@@ -951,8 +1008,8 @@ def get_grn_summary(conn, company_id: str, period_days: int = 30) -> dict:
     decision recorded). rejection_rate = rejected / received.
     Returns: received_count, total_value, pending_qir, rejection_rate.
     """
-    # BUG 2 fix: anchor to latest available GRN data, not today.
-    w = _resolve_window(conn, company_id, "tz_grn_qir", None, None, period_days)
+    # No filter → full coverage; start/end (date picker) narrow the window.
+    w = _resolve_window(conn, company_id, "tz_grn_qir", start, end, period_days)
     s, e = w["start"].isoformat(), w["end"].isoformat()
     with conn.cursor() as cur:
         cur.execute("""

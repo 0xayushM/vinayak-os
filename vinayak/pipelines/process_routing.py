@@ -25,7 +25,6 @@ from vinayak.pipelines.helpers import stable_row_id
 
 logger = logging.getLogger(__name__)
 
-
 # ── Row schema ────────────────────────────────────────────────────────────────
 
 class ProcessRoutingRow(BaseModel):
@@ -64,7 +63,6 @@ class ProcessRoutingRow(BaseModel):
         except (ValueError, TypeError):
             return None
 
-
 # ── Pipeline ──────────────────────────────────────────────────────────────────
 
 class ProcessRoutingPipeline(BasePipeline):
@@ -72,9 +70,6 @@ class ProcessRoutingPipeline(BasePipeline):
     REPORT_ID = "86"
     TABLE_NAME = "tz_process_routing"
     RowSchema = ProcessRoutingRow
-
-    def _get_filters(self, from_date: str, to_date: str) -> dict:
-        return {"filters": {"from_date": from_date, "to_date": to_date}}
 
     def _upsert(self, conn, rows: list[ProcessRoutingRow], company_id: str) -> int:
         if not rows:
