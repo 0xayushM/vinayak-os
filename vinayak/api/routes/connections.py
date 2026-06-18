@@ -506,6 +506,18 @@ def _pipeline_by_key(key: str):
     return None, None
 
 
+def _clean_error(exc: Exception) -> str:
+    """A short, human-readable error for the UI. The full traceback goes to the
+    server log; the dashboard only needs the gist, not the raw DB hint dump."""
+    msg = str(exc).strip()
+    first = msg.split("\n", 1)[0].strip()
+    for marker in ("HINT:", "DETAIL:", "CONTEXT:"):
+        i = first.find(marker)
+        if i > 0:
+            first = first[:i].strip()
+    return (first[:200] or "Sync failed").rstrip()
+
+
 # ── Cursor persistence (tz_sync_cursor) ───────────────────────────────────────
 
 def _ensure_cursor_table(conn) -> None:
@@ -670,8 +682,9 @@ def _run_single_pipeline(company_id: str, email: str, password: str,
              finished_at=_dt.datetime.now(_dt.timezone.utc).isoformat())
         logger.info("Migration %s for %s: complete (%s rows)", key, company_id, rows_stored)
     except Exception as exc:  # noqa: BLE001
-        logger.error("Migration %s for %s failed: %s", key, company_id, exc)
-        _set(status="failed", error=str(exc),
+        # Full traceback to the server log; a clean one-liner to the UI.
+        logger.exception("Migration %s for %s failed", key, company_id)
+        _set(status="failed", error=_clean_error(exc),
              finished_at=_dt.datetime.now(_dt.timezone.utc).isoformat())
 
 
@@ -813,8 +826,8 @@ def _run_all_pipelines(company_id: str, email: str, password: str,
             try:
                 _run_single_pipeline(company_id, email, password, key,
                                      restart=restart, refresh_only=refresh_only)
-            except Exception as exc:  # noqa: BLE001
-                logger.error("sync-all %s for %s failed: %s", key, company_id, exc)
+            except Exception:  # noqa: BLE001
+                logger.exception("sync-all %s for %s failed", key, company_id)
     finally:
         with _all_lock:
             _all_running[company_id] = False

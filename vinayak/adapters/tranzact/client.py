@@ -189,8 +189,19 @@ def _post_with_retry(
         resp.raise_for_status()
         return resp.json()
 
+    # All retries exhausted — log the last upstream context for diagnosis.
+    detail = ""
+    try:
+        detail = f" last_status={resp.status_code} body={resp.text[:300]}"  # type: ignore[name-defined]
+    except Exception:  # noqa: BLE001
+        pass
+    page = payload.get("pagination", {}).get("page")
+    logger.error(
+        "fetch_report: report_id=%s page=%s — failed after %d attempts.%s",
+        payload.get("report", {}).get("id"), page, max_retries, detail,
+    )
     raise RuntimeError(
-        f"fetch_report failed after {max_retries} attempts for payload {payload}"
+        f"Report fetch failed after {max_retries} attempts (page {page})."
     )
 
 
@@ -270,7 +281,24 @@ def fetch_report(
             if filters:
                 payload.update(filters)
 
-            body = _post_with_retry(session, payload, creds)
+            try:
+                body = _post_with_retry(session, payload, creds)
+            except Exception:
+                # A page failed after retries. If we already collected rows this
+                # call AND the server never reported a total (typical of snapshot
+                # reports that error on an out-of-range page), treat it as the end
+                # of data rather than failing the whole report. Otherwise re-raise
+                # so a genuine failure is surfaced (and logged in _post_with_retry).
+                if all_rows and not total_items:
+                    logger.warning(
+                        "fetch_report: report_id=%s page=%d failed after retries; "
+                        "%d rows already collected and no total reported — treating "
+                        "as end of data.", report_id, page, len(all_rows),
+                    )
+                    reached_end = True
+                    break
+                raise
+
             rows = _get_rows(body)
             all_rows.extend(rows)
             total_items = _get_total_items(body)

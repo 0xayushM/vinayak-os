@@ -91,7 +91,7 @@ class BasePipeline(ABC):
                 creds=creds, start_page=start_page, max_pages=max_pages,
             )
             rows_fetched = len(raw_rows)
-            validated = self._validate(raw_rows)
+            validated = self._dedupe(self._validate(raw_rows))
             self._upsert(conn, validated, company_id)
             rows_upserted = len(validated)  # execute_values rowcount unreliable with batching
             self._finish_run(conn, run_id, "success", rows_fetched, rows_upserted)
@@ -111,7 +111,7 @@ class BasePipeline(ABC):
             }
         except Exception as exc:
             self._fail_run(conn, run_id, str(exc))
-            logger.error("%s: ❌  %s", self.PIPELINE_NAME, exc)
+            logger.exception("%s: ❌  chunk failed (start_page=%s)", self.PIPELINE_NAME, start_page)
             raise
         finally:
             conn.close()
@@ -140,6 +140,32 @@ class BasePipeline(ABC):
                 self.PIPELINE_NAME, skipped, len(raw_rows),
             )
         return valid
+
+    def _dedupe(self, rows: list) -> list:
+        """
+        Collapse rows that share the same content-hash id (raw_id) within this
+        batch, last-wins. The DB upsert targets ON CONFLICT (company_id, raw_id);
+        if a single batch contained two rows with the same raw_id, Postgres
+        raises "ON CONFLICT DO UPDATE command cannot affect row a second time".
+        Source reports legitimately repeat identical lines, so we de-dup here.
+        Rows without a raw_id are passed through untouched.
+        """
+        seen: dict[str, object] = {}
+        passthrough, collapsed = [], 0
+        for r in rows:
+            rid = getattr(r, "raw_id", None)
+            if not rid:
+                passthrough.append(r)
+                continue
+            if rid in seen:
+                collapsed += 1
+            seen[rid] = r
+        if collapsed:
+            logger.info(
+                "%s: collapsed %d duplicate row(s) in this batch before upsert",
+                self.PIPELINE_NAME, collapsed,
+            )
+        return list(seen.values()) + passthrough
 
     def _start_run(self, conn, is_backfill: bool) -> int:
         """Insert a 'running' row into tz_sync_runs. Returns the run ID."""
