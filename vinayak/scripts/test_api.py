@@ -15,8 +15,10 @@ Prerequisites:
     • .env file with TRANZACT_EMAIL, TRANZACT_PASSWORD, TRANZACT_BASE_URL
     • pip install -r kbrushes/requirements.txt
 
-⚠️  After running, update client.py's _get_rows() and _get_total_pages()
-    to match the actual response structure shown here.
+⚠️  After running, confirm client.py's _get_rows() and _get_total_items()
+    match the actual response structure shown here. NOTE: TranzAct ignores the
+    requested per_page and serves a fixed page size (~50), so fetch_report pages
+    until it has collected total_items rows rather than dividing by per_page.
 """
 from __future__ import annotations
 
@@ -192,9 +194,9 @@ def main() -> None:
     print("  ✅  Day 1 handshake complete.")
     print("  Next steps:")
     print("  1. Open report_29_sample.json and note the exact column names")
-    print("  2. Update client.py → _get_rows() and _get_total_pages()")
+    print("  2. Confirm client.py → _get_rows() and _get_total_items() (per_page is ignored upstream)")
     print("  3. Update auth.py → _do_refresh() with the correct refresh URL")
-    print("  4. Update reports.py → get_filters() with correct filter key names")
+    print("  4. NOTE: report 29 has no server-side date filter — pipelines fetch the full report")
     print("  5. Update schema/init.sql column names to match actual field names")
     print(f"{DIVIDER}\n")
 

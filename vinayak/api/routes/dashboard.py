@@ -81,11 +81,16 @@ def revenue_summary(
 
 
 @router.get("/revenue/trend")
-def revenue_trend(months: int = Query(default=6, ge=1, le=24), company_id: str = Depends(require_workspace)):
+def revenue_trend(
+    months: int = Query(default=6, ge=1, le=24),
+    start: str | None = Query(default=None),
+    end: str | None = Query(default=None),
+    company_id: str = Depends(require_workspace),
+):
     """S2 — Monthly revenue trend (bar chart data)."""
     conn = _conn()
     try:
-        data = queries.get_revenue_trend(conn, company_id, months)
+        data = queries.get_revenue_trend(conn, company_id, months, start, end)
     finally:
         conn.close()
     return _envelope(data, report_id=29)
@@ -363,33 +368,48 @@ def top_stock_holdings(company_id: str = Depends(require_workspace)):
 
 
 @router.get("/purchases/summary")
-def purchases_summary(period_days: int = Query(default=30, ge=7, le=365), company_id: str = Depends(require_workspace)):
+def purchases_summary(
+    period_days: int = Query(default=30, ge=7, le=365),
+    start: str | None = Query(default=None),
+    end: str | None = Query(default=None),
+    company_id: str = Depends(require_workspace),
+):
     """S9 — Purchase spend KPIs."""
     conn = _conn()
     try:
-        data = queries.get_purchases_summary(conn, company_id, period_days)
+        data = queries.get_purchases_summary(conn, company_id, period_days, start, end)
     finally:
         conn.close()
     return _envelope(data, report_id=77)
 
 
 @router.get("/purchases/vendors")
-def top_vendors_spend(period_days: int = Query(default=30, ge=7, le=365), company_id: str = Depends(require_workspace)):
+def top_vendors_spend(
+    period_days: int = Query(default=30, ge=7, le=365),
+    start: str | None = Query(default=None),
+    end: str | None = Query(default=None),
+    company_id: str = Depends(require_workspace),
+):
     """S10 — Top vendors by purchase spend."""
     conn = _conn()
     try:
-        data = queries.get_top_vendors_spend(conn, company_id, period_days)
+        data = queries.get_top_vendors_spend(conn, company_id, period_days, start, end)
     finally:
         conn.close()
     return _envelope(data, report_id=77)
 
 
 @router.get("/production/summary")
-def production_summary(period_days: int = Query(default=30, ge=7, le=365), company_id: str = Depends(require_workspace)):
+def production_summary(
+    period_days: int = Query(default=30, ge=7, le=365),
+    start: str | None = Query(default=None),
+    end: str | None = Query(default=None),
+    company_id: str = Depends(require_workspace),
+):
     """S11 — Production KPIs (FG output, reject rate)."""
     conn = _conn()
     try:
-        data = queries.get_production_summary(conn, company_id, period_days)
+        data = queries.get_production_summary(conn, company_id, period_days, start, end)
     finally:
         conn.close()
     return _envelope(data, report_id=25)
@@ -407,22 +427,32 @@ def order_book_summary(company_id: str = Depends(require_workspace)):
 
 
 @router.get("/quotes/summary")
-def quote_summary(period_days: int = Query(default=30, ge=7, le=365), company_id: str = Depends(require_workspace)):
+def quote_summary(
+    period_days: int = Query(default=30, ge=7, le=365),
+    start: str | None = Query(default=None),
+    end: str | None = Query(default=None),
+    company_id: str = Depends(require_workspace),
+):
     """S13 — Sales quotation pipeline KPIs."""
     conn = _conn()
     try:
-        data = queries.get_quote_summary(conn, company_id, period_days)
+        data = queries.get_quote_summary(conn, company_id, period_days, start, end)
     finally:
         conn.close()
     return _envelope(data, report_id=8)
 
 
 @router.get("/grn/summary")
-def grn_summary(period_days: int = Query(default=30, ge=7, le=365), company_id: str = Depends(require_workspace)):
+def grn_summary(
+    period_days: int = Query(default=30, ge=7, le=365),
+    start: str | None = Query(default=None),
+    end: str | None = Query(default=None),
+    company_id: str = Depends(require_workspace),
+):
     """S14 — Goods Received Note KPIs."""
     conn = _conn()
     try:
-        data = queries.get_grn_summary(conn, company_id, period_days)
+        data = queries.get_grn_summary(conn, company_id, period_days, start, end)
     finally:
         conn.close()
     return _envelope(data, report_id=34)

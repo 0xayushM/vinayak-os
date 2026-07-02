@@ -2,7 +2,7 @@
 
 import { Unplug } from "lucide-react";
 import ConnectTranzact from "@/components/dashboard/ConnectTranzact";
-import { HistoryBackfill } from "@/components/dashboard/HistoryBackfill";
+import { ApiSyncPanel } from "@/components/dashboard/ApiSyncPanel";
 
 export default function SettingsPage() {
   return (
@@ -17,8 +17,8 @@ export default function SettingsPage() {
       {/* TranzAct connection — save, test, and run a fresh sync */}
       <ConnectTranzact compact />
 
-      {/* Historical data — coverage + pull older history on demand */}
-      <HistoryBackfill mode="full" />
+      {/* Per-API sync — run each report individually (pulls complete data) */}
+      <ApiSyncPanel />
 
       {/* Future ERP placeholders */}
       <div className="space-y-3">

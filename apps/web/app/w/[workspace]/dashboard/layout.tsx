@@ -6,6 +6,7 @@ import { NotificationsProvider } from "@/components/notifications/NotificationsP
 import { NotificationBell } from "@/components/notifications/NotificationBell";
 import { ToastHost } from "@/components/notifications/ToastHost";
 import { SyncWatcher } from "@/components/notifications/SyncWatcher";
+import { SyncOnLogin } from "@/components/dashboard/SyncOnLogin";
 import { ChatDockProvider } from "@/components/dashboard/ChatDock";
 
 export const metadata: Metadata = {
@@ -32,6 +33,7 @@ export default function DashboardLayout({
         <NotificationBell />
         <ToastHost />
         <SyncWatcher />
+        <SyncOnLogin />
       </ChatDockProvider>
     </NotificationsProvider>
   );

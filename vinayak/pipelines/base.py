@@ -10,21 +10,17 @@ Subclasses must define:
     RowSchema     : type  (Pydantic BaseModel for one row)
 
 Subclasses must implement:
-    _get_filters(from_date, to_date) -> dict
-        Returns the filters dict to pass to fetch_report().
     _upsert(conn, rows) -> int
         Performs the INSERT … ON CONFLICT DO UPDATE and returns rows upserted.
 
 The run() method provides the full pipeline contract:
-    fetch → validate → upsert → log → error handling
+    fetch (complete report, no date filter) → validate → upsert → log → errors
 """
 from __future__ import annotations
 
 import logging
-import time
 from abc import ABC, abstractmethod
-from datetime import date, timedelta
-from typing import Type
+from datetime import date
 
 import psycopg2
 import psycopg2.extras
@@ -42,112 +38,83 @@ class BasePipeline(ABC):
     TABLE_NAME: str
     RowSchema: type  # Pydantic model
 
-    # Name of the RowSchema attribute that the from_date/to_date filter applies
-    # to (the record's primary date). Used to compute the true coverage floor
-    # when a fetch is cut short by the time cap. Leave None for snapshot reports
-    # (inventory/process routing) that have no date window.
-    DATE_FILTER_FIELD: str | None = None
-
     # ── Public methods ────────────────────────────────────────────────────────
 
     def run(
         self,
-        from_date: date,
-        to_date: date,
-        is_backfill: bool = False,
         company_id: str = "protegere",
         max_seconds: float | None = None,
         creds: TranzactCreds | None = None,
     ) -> int:
         """
-        Full pipeline run:
-          1. Open a DB connection and log 'running' to tz_sync_runs
-          2. Fetch all rows from TranzAct
-          3. Validate rows with Pydantic (bad rows are skipped, not raised)
-          4. Upsert valid rows into the cached table
-          5. Update tz_sync_runs with 'success' or 'failed'
-          6. Move the backfill watermark back if this run reached further into
-             the past than any previous run.
+        Run this pipeline once over the COMPLETE report and return rows upserted.
 
-        Returns the number of rows upserted.
+        Convenience wrapper around run_chunk() with start_page=1 and no page
+        limit. Used for routine refreshes (scheduler, full sync). For a large
+        history, use the cursor-driven chunked migration in the connections
+        route instead — see docs/RESUMABLE_SYNC.md.
+        """
+        return self.run_chunk(
+            company_id=company_id, creds=creds,
+            start_page=1, max_pages=None, max_seconds=max_seconds,
+        )["rows_upserted"]
+
+    def run_chunk(
+        self,
+        company_id: str = "protegere",
+        creds: TranzactCreds | None = None,
+        start_page: int = 1,
+        max_pages: int | None = None,
+        max_seconds: float | None = None,
+    ) -> dict:
+        """
+        Fetch ONE chunk of the report (pages start_page…) and upsert it.
+
+        With start_page=1 and max_pages=None this pulls the complete report.
+        Pass max_pages to fetch a bounded slice and resume later from
+        last_page + 1 — the basis of resumable migration.
+
+        TranzAct has no server-side date filter, so a chunk is just a page range.
+        Upserts are keyed on a content hash, so overlapping/re-fetched rows
+        overwrite in place rather than duplicating.
+
+        Returns a stats dict:
+          rows_upserted, rows_fetched, last_page, total_items,
+          more_available (bool), reached_end (bool), truncated (bool)
         """
         conn = psycopg2.connect(DATABASE_URL)
-        run_id = self._start_run(conn, is_backfill)
-        rows_fetched = 0
-        rows_upserted = 0
+        run_id = self._start_run(conn, is_backfill=False)
         try:
-            filters = self._get_filters(str(from_date), str(to_date))
             stats: dict = {}
             raw_rows = fetch_report(
-                self.REPORT_ID, filters, max_seconds=max_seconds, stats=stats,
-                creds=creds,
+                self.REPORT_ID, None, max_seconds=max_seconds, stats=stats,
+                creds=creds, start_page=start_page, max_pages=max_pages,
             )
             rows_fetched = len(raw_rows)
-
-            validated = self._validate(raw_rows)
+            validated = self._dedupe(self._validate(raw_rows))
             self._upsert(conn, validated, company_id)
-            rows_upserted = len(validated)  # execute_values rowcount unreliable with page_size batching
-
-            # Record how far back this run actually reached. Rows come back
-            # newest-first, so a complete fetch covers the whole window down to
-            # from_date. A time-capped (truncated) fetch only has the most recent
-            # rows — its coverage floor is the OLDEST record date we managed to
-            # pull, NOT from_date. Recording the real floor lets the backfill
-            # resume from exactly there instead of skipping the unfetched span.
-            coverage_floor = self._coverage_floor(from_date, validated, stats)
-            self._touch_backfill_state(conn, company_id, coverage_floor)
+            rows_upserted = len(validated)  # execute_values rowcount unreliable with batching
             self._finish_run(conn, run_id, "success", rows_fetched, rows_upserted)
-            if stats.get("truncated"):
-                logger.warning(
-                    "%s: ⏱  time-capped — coverage floor recorded as %s "
-                    "(window start was %s); backfill will continue from there",
-                    self.PIPELINE_NAME, coverage_floor, from_date,
-                )
             logger.info(
-                "%s: ✅  fetched=%d upserted=%d",
-                self.PIPELINE_NAME, rows_fetched, rows_upserted,
+                "%s: ✅  pages %d.. fetched=%d upserted=%d more=%s",
+                self.PIPELINE_NAME, start_page, rows_fetched, rows_upserted,
+                stats.get("more_available"),
             )
-            return rows_upserted
+            return {
+                "rows_upserted": rows_upserted,
+                "rows_fetched":  rows_fetched,
+                "last_page":     stats.get("last_page", start_page - 1),
+                "total_items":   stats.get("total_items", 0),
+                "more_available": bool(stats.get("more_available")),
+                "reached_end":   bool(stats.get("reached_end")),
+                "truncated":     bool(stats.get("truncated")),
+            }
         except Exception as exc:
             self._fail_run(conn, run_id, str(exc))
-            logger.error("%s: ❌  %s", self.PIPELINE_NAME, exc)
+            logger.exception("%s: ❌  chunk failed (start_page=%s)", self.PIPELINE_NAME, start_page)
             raise
         finally:
             conn.close()
-
-    def backfill(
-        self,
-        from_date: date,
-        window_days: int = 30,
-        sleep_between_windows: float = 1.0,
-        company_id: str = "protegere",
-        creds: TranzactCreds | None = None,
-    ) -> None:
-        """
-        Split the period from_date → today into windows and run each.
-
-        Args:
-            from_date:              First date to backfill from (e.g. date(2025, 11, 1))
-            window_days:            Size of each fetch window (default 30 days)
-            sleep_between_windows:  Seconds to sleep between windows (rate limit safety)
-        """
-        today = date.today()
-        cursor = from_date
-        window_count = 0
-
-        while cursor < today:
-            end = min(cursor + timedelta(days=window_days - 1), today)
-            logger.info(
-                "%s backfill: window %d — %s → %s",
-                self.PIPELINE_NAME, window_count + 1, cursor, end,
-            )
-            self.run(cursor, end, is_backfill=True, company_id=company_id, creds=creds)
-            cursor = end + timedelta(days=1)
-            window_count += 1
-            if cursor < today and sleep_between_windows > 0:
-                time.sleep(sleep_between_windows)
-
-        logger.info("%s backfill: complete — %d windows", self.PIPELINE_NAME, window_count)
 
     # ── Internal helpers ──────────────────────────────────────────────────────
 
@@ -173,6 +140,32 @@ class BasePipeline(ABC):
                 self.PIPELINE_NAME, skipped, len(raw_rows),
             )
         return valid
+
+    def _dedupe(self, rows: list) -> list:
+        """
+        Collapse rows that share the same content-hash id (raw_id) within this
+        batch, last-wins. The DB upsert targets ON CONFLICT (company_id, raw_id);
+        if a single batch contained two rows with the same raw_id, Postgres
+        raises "ON CONFLICT DO UPDATE command cannot affect row a second time".
+        Source reports legitimately repeat identical lines, so we de-dup here.
+        Rows without a raw_id are passed through untouched.
+        """
+        seen: dict[str, object] = {}
+        passthrough, collapsed = [], 0
+        for r in rows:
+            rid = getattr(r, "raw_id", None)
+            if not rid:
+                passthrough.append(r)
+                continue
+            if rid in seen:
+                collapsed += 1
+            seen[rid] = r
+        if collapsed:
+            logger.info(
+                "%s: collapsed %d duplicate row(s) in this batch before upsert",
+                self.PIPELINE_NAME, collapsed,
+            )
+        return list(seen.values()) + passthrough
 
     def _start_run(self, conn, is_backfill: bool) -> int:
         """Insert a 'running' row into tz_sync_runs. Returns the run ID."""
@@ -236,94 +229,7 @@ class BasePipeline(ABC):
             return row[0].date() if hasattr(row[0], "date") else row[0]
         return None
 
-    # ── Backfill watermark ─────────────────────────────────────────────────────
-
-    def _coverage_floor(self, from_date: date, validated: list, stats: dict) -> date:
-        """
-        Decide the oldest date this run can claim to have fetched.
-
-        • Complete fetch (not truncated), or a snapshot report with no date
-          field → the run covered the whole window, so the floor is from_date.
-        • Truncated fetch → rows are newest-first, so we only have the recent
-          tail. The real floor is the OLDEST record date among the rows we got.
-          If no dated rows came back, fall back to to-date semantics by claiming
-          only from_date+window isn't covered — i.e. return the newest possible
-          (today) so the backfill re-pulls the whole window from scratch.
-        """
-        if not stats.get("truncated") or not self.DATE_FILTER_FIELD:
-            return from_date
-
-        dates = [
-            d for d in (
-                getattr(row, self.DATE_FILTER_FIELD, None) for row in validated
-            ) if d is not None
-        ]
-        if dates:
-            return min(dates)
-
-        # Truncated but couldn't read any record date — don't claim coverage we
-        # can't prove. Record today so the backward backfill re-fetches the
-        # whole window rather than silently skipping it.
-        return date.today()
-
-    def _touch_backfill_state(self, conn, company_id: str, from_date: date) -> None:
-        """
-        Record how far back this pipeline has now fetched.
-
-        Upserts tz_backfill_state.oldest_fetched_date to the EARLIER of the
-        existing value and `from_date`, so the watermark only ever moves
-        backwards in time. Called automatically on every successful run().
-        """
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                INSERT INTO tz_backfill_state
-                       (company_id, pipeline_name, oldest_fetched_date, updated_at)
-                VALUES (%s, %s, %s, NOW())
-                ON CONFLICT (company_id, pipeline_name) DO UPDATE SET
-                    oldest_fetched_date = LEAST(
-                        tz_backfill_state.oldest_fetched_date, EXCLUDED.oldest_fetched_date
-                    ),
-                    updated_at = NOW()
-                """,
-                (company_id, self.PIPELINE_NAME, from_date),
-            )
-        conn.commit()
-
-    @classmethod
-    def get_oldest_fetched_date(cls, conn, company_id: str = "kbrushes") -> date | None:
-        """Earliest date this pipeline has data for, or None if never run."""
-        with conn.cursor() as cur:
-            cur.execute(
-                """SELECT oldest_fetched_date FROM tz_backfill_state
-                    WHERE company_id = %s AND pipeline_name = %s""",
-                (company_id, cls.PIPELINE_NAME),
-            )
-            row = cur.fetchone()
-        if row and row[0]:
-            return row[0].date() if hasattr(row[0], "date") else row[0]
-        return None
-
-    @classmethod
-    def get_backfill_floor(cls, conn, company_id: str = "kbrushes") -> date | None:
-        """Per-pipeline floor date (stop backfilling past this), or None."""
-        with conn.cursor() as cur:
-            cur.execute(
-                """SELECT floor_date FROM tz_backfill_state
-                    WHERE company_id = %s AND pipeline_name = %s""",
-                (company_id, cls.PIPELINE_NAME),
-            )
-            row = cur.fetchone()
-        if row and row[0]:
-            return row[0].date() if hasattr(row[0], "date") else row[0]
-        return None
-
     # ── Abstract methods (subclasses implement these) ─────────────────────────
-
-    @abstractmethod
-    def _get_filters(self, from_date: str, to_date: str) -> dict:
-        """Return the filters dict for fetch_report()."""
-        ...
 
     @abstractmethod
     def _upsert(self, conn, rows: list, company_id: str) -> int:

@@ -17,7 +17,7 @@ export default function ProductionPage() {
         <DateRangePicker value={range} onChange={setRange} dataFrom={cov?.data_from} dataTo={cov?.data_to} />
       </PageHeader>
       <div className="max-w-xl">
-        <ProductionPanel />
+        <ProductionPanel range={range} />
       </div>
       <ProductionTablePanel range={range} />
     </div>

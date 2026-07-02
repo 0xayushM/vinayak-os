@@ -3,7 +3,6 @@
 import { useSyncHealth, useIngestQuality } from "@/hooks/useDashboard";
 import { CheckCircle, AlertTriangle, XCircle, RefreshCw, Database } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
-import { HistoryBackfill } from "@/components/dashboard/HistoryBackfill";
 
 const OBJECT_LABELS: Record<string, string> = {
   customer: "Customers",
@@ -99,9 +98,6 @@ export default function SyncHealthPage() {
           Refresh
         </button>
       </div>
-
-      {/* History coverage — how far back each report has been fetched */}
-      <HistoryBackfill mode="coverage" />
 
       {/* Layer-0 canonical mapping coverage */}
       <DataQualityCard />

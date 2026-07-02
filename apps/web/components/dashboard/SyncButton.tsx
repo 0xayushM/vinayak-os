@@ -11,11 +11,11 @@ import { cn } from "@/lib/utils/cn";
  * ──────────
  * Replaces the passive "Stale" badge with an action: pull the latest data.
  *
- * Clicking POSTs to /api/connections/tranzact/sync, which runs an *incremental*
- * forward sync — each pipeline fetches from its last successful date up to today
- * (NOT a historical backfill; that lives in HistoryBackfill). The button then
- * polls the same endpoint for `running` and, once the run finishes, revalidates
- * every `/api/dashboard/*` SWR key so all panels pick up the fresh rows.
+ * Clicking POSTs to /api/connections/tranzact/sync, which runs all reports once
+ * — each pipeline fetches its COMPLETE report (TranzAct has no server-side date
+ * filter). The button then polls the same endpoint for `running` and, once the
+ * run finishes, revalidates every `/api/dashboard/*` SWR key so all panels pick
+ * up the fresh rows. (To run a single report, use the per-API panel in Settings.)
  *
  * The status query is keyed on the shared endpoint URL, so every SyncButton on
  * the page reflects the same running state — clicking one spins them all.

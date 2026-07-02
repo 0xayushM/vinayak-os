@@ -11,7 +11,7 @@ import { useRevenueSummary } from "@/hooks/useDashboard";
 
 export default function CustomersPage() {
   const [range, setRange] = useState<DateRange>({});
-  const { data } = useRevenueSummary(range.start || range.end ? { start: range.start, end: range.end } : { days: 30 });
+  const { data } = useRevenueSummary(range.start || range.end ? { start: range.start, end: range.end } : {});
   const cov = data?.data;
 
   return (

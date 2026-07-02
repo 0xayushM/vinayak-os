@@ -24,7 +24,6 @@ from vinayak.pipelines.helpers import epoch_to_date, stable_row_id
 
 logger = logging.getLogger(__name__)
 
-
 # ── Row schema ────────────────────────────────────────────────────────────────
 
 class ARAgingRow(BaseModel):
@@ -86,7 +85,6 @@ class ARAgingRow(BaseModel):
                 self.aging_bucket = "90+"
         return self
 
-
 # ── Pipeline ──────────────────────────────────────────────────────────────────
 
 class ARAgingPipeline(BasePipeline):
@@ -94,10 +92,6 @@ class ARAgingPipeline(BasePipeline):
     REPORT_ID = "102"
     TABLE_NAME = "tz_ar_aging"
     RowSchema = ARAgingRow
-    DATE_FILTER_FIELD = "invoice_date"
-
-    def _get_filters(self, from_date: str, to_date: str) -> dict:
-        return {"filters": {"from_date": from_date, "to_date": to_date}}
 
     def _upsert(self, conn, rows: list[ARAgingRow], company_id: str) -> int:
         if not rows:

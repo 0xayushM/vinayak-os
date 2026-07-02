@@ -25,7 +25,6 @@ from vinayak.pipelines.helpers import epoch_to_date, stable_row_id
 
 logger = logging.getLogger(__name__)
 
-
 # ── Row schema ────────────────────────────────────────────────────────────────
 
 class ProcessDetailsRow(BaseModel):
@@ -68,7 +67,6 @@ class ProcessDetailsRow(BaseModel):
     def coerce_date(cls, v):
         return epoch_to_date(v)
 
-
 # ── Pipeline ──────────────────────────────────────────────────────────────────
 
 class ProcessDetailsPipeline(BasePipeline):
@@ -76,10 +74,6 @@ class ProcessDetailsPipeline(BasePipeline):
     REPORT_ID = "25"
     TABLE_NAME = "tz_process_details"
     RowSchema = ProcessDetailsRow
-    DATE_FILTER_FIELD = "production_date"
-
-    def _get_filters(self, from_date: str, to_date: str) -> dict:
-        return {"filters": {"from_date": from_date, "to_date": to_date}}
 
     def _upsert(self, conn, rows: list[ProcessDetailsRow], company_id: str) -> int:
         if not rows:

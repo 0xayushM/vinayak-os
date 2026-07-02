@@ -94,11 +94,15 @@ def _rebuild_customers(cur, company_id: str) -> int:
 
 def _rebuild_sales(cur, company_id: str) -> tuple[int, int]:
     # Headers: aggregate the line-level tz table to one row per invoice.
+    # NOTE: tz_sales_invoices.line_total maps to TranzAct's item_total_value,
+    # which is TAX-INCLUSIVE. The canonical "gross" is the taxable goods value
+    # (ex-tax), so subtract the line tax: gross = SUM(line_total) - SUM(tax).
+    # `net` stays the printed invoice grand total (incl. tax/freight).
     cur.execute("""
         SELECT invoice_number,
                MAX(invoice_date), MAX(due_date),
                MAX(customer_code), MAX(customer_name),
-               COALESCE(SUM(line_total), 0)  AS gross,
+               COALESCE(SUM(line_total), 0) - COALESCE(SUM(tax_amount), 0)  AS gross,
                COALESCE(SUM(tax_amount), 0)  AS tax,
                MAX(invoice_total)            AS net,
                MAX(payment_status), MAX(salesperson)
@@ -129,7 +133,8 @@ def _rebuild_sales(cur, company_id: str) -> tuple[int, int]:
     id_of = {r[0]: r[1] for r in cur.fetchall()}
 
     cur.execute("""
-        SELECT invoice_number, sku_code, sku_name, category, quantity, unit_price, line_total
+        SELECT invoice_number, sku_code, sku_name, category, quantity, unit_price,
+               line_total, tax_amount
         FROM tz_sales_invoices WHERE company_id = %s
     """, (company_id,))
     lines = []
@@ -139,12 +144,16 @@ def _rebuild_sales(cur, company_id: str) -> tuple[int, int]:
             log_issue(cur, company_id, SOURCE,
                       Unmapped("sales_invoice_line", "invoice_number", "orphan_reference", inv))
             continue
+        # raw line_total (r[6]) is tax-INCLUSIVE; the canonical line value is
+        # ex-tax. The row id stays keyed on the raw (incl-tax) value so a rebuild
+        # updates rows in place instead of creating duplicates.
         ref = stable_row_id(inv, sku, num(r[4]), num(r[5]), num(r[6]))
+        line_ex_tax = float(r[6] or 0) - float(r[7] or 0)
         lines.append({
             "source_ref": ref, "raw": None, "invoice_id": id_of[inv],
             "invoice_number": inv, "sku": sku, "sku_name": r[2], "category": r[3],
             "quantity": float(r[4] or 0), "unit_price": float(r[5] or 0),
-            "line_total": float(r[6] or 0),
+            "line_total": line_ex_tax,
         })
     n_line = _upsert(cur, "canon_sales_invoice_line", company_id, lines)
     return n_head, n_line

@@ -25,7 +25,6 @@ from vinayak.pipelines.helpers import epoch_to_date, stable_row_id
 
 logger = logging.getLogger(__name__)
 
-
 # ── Row schema ────────────────────────────────────────────────────────────────
 
 class SalesQuotationRow(BaseModel):
@@ -83,7 +82,6 @@ class SalesQuotationRow(BaseModel):
             return v.strip().lower() in ("true", "1", "yes", "y")
         return False
 
-
 # ── Pipeline ──────────────────────────────────────────────────────────────────
 
 class SalesQuotationsPipeline(BasePipeline):
@@ -91,10 +89,6 @@ class SalesQuotationsPipeline(BasePipeline):
     REPORT_ID = "8"
     TABLE_NAME = "tz_sales_quotations"
     RowSchema = SalesQuotationRow
-    DATE_FILTER_FIELD = "quote_date"
-
-    def _get_filters(self, from_date: str, to_date: str) -> dict:
-        return {"filters": {"from_date": from_date, "to_date": to_date}}
 
     def _upsert(self, conn, rows: list[SalesQuotationRow], company_id: str) -> int:
         if not rows:

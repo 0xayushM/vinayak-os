@@ -62,7 +62,21 @@ Or paste the contents of `vinayak/schema/init.sql` into **Supabase → SQL Edito
 
 ---
 
-## 4. Python backend
+## 4. Run everything at once (optional)
+
+After completing steps 2–3 and installing both Python and Node dependencies at least once, you can start both servers with a single command:
+
+```bash
+./dev.sh
+```
+
+This activates the venv, starts the FastAPI backend on **:8000** and the Next.js frontend on **:3000**. Press **Ctrl+C** to stop both.
+
+> Skip to step 6 to log in.
+
+---
+
+## 5. Python backend (manual)
 
 ```bash
 # Create and activate virtual environment
@@ -81,7 +95,7 @@ Docs available at **http://localhost:8000/docs**
 
 ---
 
-## 5. Next.js frontend
+## 6. Next.js frontend (manual)
 
 In a **separate terminal**:
 
@@ -97,7 +111,7 @@ Frontend is now running at **http://localhost:3000**
 
 ---
 
-## 6. Log in
+## 7. Log in
 
 Open **http://localhost:3000** and sign in with the `ADMIN_EMAIL` / `ADMIN_PASSWORD` you set in `.env`.
 

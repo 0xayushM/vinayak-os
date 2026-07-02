@@ -90,6 +90,23 @@ CREATE TABLE IF NOT EXISTS tz_backfill_state (
     PRIMARY KEY (company_id, pipeline_name)
 );
 
+-- ── Resumable pagination cursor ─────────────────────────────
+-- TranzAct's /generate_report has no server-side date filter, so a large
+-- history is migrated by walking pages. This cursor persists how far each
+-- report has been paged so a sync resumes the REMAINING pages instead of
+-- refetching the whole report. See docs/RESUMABLE_SYNC.md.
+
+CREATE TABLE IF NOT EXISTS tz_sync_cursor (
+    company_id      TEXT NOT NULL,
+    pipeline_name   TEXT NOT NULL,
+    next_page       INT  NOT NULL DEFAULT 1,   -- next page to fetch
+    total_items     INT,                        -- last-seen server total
+    rows_stored     INT  NOT NULL DEFAULT 0,    -- rows pulled during the walk
+    complete        BOOLEAN NOT NULL DEFAULT FALSE,
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (company_id, pipeline_name)
+);
+
 -- ── Sales invoices (report 29, daily) ───────────────────────
 -- Source: Sales Invoice Register
 -- Used for: S1 Revenue KPIs, S2 Monthly trend, S3–S5 customer/SKU panels
