@@ -35,14 +35,38 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 # ── JWT config ────────────────────────────────────────────────────────────────
-JWT_SECRET    = os.environ.get("JWT_SECRET", "change-me-before-production")
+# Fail hard if JWT_SECRET is missing: a guessable default would let anyone
+# forge session tokens. In dev mode (VINAYAK_DEV_MODE=1) we fall back to a
+# random ephemeral secret — safe, but sessions won't survive a restart.
+from vinayak.config import DEV_MODE
+
+JWT_SECRET = os.environ.get("JWT_SECRET", "")
+if not JWT_SECRET:
+    if DEV_MODE:
+        import secrets as _secrets
+        JWT_SECRET = _secrets.token_urlsafe(48)
+        logging.getLogger(__name__).warning(
+            "JWT_SECRET not set — using a random ephemeral secret (dev mode). "
+            "Sessions will not survive a restart."
+        )
+    else:
+        raise RuntimeError(
+            "JWT_SECRET is not set. Refusing to start with an insecure default. "
+            "Set JWT_SECRET in the environment (or VINAYAK_DEV_MODE=1 for local dev)."
+        )
 JWT_ALGORITHM = "HS256"
 JWT_TTL_SECS  = 60 * 60 * 8  # 8 hours
 
 # ── Internal API key (service-to-service) ─────────────────────────────────────
 # Next.js BFF routes send this header; any request without it to private
-# endpoints is rejected.
+# endpoints is rejected. Like JWT_SECRET, it is required outside dev mode —
+# without it, the backend would silently accept requests that bypass the BFF.
 INTERNAL_KEY = os.environ.get("INTERNAL_API_KEY", "")
+if not INTERNAL_KEY and not DEV_MODE:
+    raise RuntimeError(
+        "INTERNAL_API_KEY is not set. Refusing to start with the BFF boundary "
+        "unenforced. Set INTERNAL_API_KEY (or VINAYAK_DEV_MODE=1 for local dev)."
+    )
 
 COOKIE_NAME = "vb_access_token"
 
@@ -96,9 +120,10 @@ def get_current_user(vb_access_token: Optional[str] = Cookie(default=None)) -> T
 def require_internal_key(request: Request) -> None:
     """FastAPI dependency — reject requests without the internal API key."""
     if not INTERNAL_KEY:
-        return  # dev mode: skip if key not configured
+        return  # only reachable in dev mode (startup fails otherwise)
+    import hmac
     provided = request.headers.get("X-Internal-Key", "")
-    if provided != INTERNAL_KEY:
+    if not hmac.compare_digest(provided, INTERNAL_KEY):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Missing or invalid internal API key",

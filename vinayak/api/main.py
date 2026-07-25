@@ -52,11 +52,11 @@ app = FastAPI(
 # The browser NEVER talks to FastAPI directly — all calls go through /api/* on
 # the Next.js host, so the wildcard here is safe in dev but lock it to the
 # production Vercel URL before shipping.
-ALLOWED_ORIGINS = [
-    "http://localhost:3000",
-    "http://localhost:3001",
-    os.getenv("NEXT_PUBLIC_APP_URL", ""),
-]
+from vinayak.config import DEV_MODE
+
+ALLOWED_ORIGINS = [os.getenv("NEXT_PUBLIC_APP_URL", "")]
+if DEV_MODE:
+    ALLOWED_ORIGINS += ["http://localhost:3000", "http://localhost:3001"]
 
 
 app.add_middleware(
@@ -78,11 +78,17 @@ async def _unhandled(request: Request, exc: Exception):
 
 
 # ── Register routers ──────────────────────────────────────────────────────────
-from vinayak.api.routes import auth, connections, dashboard, ai_tool, workspaces  # noqa: E402
+from vinayak.api.routes import auth, connections, dashboard, ai_tool, workspaces, zoho  # noqa: E402
 
 app.include_router(auth.router,        prefix="/auth",        tags=["Auth"])
 app.include_router(workspaces.router,  prefix="/workspaces",   tags=["Workspaces"])
-app.include_router(connections.router, prefix="/connections",  tags=["Connections"])
+# Source namespaces: each data source lives under its own prefix.
+#   /tranzact/*  — TranzAct connection + sync (also mounted at the legacy
+#                  /connections/* path so the existing frontend keeps working)
+#   /zoho/*      — Zoho Books connection + sync
+app.include_router(connections.router, prefix="/connections",  tags=["TranzAct (legacy path)"])
+app.include_router(connections.router, prefix="/tranzact",     tags=["TranzAct"])
+app.include_router(zoho.router,        prefix="/zoho",         tags=["Zoho Books"])
 app.include_router(dashboard.router,   prefix="/dashboard",    tags=["Dashboard"])
 app.include_router(ai_tool.router,     prefix="/ai",           tags=["AI"])
 

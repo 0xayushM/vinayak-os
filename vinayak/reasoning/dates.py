@@ -126,6 +126,23 @@ def parse_period(question: str, today: date | None = None) -> dict | None:
         return out(today - timedelta(days=days), today, f"in the last {n} {unit}")
 
     # ── "between X and Y" / "from X to Y" ────────────────────────────────────
+    # Month-name ranges first: "from april to june", "between apr and jun 2026"
+    m = re.search(
+        rf"(?:between|from)\s+({_MONTH_RE})\s*(\d{{4}})?\s+(?:and|to|until|till)\s+({_MONTH_RE})\s*(\d{{4}})?\b",
+        q,
+    )
+    if m:
+        mo_a, mo_b = MONTHS[m[1].lower()], MONTHS[m[3].lower()]
+        # Year inference mirrors the "in <Month>" rule: a month later than the
+        # current one means the most recent past occurrence.
+        y_b = int(m[4]) if m[4] else (today.year if mo_b <= today.month else today.year - 1)
+        y_a = int(m[2]) if m[2] else y_b
+        s, _ = _month_range(y_a, mo_a)
+        _, e = _month_range(y_b, mo_b)
+        if s > e:  # e.g. "from nov to feb" spanning a year boundary
+            s, _ = _month_range(y_a - 1, mo_a)
+        return out(s, e, f"from {calendar.month_name[mo_a]} to {calendar.month_name[mo_b]} {y_b}")
+
     m = re.search(r"(?:between|from)\s+(.+?)\s+(?:and|to|until|till)\s+(.+?)[\?\.]?$", q)
     if m:
         a, b = _try_date(m[1], today), _try_date(m[2], today)

@@ -171,7 +171,10 @@ INTENTS: list[tuple[str, list[str]]] = [
     ("revenue_trend",   ["trend", "over the last", "month over month", "mom", "growing", "declining",
                           "decline", "declined", "drop", "dropped", "fell", "fall", "falling",
                           "lower than", "down from", "which month", "best month", "worst month",
-                          "compare month", "month by month", "growth", "grew", "6 month", "monthly"]),
+                          "compare month", "month by month", "growth", "grew", "6 month", "monthly",
+                          "every month", "each month", "month wise", "monthwise", "month-wise",
+                          "per month", "difference between month", "monthly difference",
+                          "difference between sales", "month on month"]),
     ("margin",          ["margin", "profit", "profitability", "markup"]),
     ("forecast",        ["forecast", "next quarter", "next month", "predict", "will i", "future"]),
     ("overdue_orders",  ["sales order", "order late", "late to deliver", "overdue order", "delivery late"]),
@@ -191,6 +194,22 @@ def classify(question: str) -> str:
         if any(k in q for k in kws):
             return intent
     return "unknown"
+
+
+# ── follow-up detection (multi-turn) ──────────────────────────────────────────
+_FOLLOWUP_RE = re.compile(
+    r"\b(those|them|these|they|it|that one|the same|which of|what about|how about|"
+    r"of these|of those|among (?:them|those)|and (?:what|which|who|how)|why|"
+    r"break (?:that|it|this) down|the first one|the biggest one)\b",
+    re.IGNORECASE,
+)
+
+
+def _looks_followup(question: str) -> bool:
+    """Heuristic: does this question depend on the conversation before it?
+    True for pronoun/ellipsis references or very short fragments."""
+    q = (question or "").strip()
+    return bool(_FOLLOWUP_RE.search(q)) or len(q.split()) <= 3
 
 
 def _entity_in(question: str, conn, company_id: str) -> str | None:
@@ -290,10 +309,12 @@ def _mon(ym: str) -> str:
 
 
 def _h_revenue_trend(conn, cid, q, entity, period=None) -> Answer:
-    d = Q.get_revenue_trend(conn, cid, months=6)
+    d = Q.get_revenue_trend(conn, cid, months=6, **_win(period))
     months = [m for m in d.get("months", []) if m["revenue"] > 0]
     if len(months) < 2:
-        return _no_data(q, "revenue_trend", "There isn't enough monthly history yet to compare months.")
+        when = _when(period, "yet")
+        return _no_data(q, "revenue_trend",
+                        f"There isn't enough monthly sales history {when} to compare months.")
 
     # Per-month evidence + month-over-month change, so we can point at the
     # specific months that fell vs the one before.
@@ -807,15 +828,32 @@ INTENT_DESCRIPTIONS = {
 }
 
 
-def answer(conn, company_id: str, question: str, use_llm: bool = True) -> dict:
+def answer(conn, company_id: str, question: str, use_llm: bool = True,
+           history_turns: list[dict] | None = None) -> dict:
     """Answer a business question. `use_llm=False` forces the deterministic path
     (used by the eval harness — fast, free, reproducible; the LLM only changes
-    wording, never the validated numbers the harness checks)."""
+    wording, never the validated numbers the harness checks).
+
+    `history_turns` is the recent conversation ({"question","answer"} briefs,
+    oldest first). When present and the new question looks like a follow-up
+    ("and which of those are overdue?"), Claude rewrites it into a standalone
+    question first — which then flows through the SAME deterministic
+    router → handlers → evidence → validation as any other question."""
     from datetime import date
     from vinayak.reasoning.dates import parse_period
     from vinayak.reasoning import llm
 
     llm_on = use_llm and llm.is_active()
+
+    # Multi-turn: resolve follow-up references against the conversation before
+    # routing. Only the QUESTION is rewritten; numbers stay deterministic.
+    original_question = question
+    rewritten = None
+    if llm_on and history_turns and (_looks_followup(question) or classify(question) == "unknown"):
+        rw = llm.rewrite_followup(question, history_turns, model=llm.model_fast())
+        if rw:
+            rewritten, question = rw, rw
+
     intent = classify(question)
     routed_by = "keywords"
     escalate = False
@@ -850,6 +888,8 @@ def answer(conn, company_id: str, question: str, use_llm: bool = True) -> dict:
     phrased_by, model_used, blocked = "template", None, False
     if llm_on:
         ctx = _consultant_context(conn, company_id, entity)   # brand-scoped profile + facts
+        if history_turns:
+            ctx["recent_conversation"] = history_turns[-4:]
         new_text = llm.phrase(ans, model=model, context=ctx)
         # The numeric guard: reject any LLM prose that surfaces a rupee figure we
         # didn't compute. On a block, give it ONE self-correcting retry before
@@ -863,11 +903,14 @@ def answer(conn, company_id: str, question: str, use_llm: bool = True) -> dict:
         elif new_text and new_text != ans.answer:
             blocked = True
 
+    # The user asked `original_question`; show that, but record the rewrite.
+    ans.question = original_question
     out = ans.to_dict()
     out["meta"] = {"routed_by": routed_by, "phrased_by": phrased_by,
                    "ai_active": llm.is_active(), "model": model_used,
                    "tier": ("smart" if needs_thought else "fast") if phrased_by == "claude" else None,
-                   "numeric_guard": "blocked" if blocked else "ok"}
+                   "numeric_guard": "blocked" if blocked else "ok",
+                   "rewritten_question": rewritten}
     return out
 
 

@@ -24,6 +24,8 @@ from vinayak.pipelines.helpers import epoch_to_date, stable_row_id
 
 logger = logging.getLogger(__name__)
 
+logger = logging.getLogger(__name__)
+
 # ── Row schema ────────────────────────────────────────────────────────────────
 
 class ARAgingRow(BaseModel):
@@ -137,4 +139,37 @@ class ARAgingPipeline(BasePipeline):
             psycopg2.extras.execute_values(cur, sql, records, page_size=500)
             row_count = cur.rowcount
         conn.commit()
+        self._record_daily_snapshot(conn, company_id)
         return row_count
+
+    @staticmethod
+    def _record_daily_snapshot(conn, company_id: str) -> int:
+        """Copy today's AR book into ar_daily_snapshot (once per day — the PK
+        makes re-runs no-ops). tz_ar_aging is upserted in place and has no
+        memory; this table IS the memory: aging drift, inferred payments,
+        days-to-pay, DSO trend and the collections before/after proof all read
+        from here. See docs/V0_FINANCE_SPEC.md §1.1."""
+        sql = """
+            INSERT INTO ar_daily_snapshot (
+                company_id, snap_date, invoice_ref, customer_name, invoice_number,
+                invoice_date, due_date, outstanding, days_overdue, bucket
+            )
+            SELECT company_id, CURRENT_DATE, raw_id, customer_name, invoice_number,
+                   invoice_date, due_date, outstanding_amount, days_overdue, aging_bucket
+            FROM tz_ar_aging
+            WHERE company_id = %s AND COALESCE(outstanding_amount, 0) > 0
+            ON CONFLICT (company_id, snap_date, invoice_ref) DO UPDATE SET
+                outstanding  = EXCLUDED.outstanding,
+                days_overdue = EXCLUDED.days_overdue,
+                bucket       = EXCLUDED.bucket
+        """
+        try:
+            with conn.cursor() as cur:
+                cur.execute(sql, (company_id,))
+                n = cur.rowcount
+            conn.commit()
+            return n
+        except Exception as exc:  # noqa: BLE001 — snapshot must never break the sync
+            conn.rollback()
+            logger.warning("ar_daily_snapshot write failed for %s: %s", company_id, exc)
+            return 0

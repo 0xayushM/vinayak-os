@@ -35,6 +35,9 @@ class _TokenCache:
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
+        # Serialises login/refresh so concurrent pipelines don't all re-login at
+        # once when the token expires (a thundering herd on the login endpoint).
+        self.login_lock = threading.Lock()
         self.access_token: Optional[str] = None
         self.refresh_token: Optional[str] = None
         self.access_expires_at: float = 0.0   # unix timestamp
@@ -118,28 +121,59 @@ def _extract_tokens(body: dict) -> tuple[Optional[str], Optional[str]]:
     return access, refresh
 
 
-def _do_login(base_url: str, email: str, password: str, cache: _TokenCache) -> None:
+def _do_login(base_url: str, email: str, password: str, cache: _TokenCache,
+              max_attempts: int = 3) -> None:
     """
     Hit the TranzAct login endpoint and populate the token cache.
-    Raises RuntimeError on auth failure.
+
+    Transient failures (5xx from TranzAct's server, network errors) are retried
+    with exponential backoff — a TranzAct-side blip (their DB throwing an
+    OperationalError, for example) should not fail the whole sync on the first
+    try. A 4xx (bad credentials) is NOT retried; it is raised immediately.
+    Raises RuntimeError once retries are exhausted or on a client error.
     """
     url = f"{base_url}/main/login/password-login/"
     payload = {"email": email, "password": password}
+    last_err = ""
 
-    logger.info("TranzAct: authenticating as %s", email)
-    response = requests.post(url, json=payload, timeout=30)
+    for attempt in range(max_attempts):
+        logger.info("TranzAct: authenticating as %s (attempt %d/%d)", email, attempt + 1, max_attempts)
+        try:
+            response = requests.post(url, json=payload, timeout=30)
+        except requests.RequestException as exc:
+            last_err = f"network error: {exc}"
+            logger.warning("TranzAct login: %s — retrying", last_err)
+            time.sleep(2 ** attempt * 2)
+            continue
 
-    try:
-        body = response.json()
-    except ValueError:
+        # 5xx = TranzAct server problem (e.g. their OperationalError) → transient,
+        # retry with backoff rather than failing the sync outright.
+        if response.status_code >= 500:
+            last_err = f"HTTP {response.status_code} — {response.text[:300]}"
+            logger.warning("TranzAct login: server error %s (attempt %d/%d) — retrying",
+                           response.status_code, attempt + 1, max_attempts)
+            time.sleep(2 ** attempt * 3)
+            continue
+
+        try:
+            body = response.json()
+        except ValueError:
+            raise RuntimeError(
+                f"TranzAct login: non-JSON response (HTTP {response.status_code}) "
+                f"from {url} — {response.text[:300]}"
+            )
+
+        if not response.ok:
+            # 4xx — a client/credentials error. Retrying won't help.
+            raise RuntimeError(
+                f"TranzAct login failed: HTTP {response.status_code} — {str(body)[:400]}"
+            )
+        break
+    else:
+        # Loop exhausted without a 2xx — all attempts hit transient errors.
         raise RuntimeError(
-            f"TranzAct login: non-JSON response (HTTP {response.status_code}) "
-            f"from {url} — {response.text[:300]}"
-        )
-
-    if not response.ok:
-        raise RuntimeError(
-            f"TranzAct login failed: HTTP {response.status_code} — {str(body)[:400]}"
+            f"TranzAct login failed after {max_attempts} attempts — the source "
+            f"appears to be temporarily unavailable. Last error: {last_err}"
         )
 
     access_token, refresh_token = _extract_tokens(body)
@@ -224,10 +258,15 @@ def get_access_token(
     if not force_refresh and cache.is_access_valid():
         return cache.access_token  # type: ignore[return-value]
 
-    # Try cheap refresh first
-    if _do_refresh(base_url, cache):
-        return cache.access_token  # type: ignore[return-value]
+    # Single-flight: only one thread logs in; the rest wait and reuse its token.
+    with cache.login_lock:
+        # Another thread may have refreshed while we were waiting for the lock.
+        if not force_refresh and cache.is_access_valid():
+            return cache.access_token  # type: ignore[return-value]
 
-    # Full re-login
-    _do_login(base_url, email, password, cache)
-    return cache.access_token  # type: ignore[return-value]
+        # Try cheap refresh first, then a full re-login.
+        if _do_refresh(base_url, cache):
+            return cache.access_token  # type: ignore[return-value]
+
+        _do_login(base_url, email, password, cache)
+        return cache.access_token  # type: ignore[return-value]

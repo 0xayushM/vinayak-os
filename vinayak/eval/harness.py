@@ -86,9 +86,45 @@ def _check_case(conn, company_id, case) -> dict:
         "intent": a["intent"], "confidence": a["confidence_level"],
         "computed_claims": len(computed), "unsupported": len(unsupported),
         "must_not_violations": must_not,
+        "is_refusal": bool(case.get("refusal")),
         "checks": checks,
         "passed": all(checks.values()),
     }
+
+
+def compute_metrics(results: list[dict]) -> dict:
+    """Pure aggregation of per-case results into the release-gating metrics.
+    Kept free of any DB/engine so the ship-gate logic itself is unit-testable.
+
+    citation_compliance is the headline trust number: the share of computed
+    claims that trace to real evidence. It MUST be 1.0 (100%) — anything less
+    means the engine stated a number it could not cite, and the build is blocked.
+    """
+    n = len(results) or 1
+    refusal_cases = [r for r in results if r.get("is_refusal")]
+    total_computed = sum(r["computed_claims"] for r in results)
+    total_unsupported = sum(r["unsupported"] for r in results)
+    must_not_total = sum(len(r["must_not_violations"]) for r in results)
+
+    unsupported_rate = round(total_unsupported / total_computed, 4) if total_computed else 0.0
+    metrics = {
+        "cases_run": len(results),
+        "passed": sum(1 for r in results if r["passed"]),
+        "intent_accuracy": round(sum(r["checks"]["intent_ok"] for r in results) / n, 3),
+        "bucket_accuracy": round(sum(r["checks"]["bucket_ok"] for r in results) / n, 3),
+        "correct_refusal_rate": (round(sum(r["checks"]["refusal_ok"] for r in refusal_cases) / len(refusal_cases), 3)
+                                 if refusal_cases else 1.0),
+        "unsupported_claim_rate": unsupported_rate,
+        "citation_compliance": round(1.0 - unsupported_rate, 4),   # → must be 1.0
+        "must_not_say_violations": must_not_total,
+    }
+    # Ship-blocker: any uncited number, sub-100% citation, or forbidden phrase.
+    metrics["ship_blocked"] = (
+        metrics["unsupported_claim_rate"] > 0
+        or metrics["citation_compliance"] < 1.0
+        or must_not_total > 0
+    )
+    return metrics
 
 
 def run_eval(conn, company_id: str | None = None) -> dict:
@@ -100,26 +136,7 @@ def run_eval(conn, company_id: str | None = None) -> dict:
         for cid in companies:
             results.append(_check_case(conn, cid, case))
 
-    n = len(results) or 1
-    refusal_cases = [r for r in results if any(
-        c.get("refusal") for c in CASES if c["id"] == r["id"])]
-    total_computed = sum(r["computed_claims"] for r in results)
-    total_unsupported = sum(r["unsupported"] for r in results)
-    must_not_total = sum(len(r["must_not_violations"]) for r in results)
-
-    metrics = {
-        "cases_run": len(results),
-        "passed": sum(1 for r in results if r["passed"]),
-        "intent_accuracy": round(sum(r["checks"]["intent_ok"] for r in results) / n, 3),
-        "bucket_accuracy": round(sum(r["checks"]["bucket_ok"] for r in results) / n, 3),
-        "correct_refusal_rate": (round(sum(r["checks"]["refusal_ok"] for r in refusal_cases) / len(refusal_cases), 3)
-                                 if refusal_cases else 1.0),
-        "unsupported_claim_rate": round(total_unsupported / total_computed, 4) if total_computed else 0.0,
-        "must_not_say_violations": must_not_total,
-    }
-    # Ship-blocker rule.
-    metrics["ship_blocked"] = metrics["unsupported_claim_rate"] > 0 or must_not_total > 0
-    return {"metrics": metrics, "results": results}
+    return {"metrics": compute_metrics(results), "results": results}
 
 
 if __name__ == "__main__":
@@ -132,7 +149,8 @@ if __name__ == "__main__":
     report = run_eval(conn, cid)
     m = report["metrics"]
     print(json.dumps(m, indent=2))
-    print(f"\n{m['passed']}/{m['cases_run']} cases passed.")
+    print(f"\n{m['passed']}/{m['cases_run']} cases passed · "
+          f"citation compliance {m['citation_compliance'] * 100:.1f}% (must be 100%).")
     for r in report["results"]:
         if not r["passed"]:
             failed = [k for k, v in r["checks"].items() if not v]

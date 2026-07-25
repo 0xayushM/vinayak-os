@@ -495,6 +495,103 @@ def ar_customer_exposure(company_id: str = Depends(require_workspace)):
     return _envelope(data, report_id=102)
 
 
+@router.get("/ar/collections-priority")
+def ar_collections_priority(company_id: str = Depends(require_workspace)):
+    """Deterministic 'who to chase first' — overdue receivables ranked by recovery
+    impact (amount × days overdue). No AI: a fixed rule the owner can act on today."""
+    conn = _conn()
+    try:
+        data = queries.get_collections_priority(conn, company_id)
+    finally:
+        conn.close()
+    return _envelope(data, report_id=102)
+
+
+@router.get("/ar/dso")
+def ar_dso(days: int = Query(default=90, ge=30, le=365),
+           company_id: str = Depends(require_workspace)):
+    """Days Sales Outstanding — how long cash sits in customers' pockets. Purely
+    computed from canonical sales + receivables."""
+    conn = _conn()
+    try:
+        data = queries.get_dso(conn, company_id, days=days)
+    finally:
+        conn.close()
+    return _envelope(data, report_id=102)
+
+
+@router.get("/finance/overview")
+def finance_overview(company_id: str = Depends(require_workspace)):
+    """One-screen deterministic finance view for the morning check — revenue,
+    outstanding, overdue, DSO, top exposures, and the collections shortlist. No AI."""
+    conn = _conn()
+    try:
+        data = queries.get_finance_overview(conn, company_id)
+    finally:
+        conn.close()
+    return _envelope(data, report_id=102)
+
+
+@router.get("/finance/credit-risk")
+def finance_credit_risk(company_id: str = Depends(require_workspace)):
+    """Deterministic per-customer credit flags (over-exposed / stretching terms /
+    concentrated) with a hold/watch verdict — the non-AI credit gate."""
+    conn = _conn()
+    try:
+        data = queries.get_credit_risk_flags(conn, company_id)
+    finally:
+        conn.close()
+    return _envelope(data, report_id=102)
+
+
+@router.get("/finance/monthly-sales")
+def finance_monthly_sales(months: int = Query(default=12, ge=2, le=24),
+                          company_id: str = Depends(require_workspace)):
+    """Monthly sales (goods value) with month-over-month % change — compare
+    month to month. Deterministic."""
+    conn = _conn()
+    try:
+        data = queries.get_sales_monthly_comparison(conn, company_id, months=months)
+    finally:
+        conn.close()
+    return _envelope(data, report_id=29)
+
+
+@router.get("/finance/sales-by-category")
+def finance_sales_by_category(company_id: str = Depends(require_workspace)):
+    """Revenue split by product category — where the money comes from."""
+    conn = _conn()
+    try:
+        data = queries.get_sales_by_category(conn, company_id)
+    finally:
+        conn.close()
+    return _envelope(data, report_id=29)
+
+
+@router.get("/finance/customers")
+def finance_customers(company_id: str = Depends(require_workspace)):
+    """Per-customer finance snapshot for every customer — the searchable
+    lookup (outstanding, overdue, revenue, credit verdict)."""
+    conn = _conn()
+    try:
+        data = queries.get_customer_finance_list(conn, company_id)
+    finally:
+        conn.close()
+    return _envelope(data, report_id=102)
+
+
+@router.get("/finance/cash-movement")
+def finance_cash_movement(months: int = Query(default=12, ge=2, le=24),
+                          company_id: str = Depends(require_workspace)):
+    """Monthly money in (sales) vs out (purchase spend) and the net — deterministic."""
+    conn = _conn()
+    try:
+        data = queries.get_monthly_cashflow(conn, company_id, months=months)
+    finally:
+        conn.close()
+    return _envelope(data, report_id=29)
+
+
 @router.get("/purchases/overdue-pos")
 def overdue_pos(company_id: str = Depends(require_workspace)):
     """O3 — Overdue purchase orders."""
@@ -699,9 +796,28 @@ def ask(body: AskIn, company_id: str = Depends(require_workspace),
     conn = _conn()
     try:
         thread_id = body.thread_id
-        if not thread_id or not history._owns_thread(conn, company_id, user.sub, thread_id):
+        is_existing = bool(thread_id) and history._owns_thread(conn, company_id, user.sub, thread_id)
+        if not is_existing:
             thread_id = history.create_thread(conn, company_id, user.sub)["id"]
-        out = reason_answer(conn, company_id, q)
+
+        # Multi-turn: hand the engine the recent turns of this thread so
+        # follow-ups ("and which of those are overdue?") resolve correctly.
+        briefs: list[dict] = []
+        if is_existing:
+            import json as _json
+            for t in history.list_turns(conn, company_id, user.sub, thread_id)[-6:]:
+                a = t.get("answer")
+                if isinstance(a, str):
+                    try:
+                        a = _json.loads(a)
+                    except Exception:
+                        a = {"answer": a}
+                a = a or {}
+                briefs.append({"question": t.get("question") or "",
+                               "answer": (a.get("answer") or "")[:280],
+                               "intent": a.get("intent")})
+
+        out = reason_answer(conn, company_id, q, history_turns=briefs or None)
         out["thread_id"] = thread_id
         try:
             out["id"] = history.save_turn(conn, company_id, user.sub, thread_id, q, out)
@@ -782,7 +898,6 @@ def trigger_sync(
     Runs synchronously — response returns after the sync completes.
     Only available for the 5 hourly pipelines (to avoid triggering heavy daily syncs).
     """
-    from datetime import date, timedelta
     from vinayak.pipelines import (
         ar_aging as ar_mod,
         sales_orders as so_mod,
@@ -791,12 +906,14 @@ def trigger_sync(
         process_details as pd_mod,
     )
 
+    # TranzAct has no server-side date filter — a manual trigger is simply a
+    # newest-pages refresh of the report (same as the hourly sync).
     ALLOWED = {
-        "ar_aging":             (ar_mod.ARAgingPipeline,          1, 1),
-        "sales_orders":         (so_mod.SalesOrdersPipeline,      7, 7),
-        "purchase_orders":      (po_mod.PurchaseOrdersPipeline,   7, 7),
-        "inventory_valuation":  (inv_mod.InventoryValuationPipeline, 1, 1),
-        "process_details":      (pd_mod.ProcessDetailsPipeline,   7, 7),
+        "ar_aging":             ar_mod.ARAgingPipeline,
+        "sales_orders":         so_mod.SalesOrdersPipeline,
+        "purchase_orders":      po_mod.PurchaseOrdersPipeline,
+        "inventory_valuation":  inv_mod.InventoryValuationPipeline,
+        "process_details":      pd_mod.ProcessDetailsPipeline,
     }
 
     if pipeline_name not in ALLOWED:
@@ -805,10 +922,7 @@ def trigger_sync(
             detail=f"Manual trigger only available for: {list(ALLOWED.keys())}"
         )
 
-    PipelineClass, from_days, to_days = ALLOWED[pipeline_name]
-    today = date.today()
-    from_date = today - timedelta(days=from_days)
-    to_date = today
+    PipelineClass = ALLOWED[pipeline_name]
 
     # Load this workspace's TranzAct credentials so the run authenticates as —
     # and tags data for — the right brand.
@@ -835,9 +949,12 @@ def trigger_sync(
     creds = TranzactCreds(email=cred["email"], password=cred["password"], base_url=TRANZACT_BASE_URL)
 
     try:
-        PipelineClass().run(from_date, to_date, company_id=company_id, creds=creds)
+        # Newest-pages refresh (4 pages), same shape as the hourly sync.
+        res = PipelineClass().run_chunk(
+            company_id=company_id, creds=creds, start_page=1, max_pages=4,
+        )
     except Exception as exc:
         raise HTTPException(500, detail=f"Pipeline failed: {exc}")
 
     return {"status": "ok", "pipeline": pipeline_name,
-            "from_date": str(from_date), "to_date": str(to_date)}
+            "rows_fetched": res["rows_fetched"], "rows_upserted": res["rows_upserted"]}

@@ -153,6 +153,46 @@ const ROUTES: Record<string, RouteConfig> = {
     path: "/dashboard/bom/coverage",
   },
 
+  "collections-priority": {
+    path: "/dashboard/ar/collections-priority",
+    // passthrough: { items, total_overdue, top_share_pct }
+  },
+
+  "dso": {
+    path: "/dashboard/ar/dso",
+    // passthrough: { dso_days, outstanding, sales_window, days }
+  },
+
+  "finance-overview": {
+    path: "/dashboard/finance/overview",
+    // passthrough: composed finance summary
+  },
+
+  "credit-risk": {
+    path: "/dashboard/finance/credit-risk",
+    // passthrough: { items, hold_count, watch_count }
+  },
+
+  "monthly-sales": {
+    path: "/dashboard/finance/monthly-sales",
+    // passthrough: { months:[{month,revenue,invoice_count,mom_pct}], best_month, best_revenue }
+  },
+
+  "sales-by-category": {
+    path: "/dashboard/finance/sales-by-category",
+    // passthrough: { categories:[{category,revenue,pct}], total }
+  },
+
+  "customer-finance": {
+    path: "/dashboard/finance/customers",
+    // passthrough: { items:[per-customer finance], customer_count }
+  },
+
+  "cash-movement": {
+    path: "/dashboard/finance/cash-movement",
+    // passthrough: { months:[{month,sales_in,spend_out,net}], total_in, total_out, net }
+  },
+
   "ar-summary": {
     path: "/dashboard/ar/aging",
     transform: (body) => {
@@ -250,9 +290,9 @@ const ROUTES: Record<string, RouteConfig> = {
     // FastAPI returns raw (no envelope); we reshape to SyncHealth.
     transform: (body) => {
       const pipelines: Body[] = body.pipelines ?? [];
-      const stale = pipelines
-        .filter((p) => p.stale)
-        .map((p) => p.pipeline_name as string);
+      const isFailed = (s: string) => s === "failed" || s === "error";
+      const stale = pipelines.filter((p) => p.stale).map((p) => p.pipeline_name as string);
+      const failed = pipelines.filter((p) => isFailed(p.status)).map((p) => p.pipeline_name as string);
       return {
         runs: pipelines.map((p) => ({
           pipeline_name: p.pipeline_name,
@@ -262,8 +302,10 @@ const ROUTES: Record<string, RouteConfig> = {
           rows_upserted: p.rows_upserted,
           error_message: p.error_message,
         })),
-        stale_pipelines: stale,
-        healthy: stale.length === 0,
+        stale_pipelines:  stale,
+        failed_pipelines: failed,
+        // Healthy only when nothing failed AND nothing is stale.
+        healthy: failed.length === 0 && stale.length === 0,
       };
     },
   },

@@ -1,0 +1,2 @@
+# Development / CI tooling (not needed in production images)
+pytest==8.*
