@@ -520,6 +520,181 @@ def ar_dso(days: int = Query(default=90, ge=30, le=365),
     return _envelope(data, report_id=102)
 
 
+# ── Action spine: propose → approval inbox → decide ───────────────────────────
+class DraftChaseIn(BaseModel):
+    customer_ref: str
+    tone: str | None = None
+
+
+@router.post("/actions/draft-chase")
+def actions_draft_chase(body: DraftChaseIn,
+                        company_id: str = Depends(require_workspace),
+                        user: TokenPayload = Depends(get_current_user)):
+    """Propose a payment-reminder draft for a customer. Writes a 'proposed' row to
+    the action ledger — nothing is sent until a human approves it."""
+    from vinayak.tools import registry as _reg
+    from vinayak.tools.action_tools import register_action_tools
+    from vinayak.tools.executor import ToolContext, execute
+    register_action_tools()
+    tool = _reg.get("collections.draft_chase")
+    conn = _conn()
+    try:
+        ctx = ToolContext(conn=conn, company_id=company_id, user_id=user.sub)
+        args = {"customer_ref": body.customer_ref}
+        if body.tone:
+            args["tone"] = body.tone
+        res = execute(ctx, tool, args)
+    finally:
+        conn.close()
+    if res.error:
+        raise HTTPException(status_code=400, detail=res.error)
+    return res.data
+
+
+@router.get("/actions")
+def actions_list(status: str = Query(default="proposed"),
+                 company_id: str = Depends(require_workspace)):
+    """The approval inbox — proposed (or other-status) actions awaiting a human.
+    Includes the recipient email we have on file (if any), so the UI can show it."""
+    conn = _conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """SELECT a.id, a.tool_name, a.entity_ref, a.payload, a.status, a.gate,
+                          a.proposed_by, a.created_at, a.decided_by, a.decided_at, a.result,
+                          c.email
+                   FROM actions a
+                   LEFT JOIN customer_contacts c
+                     ON c.company_id = a.company_id AND c.customer_ref = a.entity_ref
+                   WHERE a.company_id = %s AND (%s = '' OR a.status = %s)
+                   ORDER BY a.created_at DESC LIMIT 100""",
+                (company_id, status, status),
+            )
+            rows = cur.fetchall()
+    finally:
+        conn.close()
+    return {"actions": [
+        {"id": str(r[0]), "tool_name": r[1], "entity_ref": r[2], "payload": r[3],
+         "status": r[4], "gate": r[5], "proposed_by": r[6],
+         "created_at": r[7].isoformat() if r[7] else None,
+         "decided_by": r[8], "decided_at": r[9].isoformat() if r[9] else None,
+         "result": r[10], "recipient_email": r[11]}
+        for r in rows]}
+
+
+class ContactIn(BaseModel):
+    customer_ref: str
+    email: str | None = None
+    phone: str | None = None
+
+
+@router.post("/contacts")
+def set_contact(body: ContactIn, company_id: str = Depends(require_workspace)):
+    """Save/update how to reach a customer (email/phone)."""
+    from vinayak import notify
+    conn = _conn()
+    try:
+        notify.upsert_contact(conn, company_id, body.customer_ref.strip(),
+                              email=(body.email or "").strip() or None,
+                              phone=(body.phone or "").strip() or None, source="manual")
+    finally:
+        conn.close()
+    return {"status": "ok", "customer_ref": body.customer_ref}
+
+
+class DecideIn(BaseModel):
+    decision: str            # approve | reject
+    email: str | None = None  # optional recipient override (saved to contacts)
+
+
+@router.post("/actions/{action_id}/decide")
+def actions_decide(action_id: str, body: DecideIn,
+                   company_id: str = Depends(require_workspace),
+                   user: TokenPayload = Depends(get_current_user)):
+    """Approve or reject a proposed action. Reject discards it. Approve records the
+    decision and — for a message action — attempts delivery to the customer's
+    contact email. Nothing is ever sent without this human approval; if no email
+    is on file (or no provider is configured) the approval is recorded but not sent."""
+    import json as _json
+    from vinayak import notify
+
+    decision = (body.decision or "").lower()
+    if decision not in ("approve", "reject"):
+        raise HTTPException(status_code=400, detail="decision must be 'approve' or 'reject'")
+
+    conn = _conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """SELECT payload, entity_ref FROM actions
+                   WHERE id = %s AND company_id = %s AND status = 'proposed'""",
+                (action_id, company_id),
+            )
+            row = cur.fetchone()
+            if not row:
+                raise HTTPException(status_code=404, detail="Action not found or already decided")
+            payload, entity_ref = (row[0] or {}), row[1]
+
+            if decision == "reject":
+                cur.execute(
+                    """UPDATE actions SET status='rejected', decided_by=%s, decided_at=NOW()
+                       WHERE id=%s AND company_id=%s""",
+                    (user.sub, action_id, company_id),
+                )
+                conn.commit()
+                return {"id": action_id, "status": "rejected", "sent": False}
+
+            # approve → try to deliver
+            if body.email and body.email.strip():
+                notify.upsert_contact(conn, company_id, entity_ref, email=body.email.strip(), source="manual")
+            to = notify.get_contact_email(conn, company_id, entity_ref)
+            subject = payload.get("subject") or payload.get("summary") or "Message"
+            text = payload.get("body") or ""
+
+            if not to:
+                result = {"sent": False, "reason": "no_contact_email"}
+                cur.execute(
+                    """UPDATE actions SET status='approved', decided_by=%s, decided_at=NOW(), result=%s
+                       WHERE id=%s AND company_id=%s""",
+                    (user.sub, _json.dumps(result), action_id, company_id),
+                )
+                conn.commit()
+                return {"id": action_id, "status": "approved", "sent": False, "need": "email"}
+
+            send = notify.send_email(to, subject, text)
+            new_status = "executed" if send.get("sent") else "approved"
+            cur.execute(
+                """UPDATE actions SET status=%s, decided_by=%s, decided_at=NOW(),
+                          executed_at = CASE WHEN %s THEN NOW() ELSE executed_at END, result=%s
+                   WHERE id=%s AND company_id=%s""",
+                (new_status, user.sub, bool(send.get("sent")), _json.dumps(send), action_id, company_id),
+            )
+        conn.commit()
+    finally:
+        conn.close()
+    return {"id": action_id, "status": new_status, "sent": bool(send.get("sent")), "detail": send}
+
+
+@router.get("/tools")
+def tool_catalog(company_id: str = Depends(require_workspace)):
+    """The read-tool catalog the Brain (and MCP clients) can call — name,
+    description, and typed input schema for each Layer-7 read tool."""
+    from vinayak.tools import registry
+    from vinayak.tools.read_tools import register_all
+    register_all()  # idempotent
+    tools = registry.all_tools("read")
+    return {
+        "count": len(tools),
+        "tools": [
+            {"name": t.name, "description": t.description,
+             "inputs": {k: {"type": i.json_type, "required": i.required, "description": i.description}
+                        for k, i in t.inputs.items()},
+             "schema": t.anthropic_schema()}
+            for t in tools
+        ],
+    }
+
+
 @router.get("/finance/overview")
 def finance_overview(company_id: str = Depends(require_workspace)):
     """One-screen deterministic finance view for the morning check — revenue,
@@ -817,7 +992,13 @@ def ask(body: AskIn, company_id: str = Depends(require_workspace),
                                "answer": (a.get("answer") or "")[:280],
                                "intent": a.get("intent")})
 
-        out = reason_answer(conn, company_id, q, history_turns=briefs or None)
+        # The agent (tool-calling) path is opt-in via AGENT_MODE while it is
+        # shadow-tested; otherwise the deterministic keyword engine answers.
+        from vinayak.reasoning import agent
+        if agent.enabled() and agent.agent_available():
+            out = agent.run_agent(conn, company_id, q, history_turns=briefs or None)
+        else:
+            out = reason_answer(conn, company_id, q, history_turns=briefs or None)
         out["thread_id"] = thread_id
         try:
             out["id"] = history.save_turn(conn, company_id, user.sub, thread_id, q, out)

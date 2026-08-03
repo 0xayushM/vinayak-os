@@ -92,6 +92,13 @@ app.include_router(zoho.router,        prefix="/zoho",         tags=["Zoho Books
 app.include_router(dashboard.router,   prefix="/dashboard",    tags=["Dashboard"])
 app.include_router(ai_tool.router,     prefix="/ai",           tags=["AI"])
 
+# Register the Layer-7 read tools so the agent + MCP can call the business as a
+# tool. Idempotent; read-only wrappers over the proven query functions.
+from vinayak.tools.read_tools import register_all as _register_read_tools  # noqa: E402
+from vinayak.tools.action_tools import register_action_tools as _register_action_tools  # noqa: E402
+_register_read_tools()
+_register_action_tools()
+
 
 @app.get("/", tags=["Health"])
 def root():

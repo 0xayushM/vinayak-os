@@ -28,6 +28,7 @@ const NAV = [
     section: "Finance",
     items: [
       { label: "Finance",               href: "/dashboard/finance",    icon: CreditCard },
+      { label: "Approvals",             href: "/dashboard/approvals",  icon: ShieldCheck },
       { label: "AR Aging",              href: "/dashboard/ar",         icon: CreditCard },
       { label: "Open Sales Orders",     href: "/dashboard/orders",     icon: ShoppingCart },
     ],

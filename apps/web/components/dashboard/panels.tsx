@@ -35,6 +35,35 @@ import {
   type ProductionRow, type InventoryRow, type CreditRiskItem, type CustomerFinanceRow,
 } from "@/hooks/useDashboard";
 import { formatCurrency, formatNumber } from "@/lib/utils/cn";
+import { apiFetch } from "@/lib/api";
+
+/** Proposes a payment reminder for a customer → lands in the Approvals inbox. */
+function DraftChaseButton({ customer }: { customer: string }) {
+  const [state, setState] = useState<"idle" | "sending" | "done" | "error">("idle");
+  const draft = async () => {
+    setState("sending");
+    try {
+      const res = await apiFetch("/api/be/dashboard/actions/draft-chase", {
+        method: "POST", credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ customer_ref: customer }),
+      });
+      setState(res.ok ? "done" : "error");
+    } catch {
+      setState("error");
+    }
+  };
+  return (
+    <button
+      onClick={draft}
+      disabled={state === "sending" || state === "done"}
+      className="text-[11px] px-2 py-1 rounded border border-white/10 hover:border-[#C08457]/50 hover:text-[#F2DEC8] text-zinc-400 disabled:opacity-50 whitespace-nowrap"
+      title="Draft a payment reminder (goes to Approvals for your review)"
+    >
+      {state === "done" ? "Queued ✓" : state === "sending" ? "…" : state === "error" ? "Retry" : "Draft reminder"}
+    </button>
+  );
+}
 
 // ── Shared helpers ────────────────────────────────────────────────────────────
 /** A page-level date range (start/end) → the hook's RangeOpts shape.
@@ -188,7 +217,7 @@ export function CustomerConcentrationPanel({ range }: { range?: DateRange } = {}
         </ResponsiveContainer>
         <div className="flex-1 space-y-1.5">
           {slices.map((s, i) => (
-            <div key={s.name} className="flex items-center justify-between text-xs">
+            <div key={`${s.name}-${i}`} className="flex items-center justify-between text-xs">
               <div className="flex items-center gap-1.5">
                 <span className="w-2 h-2 rounded-full shrink-0" style={{ background: COLORS[i % COLORS.length] }} />
                 <span title={s.name} className="text-[#F2DEC8]/75 truncate max-w-[150px]">{s.name}</span>
@@ -1038,19 +1067,21 @@ export function CollectionsPriorityPanel() {
             <tr className="text-xs uppercase tracking-wide opacity-60">
               <th className="text-left py-1.5 pr-2 font-medium">Customer</th>
               <th className="text-right py-1.5 px-2 font-medium">Outstanding</th>
-              <th className="text-right py-1.5 pl-2 font-medium">Days overdue</th>
+              <th className="text-right py-1.5 px-2 font-medium">Days overdue</th>
+              <th className="text-right py-1.5 pl-2 font-medium">Action</th>
             </tr>
           </thead>
           <tbody>
             {rows.map((c, i) => (
               <tr key={i} className="border-t border-white/5">
-                <td className="py-1.5 pr-2 truncate max-w-[220px]">{c.customer_name}</td>
+                <td className="py-1.5 pr-2 truncate max-w-[200px]">{c.customer_name}</td>
                 <td className="py-1.5 px-2 text-right tabular-nums">{formatCurrency(c.outstanding, true)}</td>
-                <td className="py-1.5 pl-2 text-right tabular-nums">{c.days_overdue}</td>
+                <td className="py-1.5 px-2 text-right tabular-nums">{c.days_overdue}</td>
+                <td className="py-1.5 pl-2 text-right"><DraftChaseButton customer={c.customer_name} /></td>
               </tr>
             ))}
             {items.length === 0 && (
-              <tr><td colSpan={3} className="py-3 text-center opacity-60">Nothing overdue — nice.</td></tr>
+              <tr><td colSpan={4} className="py-3 text-center opacity-60">Nothing overdue — nice.</td></tr>
             )}
           </tbody>
         </table>
