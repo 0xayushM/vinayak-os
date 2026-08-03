@@ -43,8 +43,18 @@ _MONEY_RE = re.compile(
 
 def _norm_num(tok: str) -> str:
     t = tok.lower().replace("₹", "").replace(",", "").replace(" ", "")
+    t = t.rstrip(".")   # a sentence period the money regex greedily swallowed
     t = (t.replace("crores", "cr").replace("crore", "cr")
           .replace("lakhs", "l").replace("lakh", "l"))
+    # Canonicalise trailing decimal zeros so "2.40 Cr" and "2.4 Cr" are the same
+    # token (a natural phrasing difference), while genuinely different values
+    # (2.4 vs 5.0) stay distinct. Prevents false numeric-guard blocks.
+    m = re.match(r"(\d+(?:\.\d+)?)(.*)$", t)
+    if m:
+        num, suffix = m.group(1), m.group(2)
+        if "." in num:
+            num = num.rstrip("0").rstrip(".")
+        t = num + suffix
     return t
 
 

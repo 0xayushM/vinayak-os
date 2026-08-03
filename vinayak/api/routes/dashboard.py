@@ -992,10 +992,12 @@ def ask(body: AskIn, company_id: str = Depends(require_workspace),
                                "answer": (a.get("answer") or "")[:280],
                                "intent": a.get("intent")})
 
-        # The agent (tool-calling) path is opt-in via AGENT_MODE while it is
-        # shadow-tested; otherwise the deterministic keyword engine answers.
+        # The agent (tool-calling) path answers whenever a model is configured;
+        # set AGENT_MODE=0 to force the deterministic keyword engine. run_agent
+        # itself falls back to the engine if the model call fails, so /ask always
+        # returns a grounded answer.
         from vinayak.reasoning import agent
-        if agent.enabled() and agent.agent_available():
+        if agent.should_use():
             out = agent.run_agent(conn, company_id, q, history_turns=briefs or None)
         else:
             out = reason_answer(conn, company_id, q, history_turns=briefs or None)
