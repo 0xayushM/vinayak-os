@@ -1,8 +1,8 @@
 "use client";
 
 import { useSyncHealth, useIngestQuality } from "@/hooks/useDashboard";
-import { CheckCircle, AlertTriangle, XCircle, RefreshCw, Database } from "lucide-react";
-import { cn } from "@/lib/utils/cn";
+import { CheckCircle, AlertTriangle, RefreshCw, Database } from "lucide-react";
+import { cn, friendlySyncError, syncLabel } from "@/lib/utils/cn";
 
 const OBJECT_LABELS: Record<string, string> = {
   customer: "Customers",
@@ -21,15 +21,15 @@ function DataQualityCard() {
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Database className="w-4 h-4 text-[#C08457]" />
-          <span className="text-sm font-medium text-zinc-50">Canonical data quality</span>
+          <span className="text-sm font-medium text-zinc-50">Data quality</span>
         </div>
         <span className={cn("text-xs font-semibold tabular-nums", clean ? "text-[#d4a070]" : "text-amber-400")}>
-          {data.coverage_pct}% mapped
+          {data.coverage_pct}% clean
         </span>
       </div>
       <p className="text-[11px] text-zinc-500">
-        How much of the synced Tranzact data mapped cleanly into the source-independent
-        canonical schema (Layer 0). Unmapped rows are logged, never guessed.
+        How cleanly your synced data mapped into one consistent format. Anything
+        unusual is set aside for review — never guessed.
       </p>
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
         {data.objects.map((o) => (
@@ -46,7 +46,7 @@ function DataQualityCard() {
       ) : (
         <div className="space-y-1">
           <p className="text-[11px] text-amber-400 flex items-center gap-1.5">
-            <AlertTriangle className="w-3.5 h-3.5" /> {data.issue_count} unmapped row(s) — parser backlog:
+            <AlertTriangle className="w-3.5 h-3.5" /> {data.issue_count} row(s) set aside for review:
           </p>
           <ul className="text-[11px] text-zinc-400 space-y-0.5">
             {data.top_issues.map((it, i) => (
@@ -66,7 +66,7 @@ function StatusIcon({ status }: { status: string }) {
     return <CheckCircle className="w-4 h-4 text-[#C08457] shrink-0" />;
   if (status === "running")
     return <RefreshCw className="w-4 h-4 text-[#C08457] animate-spin shrink-0" />;
-  return <XCircle className="w-4 h-4 text-red-500 shrink-0" />;
+  return <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />;
 }
 
 function relTime(iso: string | null): string {
@@ -85,9 +85,9 @@ export default function SyncHealthPage() {
     <div className="p-4 sm:p-6 lg:p-8 space-y-6 max-w-3xl mx-auto w-full animate-rise">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl sm:text-2xl font-semibold tracking-tight text-zinc-50">Sync Health</h1>
+          <h1 className="text-xl sm:text-2xl font-semibold tracking-tight text-zinc-50">Data Connections</h1>
           <p className="text-[12.5px] text-zinc-500 mt-1">
-            Last 25 pipeline runs across all TranzAct reports
+            Whether each part of your data is up to date
           </p>
         </div>
         <button
@@ -102,26 +102,32 @@ export default function SyncHealthPage() {
       {/* Layer-0 canonical mapping coverage */}
       <DataQualityCard />
 
-      {/* Health banner */}
-      {data && (
-        <div
-          className={cn(
-            "rounded-xl border px-4 py-3 flex items-center gap-3 text-sm font-medium",
-            data.healthy
-              ? "bg-[#C08457]/10 border-[#C08457]/20 text-[#d4a070]"
-              : "bg-amber-500/10 border-amber-500/20 text-amber-400",
-          )}
-        >
-          {data.healthy ? (
-            <CheckCircle className="w-4 h-4 shrink-0" />
-          ) : (
-            <AlertTriangle className="w-4 h-4 shrink-0" />
-          )}
-          {data.healthy
-            ? "All pipelines are healthy"
-            : `Stale: ${data.stale_pipelines.join(", ")}`}
-        </div>
-      )}
+      {/* Health banner — plain language, never alarming */}
+      {data && (() => {
+        const attention = Array.from(new Set([
+          ...(data.failed_pipelines ?? []),
+          ...(data.stale_pipelines ?? []),
+        ])).map(syncLabel);
+        return (
+          <div
+            className={cn(
+              "rounded-xl border px-4 py-3 flex items-start gap-3 text-sm font-medium",
+              data.healthy
+                ? "bg-[#C08457]/10 border-[#C08457]/20 text-[#d4a070]"
+                : "bg-amber-500/10 border-amber-500/20 text-amber-300",
+            )}
+          >
+            {data.healthy
+              ? <CheckCircle className="w-4 h-4 shrink-0 mt-0.5" />
+              : <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />}
+            <span>
+              {data.healthy
+                ? "Everything is connected and up to date."
+                : `${attention.length} ${attention.length === 1 ? "area needs" : "areas need"} attention: ${attention.join(", ")}. We keep retrying automatically — your existing data stays on screen.`}
+            </span>
+          </div>
+        );
+      })()}
 
       {/* Run table */}
       {isLoading && (
@@ -150,43 +156,48 @@ export default function SyncHealthPage() {
               </tr>
             </thead>
             <tbody>
-              {data.runs.map((run, i) => (
-                <tr
-                  key={i}
-                  className={cn(
-                    "border-b border-white/[0.04] last:border-0 hover:bg-white/[0.02] transition-colors",
-                    run.status === "error" && "bg-red-500/5",
-                  )}
-                >
-                  <td className="px-4 py-2.5 font-mono text-[#F2DEC8]/75">{run.pipeline_name}</td>
-                  <td className="px-4 py-2.5">
-                    <div className="flex items-center gap-1.5">
-                      <StatusIcon status={run.status} />
-                      <span
-                        className={cn(
-                          run.status === "success" && "text-[#d4a070]",
-                          run.status === "running" && "text-[#C08457]",
-                          run.status === "error"   && "text-red-400",
-                        )}
-                      >
-                        {run.status}
-                      </span>
-                    </div>
-                    {run.error_message && (
-                      <p className="text-red-400/70 text-[10px] mt-0.5 truncate max-w-[200px]">
-                        {run.error_message}
-                      </p>
+              {data.runs.map((run, i) => {
+                const isFail = run.status === "failed" || run.status === "error";
+                const statusText = run.status === "success" ? "Up to date"
+                  : run.status === "running" ? "Syncing…" : "Needs attention";
+                return (
+                  <tr
+                    key={i}
+                    className={cn(
+                      "border-b border-white/[0.04] last:border-0 hover:bg-white/[0.02] transition-colors",
+                      isFail && "bg-amber-500/[0.04]",
                     )}
-                  </td>
-                  <td className="px-4 py-2.5 text-zinc-500">{relTime(run.started_at)}</td>
-                  <td className="px-4 py-2.5 text-zinc-500">{relTime(run.completed_at)}</td>
-                  <td className="px-4 py-2.5 text-right tabular-nums text-zinc-400">
-                    {run.rows_upserted != null
-                      ? run.rows_upserted.toLocaleString()
-                      : "—"}
-                  </td>
-                </tr>
-              ))}
+                  >
+                    <td className="px-4 py-2.5 text-[#F2DEC8]/85">{syncLabel(run.pipeline_name)}</td>
+                    <td className="px-4 py-2.5">
+                      <div className="flex items-center gap-1.5">
+                        <StatusIcon status={run.status} />
+                        <span
+                          className={cn(
+                            run.status === "success" && "text-[#d4a070]",
+                            run.status === "running" && "text-[#C08457]",
+                            isFail && "text-amber-300",
+                          )}
+                        >
+                          {statusText}
+                        </span>
+                      </div>
+                      {isFail && (
+                        <p className="text-amber-300/70 text-[10px] mt-0.5 max-w-[260px]">
+                          {friendlySyncError(run.error_message)}
+                        </p>
+                      )}
+                    </td>
+                    <td className="px-4 py-2.5 text-zinc-500">{relTime(run.started_at)}</td>
+                    <td className="px-4 py-2.5 text-zinc-500">{relTime(run.completed_at)}</td>
+                    <td className="px-4 py-2.5 text-right tabular-nums text-zinc-400">
+                      {run.rows_upserted != null
+                        ? run.rows_upserted.toLocaleString()
+                        : "—"}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>

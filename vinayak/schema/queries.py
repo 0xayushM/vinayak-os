@@ -58,13 +58,29 @@ def _is_stale(last_sync: datetime | None) -> bool:
     return (_now_utc() - last_sync).total_seconds() > STALE_HOURS * 3600
 
 
+# A canonical panel's data can come from either source. The query layer names
+# pipelines in TranzAct terms; this maps each to its Zoho Books equivalent so the
+# freshness badge is correct whichever source populated a workspace. A workspace
+# is normally one source, so only one candidate will have runs.
+_ZOHO_EQUIV = {
+    "sales_invoices":     "zoho_invoices",
+    "ar_aging":           "zoho_invoices",   # Zoho AR is derived from invoices
+    "purchase_invoices":  "zoho_bills",
+    "inventory_valuation": "zoho_items",
+}
+
+
 def _last_sync(conn, pipeline_name: str, company_id: str) -> datetime | None:
-    """Return the most recent successful sync timestamp for a pipeline + brand."""
+    """Return the most recent successful sync timestamp for a panel + brand,
+    across whichever source (TranzAct or Zoho) populated it."""
+    candidates = [pipeline_name]
+    if pipeline_name in _ZOHO_EQUIV:
+        candidates.append(_ZOHO_EQUIV[pipeline_name])
     with conn.cursor() as cur:
         cur.execute(
             """SELECT MAX(completed_at) FROM tz_sync_runs
-               WHERE company_id = %s AND pipeline_name = %s AND status = 'success'""",
-            (company_id, pipeline_name),
+               WHERE company_id = %s AND pipeline_name = ANY(%s) AND status = 'success'""",
+            (company_id, candidates),
         )
         row = cur.fetchone()
     return row[0] if row else None
@@ -93,12 +109,10 @@ def _parse_date(v: Any) -> date | None:
 # here is safe (no SQL injection surface).
 _DATE_COLS = {
     "canon_sales_invoice_flat":     "invoice_date",
-    "tz_purchase_invoices":  "invoice_date",
-    "tz_sales_orders":       "order_date",
-    "tz_purchase_orders":    "po_date",
-    "tz_grn_qir":            "grn_date",
-    "tz_sales_quotations":   "quote_date",
-    "tz_process_details":    "production_date",
+    "canon_purchase_invoice_flat":  "invoice_date",
+    "canon_sales_quotation_flat":   "quote_date",
+    "canon_grn_flat":        "grn_date",
+    "canon_production_flat": "production_date",
 }
 
 
@@ -164,7 +178,7 @@ def _window_meta(w: dict) -> dict:
 
 
 # ── Dual-basis revenue helper (BUG 1 fix) ─────────────────────────────────────
-# canon_sales_invoice_flat / tz_purchase_invoices are LINE-LEVEL: one row per invoice
+# canon_sales_invoice_flat / canon_purchase_invoice_flat are LINE-LEVEL: one row per invoice
 # line, and every line repeats the same header `invoice_total`. Summing
 # invoice_total across lines therefore multiplies each invoice by its line count.
 # We expose two correct bases instead:
@@ -759,26 +773,27 @@ def _purchase_monthly_avg(conn, company_id: str) -> tuple[float, float]:
     """
     with conn.cursor() as cur:
         cur.execute(
-            "SELECT MAX(invoice_date) FROM tz_purchase_invoices WHERE company_id = %s",
+            "SELECT MAX(invoice_date) FROM canon_purchase_invoice_flat WHERE company_id = %s",
             (company_id,),
         )
         data_to = cur.fetchone()[0]
         if data_to is None:
             return 0.0, 0.0
         floor = data_to - timedelta(days=365)
+        # canon_purchase_invoice_flat stores ex-tax line_total → goods = SUM(line_total).
         cur.execute(
             """
-            SELECT COALESCE(SUM(line_total), 0) - COALESCE(SUM(tax_amount), 0),
+            SELECT COALESCE(SUM(line_total), 0),
                    COUNT(DISTINCT date_trunc('month', invoice_date)),
                    COALESCE((
                        SELECT SUM(inv_total) FROM (
                            SELECT invoice_number, MAX(invoice_total) AS inv_total
-                           FROM tz_purchase_invoices
+                           FROM canon_purchase_invoice_flat
                            WHERE company_id = %s AND invoice_date > %s AND invoice_date <= %s
                            GROUP BY invoice_number
                        ) d
                    ), 0)
-            FROM tz_purchase_invoices
+            FROM canon_purchase_invoice_flat
             WHERE company_id = %s AND invoice_date > %s AND invoice_date <= %s
             """,
             (company_id, floor.isoformat(), data_to.isoformat(),
@@ -800,25 +815,25 @@ def get_purchases_summary(conn, company_id: str, period_days: int = 30,
     """
     # BUG 2 fix: anchor the window to the latest available data, not today, so
     # this lines up with the revenue panels even when sync data is not current.
-    w = _resolve_window(conn, company_id, "tz_purchase_invoices", start, end, period_days)
+    w = _resolve_window(conn, company_id, "canon_purchase_invoice_flat", start, end, period_days)
     s, e = w["start"].isoformat(), w["end"].isoformat()
-    # BUG 1 fix: dual basis instead of line-multiplied SUM(invoice_total).
-    # tz_purchase_invoices.line_total is tax-inclusive → ex-tax for the goods basis.
+    # Dual basis (canonical): line_total is already ex-tax (goods); invoiced is the
+    # per-invoice printed grand total. Reads canon_purchase_invoice_flat.
     period_goods, period_invoiced = _dual_window_totals(
-        conn, "tz_purchase_invoices", company_id, s, e, goods_ex_tax=True)
+        conn, "canon_purchase_invoice_flat", company_id, s, e)
     with conn.cursor() as cur:
         cur.execute("""
             SELECT
                 COUNT(DISTINCT vendor_name)     AS vendor_count,
                 COUNT(DISTINCT invoice_number)  AS invoice_count
-            FROM tz_purchase_invoices
+            FROM canon_purchase_invoice_flat
             WHERE company_id = %s AND invoice_date >= %s AND invoice_date <= %s
         """, (company_id, s, e))
         row = cur.fetchone()
 
-        # BUG 3 fix: status is mixed-case in TranzAct — compare case-insensitively.
+        # status is mixed-case in TranzAct — compare case-insensitively.
         cur.execute("""
-            SELECT COUNT(*) FROM tz_purchase_orders
+            SELECT COUNT(*) FROM canon_purchase_order_flat
             WHERE company_id = %s
               AND expected_date < CURRENT_DATE
               AND status NOT ILIKE 'received'
@@ -850,14 +865,14 @@ def get_top_vendors_spend(conn, company_id: str, period_days: int = 30,
     S10 — Top N vendors by purchase spend.
     Returns: vendors list [{vendor_name, spend, invoice_count, pct_of_total}]
     """
-    # BUG 2 fix: anchor to latest data; BUG 1 fix: line_total basis (goods).
-    w = _resolve_window(conn, company_id, "tz_purchase_invoices", start, end, period_days)
+    # Anchor to latest data; line_total basis (ex-tax goods) from canonical.
+    w = _resolve_window(conn, company_id, "canon_purchase_invoice_flat", start, end, period_days)
     s, e = w["start"].isoformat(), w["end"].isoformat()
     with conn.cursor() as cur:
         cur.execute(f"""
             WITH totals AS (
                 SELECT SUM(line_total) AS grand_total
-                FROM tz_purchase_invoices
+                FROM canon_purchase_invoice_flat
                 WHERE company_id = %s AND invoice_date >= %s AND invoice_date <= %s
             )
             SELECT
@@ -868,7 +883,7 @@ def get_top_vendors_spend(conn, company_id: str, period_days: int = 30,
                     100.0 * SUM(line_total) / NULLIF((SELECT grand_total FROM totals), 0),
                     1
                 ) AS pct
-            FROM tz_purchase_invoices
+            FROM canon_purchase_invoice_flat
             WHERE company_id = %s AND invoice_date >= %s AND invoice_date <= %s
             GROUP BY vendor_name
             ORDER BY spend DESC
@@ -898,7 +913,7 @@ def get_production_summary(
     Returns: fg_produced, rejected, reject_rate_pct, wip_count, completed_count
     """
     # No filter → full coverage; start/end (date picker) narrow the window.
-    w = _resolve_window(conn, company_id, "tz_process_details", start, end, period_days)
+    w = _resolve_window(conn, company_id, "canon_production_flat", start, end, period_days)
     s, e = w["start"].isoformat(), w["end"].isoformat()
     with conn.cursor() as cur:
         # TranzAct stores status_text as 'WIP' / 'Pending' / 'Planned' (mixed
@@ -916,7 +931,7 @@ def get_production_summary(
                     FILTER (WHERE status ILIKE 'completed'
                                 OR status ILIKE 'closed'
                                 OR (planned_qty > 0 AND produced_qty >= planned_qty)) AS completed_count
-            FROM tz_process_details
+            FROM canon_production_flat
             WHERE company_id = %s AND production_date >= %s AND production_date <= %s
         """, (company_id, s, e))
         row = cur.fetchone()
@@ -950,7 +965,7 @@ def get_quote_summary(
     Returns: open_count, open_value, won_count, won_value, conversion_rate.
     """
     # No filter → full coverage; start/end (date picker) narrow the window.
-    w = _resolve_window(conn, company_id, "tz_sales_quotations", start, end, period_days)
+    w = _resolve_window(conn, company_id, "canon_sales_quotation_flat", start, end, period_days)
     s, e = w["start"].isoformat(), w["end"].isoformat()
     with conn.cursor() as cur:
         cur.execute("""
@@ -974,7 +989,7 @@ def get_quote_summary(
                       AND status NOT ILIKE 'cancelled'
                 ), 0) AS open_value,
                 COUNT(*) AS total_count
-            FROM tz_sales_quotations
+            FROM canon_sales_quotation_flat
             WHERE company_id = %s AND quote_date >= %s AND quote_date <= %s
         """, (company_id, s, e))
         row = cur.fetchone()
@@ -1009,7 +1024,7 @@ def get_grn_summary(
     Returns: received_count, total_value, pending_qir, rejection_rate.
     """
     # No filter → full coverage; start/end (date picker) narrow the window.
-    w = _resolve_window(conn, company_id, "tz_grn_qir", start, end, period_days)
+    w = _resolve_window(conn, company_id, "canon_grn_flat", start, end, period_days)
     s, e = w["start"].isoformat(), w["end"].isoformat()
     with conn.cursor() as cur:
         cur.execute("""
@@ -1018,7 +1033,7 @@ def get_grn_summary(
                 COALESCE(SUM(received_qty), 0)          AS total_received,
                 COALESCE(SUM(rejected_qty), 0)          AS total_rejected,
                 COUNT(*) FILTER (WHERE rejected_qty IS NULL) AS pending_qir
-            FROM tz_grn_qir
+            FROM canon_grn_flat
             WHERE company_id = %s AND grn_date >= %s AND grn_date <= %s
         """, (company_id, s, e))
         row = cur.fetchone()
@@ -1050,17 +1065,17 @@ def get_bom_coverage(conn, company_id: str) -> dict:
     with conn.cursor() as cur:
         cur.execute("""
             SELECT COUNT(DISTINCT pd.sku_code)
-            FROM tz_process_details pd
+            FROM canon_production_flat pd
             WHERE pd.company_id = %s AND pd.sku_code IS NOT NULL
         """, (company_id,))
         total_items = int(cur.fetchone()[0] or 0)
 
         cur.execute("""
             SELECT COUNT(DISTINCT pd.sku_code)
-            FROM tz_process_details pd
+            FROM canon_production_flat pd
             WHERE pd.company_id = %s AND pd.sku_code IS NOT NULL
               AND EXISTS (
-                  SELECT 1 FROM tz_process_routing pr
+                  SELECT 1 FROM canon_routing_flat pr
                   WHERE pr.company_id = pd.company_id AND pr.sku_code = pd.sku_code
               )
         """, (company_id,))
@@ -1094,7 +1109,7 @@ def get_order_book_summary(conn, company_id: str) -> dict:
                     WHERE delivery_date < CURRENT_DATE
                     AND LOWER(status) NOT IN ('dispatched', 'cancelled')
                 ) AS overdue_count
-            FROM tz_sales_orders
+            FROM canon_sales_order_flat
             WHERE company_id = %s
         """, (company_id,))
         row = cur.fetchone()
@@ -1261,7 +1276,7 @@ def get_overdue_pos(conn, company_id: str) -> dict:
                 po_value,
                 expected_date,
                 (CURRENT_DATE - expected_date) AS days_overdue
-            FROM tz_purchase_orders
+            FROM canon_purchase_order_flat
             WHERE company_id = %s
               AND expected_date < CURRENT_DATE
               AND LOWER(status) NOT IN ('received', 'cancelled')
@@ -1272,7 +1287,7 @@ def get_overdue_pos(conn, company_id: str) -> dict:
 
         cur.execute("""
             SELECT COUNT(*), COALESCE(SUM(po_value), 0)
-            FROM tz_purchase_orders
+            FROM canon_purchase_order_flat
             WHERE company_id = %s
               AND expected_date < CURRENT_DATE
               AND LOWER(status) NOT IN ('received', 'cancelled')
@@ -1318,7 +1333,7 @@ def get_open_pos(conn, company_id: str) -> dict:
                 COALESCE(SUM(po_value), 0)                                     AS open_value,
                 COUNT(*) FILTER (WHERE expected_date < CURRENT_DATE)           AS overdue_count,
                 COALESCE(SUM(po_value) FILTER (WHERE expected_date < CURRENT_DATE), 0) AS overdue_value
-            FROM tz_purchase_orders
+            FROM canon_purchase_order_flat
             WHERE company_id = %s
               AND LOWER(status) NOT IN ('received', 'cancelled')
         """, (company_id,))
@@ -1326,7 +1341,7 @@ def get_open_pos(conn, company_id: str) -> dict:
 
         cur.execute(f"""
             SELECT vendor_name, COUNT(*), COALESCE(SUM(po_value), 0)
-            FROM tz_purchase_orders
+            FROM canon_purchase_order_flat
             WHERE company_id = %s
               AND LOWER(status) NOT IN ('received', 'cancelled')
             GROUP BY vendor_name
@@ -1363,7 +1378,7 @@ def get_production_wip(conn, company_id: str) -> dict:
                 COUNT(*)                       AS count,
                 COALESCE(SUM(planned_qty), 0)  AS planned_qty,
                 COALESCE(SUM(produced_qty), 0) AS produced_qty
-            FROM tz_process_details
+            FROM canon_production_flat
             WHERE company_id = %s
             GROUP BY status
             ORDER BY count DESC
@@ -1378,7 +1393,7 @@ def get_production_wip(conn, company_id: str) -> dict:
                 planned_qty,
                 produced_qty,
                 production_date
-            FROM tz_process_details
+            FROM canon_production_flat
             WHERE company_id = %s AND status ILIKE 'wip'
             ORDER BY production_date DESC
             LIMIT {MAX_PROCESSES}
@@ -1424,7 +1439,7 @@ def get_overdue_orders(conn, company_id: str) -> dict:
                 order_value,
                 delivery_date,
                 (CURRENT_DATE - delivery_date) AS days_overdue
-            FROM tz_sales_orders
+            FROM canon_sales_order_flat
             WHERE company_id = %s
               AND delivery_date < CURRENT_DATE
               AND LOWER(status) NOT IN ('dispatched', 'cancelled')
@@ -1435,7 +1450,7 @@ def get_overdue_orders(conn, company_id: str) -> dict:
 
         cur.execute("""
             SELECT COUNT(*), COALESCE(SUM(order_value), 0)
-            FROM tz_sales_orders
+            FROM canon_sales_order_flat
             WHERE company_id = %s
               AND delivery_date < CURRENT_DATE
               AND LOWER(status) NOT IN ('dispatched', 'cancelled')
@@ -1756,7 +1771,7 @@ def get_purchase_invoices_list(
 ) -> dict:
     """Paginated purchase-invoice lines (date-windowed + searchable)."""
     return _paged_list(
-        conn, company_id, table="tz_purchase_invoices", pipeline="purchase_invoices",
+        conn, company_id, table="canon_purchase_invoice_flat", pipeline="purchase_invoices",
         date_col="invoice_date", start=start, end=end, search=search,
         search_cols=["vendor_name", "invoice_number", "item_name", "item_code"],
         sum_col="line_total",
@@ -1787,7 +1802,7 @@ def get_sales_orders_list(
         extra_where.append("status ILIKE %s")
         extra_params.append(status)
     return _paged_list(
-        conn, company_id, table="tz_sales_orders", pipeline="sales_orders",
+        conn, company_id, table="canon_sales_order_flat", pipeline="sales_orders",
         date_col="order_date", start=start, end=end, search=search,
         search_cols=["customer_name", "order_number", "sku_name", "sku_code"],
         sum_col="order_value",
@@ -1821,7 +1836,7 @@ def get_purchase_orders_list(
         extra_where.append("status ILIKE %s")
         extra_params.append(status)
     return _paged_list(
-        conn, company_id, table="tz_purchase_orders", pipeline="purchase_orders",
+        conn, company_id, table="canon_purchase_order_flat", pipeline="purchase_orders",
         date_col="po_date", start=start, end=end, search=search,
         search_cols=["vendor_name", "po_number", "item_name", "item_code"],
         sum_col="po_value",
@@ -1855,7 +1870,7 @@ def get_production_list(
         extra_where.append("status ILIKE %s")
         extra_params.append(status)
     return _paged_list(
-        conn, company_id, table="tz_process_details", pipeline="process_details",
+        conn, company_id, table="canon_production_flat", pipeline="process_details",
         date_col="production_date", start=start, end=end, search=search,
         search_cols=["work_order_number", "sku_name", "sku_code", "process_name"],
         sum_col="produced_qty",
@@ -1947,7 +1962,9 @@ def get_collections_priority(conn, company_id: str) -> dict:
         total_overdue = float(cur.fetchone()[0] or 0)
     items = [{"customer_name": r[0], "outstanding": float(r[1]), "days_overdue": int(r[2] or 0)} for r in rows]
     top_share = (items[0]["outstanding"] / total_overdue * 100) if (items and total_overdue) else 0
-    return {"items": items, "total_overdue": total_overdue, "top_share_pct": round(top_share, 1)}
+    ls = _last_sync(conn, "ar_aging", company_id)
+    return {"items": items, "total_overdue": total_overdue, "top_share_pct": round(top_share, 1),
+            "last_synced_at": _fmt(ls), "stale": _is_stale(ls)}
 
 
 def get_dso(conn, company_id: str, days: int = 90) -> dict:
@@ -1966,8 +1983,233 @@ def get_dso(conn, company_id: str, days: int = 90) -> dict:
         outstanding = float(cur.fetchone()[0] or 0)
     per_day = sales / days if days else 0
     dso = (outstanding / per_day) if per_day else None
+    ls = _last_sync(conn, "ar_aging", company_id)
     return {"dso_days": round(dso) if dso is not None else None,
-            "outstanding": outstanding, "sales_window": sales, "days": days}
+            "outstanding": outstanding, "sales_window": sales, "days": days,
+            "last_synced_at": _fmt(ls), "stale": _is_stale(ls)}
+
+
+# ── Deterministic credit-risk gate (the non-AI half of Accounts → Sales) ──────
+# Fixed, owner-trustable thresholds — no model involved. A customer is flagged
+# when the numbers cross these lines; a human still makes the final credit call.
+CREDIT_STRETCH_DAYS        = 60     # overdue beyond this = stretching terms
+CREDIT_HIGH_EXPOSURE_SHARE = 15.0   # % of total outstanding held by one customer
+CREDIT_CONCENTRATION_SHARE = 20.0   # % of revenue from one customer
+
+
+def credit_verdict(oldest_days_overdue: int, exposure_share_pct: float,
+                   revenue_share_pct: float) -> dict:
+    """Pure deterministic credit assessment for one customer.
+    Returns {flags: [...], verdict: 'hold' | 'watch' | 'ok'}.
+
+      • hold  — stretching terms AND (over-exposed OR concentrated): do not extend
+                more credit without a human decision.
+      • watch — any single flag present.
+      • ok    — none.
+    """
+    flags: list[str] = []
+    if oldest_days_overdue and oldest_days_overdue > 0:
+        flags.append("overdue")
+    stretched = bool(oldest_days_overdue and oldest_days_overdue >= CREDIT_STRETCH_DAYS)
+    if stretched:
+        flags.append("stretched")
+    high_exposure = exposure_share_pct >= CREDIT_HIGH_EXPOSURE_SHARE
+    if high_exposure:
+        flags.append("high_exposure")
+    concentration = revenue_share_pct >= CREDIT_CONCENTRATION_SHARE
+    if concentration:
+        flags.append("concentration")
+    if stretched and (high_exposure or concentration):
+        verdict = "hold"
+    elif flags:
+        verdict = "watch"
+    else:
+        verdict = "ok"
+    return {"flags": flags, "verdict": verdict}
+
+
+def get_credit_risk_flags(conn, company_id: str) -> dict:
+    """Per-customer deterministic credit flags — the non-AI credit gate an owner
+    can act on before extending more credit. Combines AR exposure + revenue
+    concentration; only customers with a non-'ok' verdict are returned."""
+    with conn.cursor() as cur:
+        cur.execute("""
+            SELECT customer_name,
+                   COALESCE(SUM(outstanding_amount), 0),
+                   COALESCE(SUM(outstanding_amount) FILTER (WHERE days_overdue > 0), 0),
+                   MAX(days_overdue)
+            FROM canon_ar_flat
+            WHERE company_id = %s AND COALESCE(outstanding_amount, 0) > 0
+            GROUP BY customer_name
+        """, (company_id,))
+        ar = cur.fetchall()
+        cur.execute("""
+            SELECT customer_name, COALESCE(SUM(line_total), 0)
+            FROM canon_sales_invoice_flat WHERE company_id = %s GROUP BY customer_name
+        """, (company_id,))
+        rev = {r[0]: float(r[1] or 0) for r in cur.fetchall()}
+
+    total_out = sum(float(r[1] or 0) for r in ar) or 0.0
+    total_rev = sum(rev.values()) or 0.0
+    items = []
+    for name, out, overdue, oldest in ar:
+        out = float(out or 0); overdue = float(overdue or 0)
+        oldest = int(oldest) if oldest is not None else 0
+        exp_share = (out / total_out * 100) if total_out else 0.0
+        rev_share = (rev.get(name, 0.0) / total_rev * 100) if total_rev else 0.0
+        v = credit_verdict(oldest, exp_share, rev_share)
+        if v["verdict"] != "ok":
+            items.append({"customer_name": name, "outstanding": out, "overdue": overdue,
+                          "oldest_days_overdue": oldest,
+                          "exposure_share_pct": round(exp_share, 1),
+                          "revenue_share_pct": round(rev_share, 1), **v})
+    items.sort(key=lambda x: (0 if x["verdict"] == "hold" else 1, -x["outstanding"]))
+    ls = _last_sync(conn, "ar_aging", company_id)
+    return {"items": items,
+            "hold_count": sum(1 for i in items if i["verdict"] == "hold"),
+            "watch_count": sum(1 for i in items if i["verdict"] == "watch"),
+            "last_synced_at": _fmt(ls), "stale": _is_stale(ls)}
+
+
+def _month_floor(d: date, months_back: int) -> date:
+    """First day of the month `months_back` months before d's month."""
+    total = (d.year * 12 + (d.month - 1)) - months_back
+    return date(total // 12, total % 12 + 1, 1)
+
+
+def get_sales_monthly_comparison(conn, company_id: str, months: int = 12) -> dict:
+    """Monthly sales (goods value) for the trailing `months`, each with its
+    month-over-month % change — so the owner can compare month to month.
+    Deterministic; anchored to the latest sales date, not today."""
+    months = max(2, min(24, int(months)))
+    _f, data_to = _sales_window(conn, company_id)
+    if data_to is None:
+        ls = _last_sync(conn, "sales_invoices", company_id)
+        return {"months": [], "last_synced_at": _fmt(ls), "stale": _is_stale(ls)}
+    floor = _month_floor(data_to, months - 1)
+    with conn.cursor() as cur:
+        cur.execute("""
+            SELECT to_char(date_trunc('month', invoice_date), 'YYYY-MM') AS m,
+                   COALESCE(SUM(line_total), 0)          AS revenue,
+                   COUNT(DISTINCT invoice_number)        AS invoices
+            FROM canon_sales_invoice_flat
+            WHERE company_id = %s AND invoice_date >= %s
+            GROUP BY 1 ORDER BY 1
+        """, (company_id, floor.isoformat()))
+        rows = cur.fetchall()
+    out = []
+    prev = None
+    for m, rev, inv in rows:
+        rev = float(rev or 0)
+        mom = round((rev - prev) / prev * 100, 1) if prev not in (None, 0) else None
+        out.append({"month": m, "revenue": rev, "invoice_count": int(inv or 0), "mom_pct": mom})
+        prev = rev
+    best = max(out, key=lambda x: x["revenue"], default=None)
+    ls = _last_sync(conn, "sales_invoices", company_id)
+    return {"months": out,
+            "best_month": best["month"] if best else None,
+            "best_revenue": best["revenue"] if best else 0.0,
+            "last_synced_at": _fmt(ls), "stale": _is_stale(ls)}
+
+
+def get_customer_finance_list(conn, company_id: str) -> dict:
+    """Per-customer finance snapshot for EVERY customer (searchable lookup):
+    outstanding, overdue, oldest days, lifetime revenue, and the deterministic
+    credit verdict. The dynamic drill-down the owner (and the Brain) use to answer
+    'how is customer X doing?'."""
+    with conn.cursor() as cur:
+        cur.execute("""
+            SELECT customer_name,
+                   COALESCE(SUM(outstanding_amount), 0),
+                   COALESCE(SUM(outstanding_amount) FILTER (WHERE days_overdue > 0), 0),
+                   MAX(days_overdue)
+            FROM canon_ar_flat WHERE company_id = %s GROUP BY customer_name
+        """, (company_id,))
+        ar = {r[0]: (float(r[1] or 0), float(r[2] or 0), int(r[3]) if r[3] is not None else 0)
+              for r in cur.fetchall()}
+        cur.execute("""
+            SELECT customer_name,
+                   COALESCE(SUM(line_total), 0),
+                   COUNT(DISTINCT invoice_number)
+            FROM canon_sales_invoice_flat WHERE company_id = %s GROUP BY customer_name
+        """, (company_id,))
+        rev = {r[0]: (float(r[1] or 0), int(r[2] or 0)) for r in cur.fetchall()}
+
+    total_out = sum(v[0] for v in ar.values()) or 0.0
+    total_rev = sum(v[0] for v in rev.values()) or 0.0
+    names = set(ar) | set(rev)
+    items = []
+    for name in names:
+        out, overdue, oldest = ar.get(name, (0.0, 0.0, 0))
+        revenue, inv = rev.get(name, (0.0, 0))
+        exp_share = (out / total_out * 100) if total_out else 0.0
+        rev_share = (revenue / total_rev * 100) if total_rev else 0.0
+        v = credit_verdict(oldest, exp_share, rev_share)
+        items.append({"customer_name": name, "outstanding": out, "overdue": overdue,
+                      "oldest_days_overdue": oldest, "revenue": revenue, "invoice_count": inv,
+                      "verdict": v["verdict"], "flags": v["flags"]})
+    items.sort(key=lambda x: -x["outstanding"])
+    ls = _last_sync(conn, "ar_aging", company_id)
+    return {"items": items, "customer_count": len(items),
+            "last_synced_at": _fmt(ls), "stale": _is_stale(ls)}
+
+
+def get_monthly_cashflow(conn, company_id: str, months: int = 12) -> dict:
+    """Monthly money in (sales) vs money out (purchase spend), and the net — a
+    deterministic cash-movement view (not a forecast). Both goods-value bases."""
+    months = max(2, min(24, int(months)))
+    _f, data_to = _sales_window(conn, company_id)
+    anchor = data_to or date.today()
+    floor = _month_floor(anchor, months - 1).isoformat()
+    with conn.cursor() as cur:
+        cur.execute("""SELECT to_char(date_trunc('month', invoice_date), 'YYYY-MM'),
+                              COALESCE(SUM(line_total), 0)
+                       FROM canon_sales_invoice_flat
+                       WHERE company_id = %s AND invoice_date >= %s GROUP BY 1""",
+                    (company_id, floor))
+        sales = {r[0]: float(r[1] or 0) for r in cur.fetchall()}
+        cur.execute("""SELECT to_char(date_trunc('month', invoice_date), 'YYYY-MM'),
+                              COALESCE(SUM(line_total), 0)
+                       FROM canon_purchase_invoice_flat
+                       WHERE company_id = %s AND invoice_date >= %s GROUP BY 1""",
+                    (company_id, floor))
+        spend = {r[0]: float(r[1] or 0) for r in cur.fetchall()}
+    out = []
+    for m in sorted(set(sales) | set(spend)):
+        s, p = sales.get(m, 0.0), spend.get(m, 0.0)
+        out.append({"month": m, "sales_in": s, "spend_out": p, "net": s - p})
+    total_in = sum(x["sales_in"] for x in out)
+    total_out = sum(x["spend_out"] for x in out)
+    ls = _last_sync(conn, "sales_invoices", company_id)
+    return {"months": out, "total_in": total_in, "total_out": total_out,
+            "net": total_in - total_out,
+            "last_synced_at": _fmt(ls), "stale": _is_stale(ls)}
+
+
+def get_finance_overview(conn, company_id: str) -> dict:
+    """One-screen deterministic finance view for the morning check — revenue,
+    receivables, overdue, DSO, top exposures and the collections shortlist.
+    Composes existing query functions; no AI."""
+    rev = get_revenue_summary(conn, company_id)
+    ar = get_ar_summary(conn, company_id)
+    dso = get_dso(conn, company_id)
+    coll = get_collections_priority(conn, company_id)
+    outstanding = float(ar.get("total_outstanding") or 0)
+    overdue = float(ar.get("overdue_value") or 0)
+    ls = _last_sync(conn, "ar_aging", company_id)
+    return {
+        "revenue_goods":     rev.get("period_total_goods"),
+        "revenue_invoiced":  rev.get("period_total_invoiced"),
+        "ytd_goods":         rev.get("ytd_total"),
+        "outstanding":       outstanding,
+        "overdue":           overdue,
+        "overdue_pct":       round(overdue / outstanding * 100, 1) if outstanding else 0.0,
+        "dso_days":          dso.get("dso_days"),
+        "top_exposures":     (ar.get("top_exposures") or [])[:3],
+        "collections_top":   coll.get("items", [])[:3],
+        "total_overdue":     coll.get("total_overdue", 0.0),
+        "last_synced_at":    _fmt(ls), "stale": _is_stale(ls),
+    }
 
 
 def get_customer_changes(conn, company_id: str, window_days: int = 30) -> dict:

@@ -51,6 +51,33 @@ class LoadStats:
     issues: int = 0
 
 
+def upsert_canon(cur, table: str, company_id: str, source: str, rows: list) -> int:
+    """Generic idempotent upsert of canonical rows on (company_id, source,
+    source_ref). Shared by every SourceAdapter. `rows` are dicts carrying
+    source_ref plus the typed columns (envelope company_id/source added here).
+    Duplicate source_refs within the batch collapse (last wins)."""
+    import psycopg2.extras
+    if not rows:
+        return 0
+    deduped: dict = {}
+    for r in rows:
+        deduped[r["source_ref"]] = r
+    rows = list(deduped.values())
+    cols = list(rows[0].keys())
+    assert "source_ref" in cols
+    col_sql = ", ".join(["company_id", "source"] + cols)
+    set_sql = ", ".join(f"{c} = EXCLUDED.{c}" for c in cols if c != "source_ref")
+    values = [tuple([company_id, source] + [r[c] for c in cols]) for r in rows]
+    template = "(" + ", ".join(["%s"] * (len(cols) + 2)) + ")"
+    sql = (
+        f"INSERT INTO {table} ({col_sql}) VALUES %s "
+        f"ON CONFLICT (company_id, source, source_ref) "
+        f"DO UPDATE SET {set_sql}, ingested_at = now()"
+    )
+    psycopg2.extras.execute_values(cur, sql, values, template=template, page_size=500)
+    return len(values)
+
+
 def log_issue(cur, company_id: str, source: str, issue: Unmapped) -> None:
     """Record an unmappable value in ingest_issues (the parser backlog)."""
     cur.execute(

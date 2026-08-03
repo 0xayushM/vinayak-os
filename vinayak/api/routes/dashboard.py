@@ -495,6 +495,278 @@ def ar_customer_exposure(company_id: str = Depends(require_workspace)):
     return _envelope(data, report_id=102)
 
 
+@router.get("/ar/collections-priority")
+def ar_collections_priority(company_id: str = Depends(require_workspace)):
+    """Deterministic 'who to chase first' — overdue receivables ranked by recovery
+    impact (amount × days overdue). No AI: a fixed rule the owner can act on today."""
+    conn = _conn()
+    try:
+        data = queries.get_collections_priority(conn, company_id)
+    finally:
+        conn.close()
+    return _envelope(data, report_id=102)
+
+
+@router.get("/ar/dso")
+def ar_dso(days: int = Query(default=90, ge=30, le=365),
+           company_id: str = Depends(require_workspace)):
+    """Days Sales Outstanding — how long cash sits in customers' pockets. Purely
+    computed from canonical sales + receivables."""
+    conn = _conn()
+    try:
+        data = queries.get_dso(conn, company_id, days=days)
+    finally:
+        conn.close()
+    return _envelope(data, report_id=102)
+
+
+# ── Action spine: propose → approval inbox → decide ───────────────────────────
+class DraftChaseIn(BaseModel):
+    customer_ref: str
+    tone: str | None = None
+
+
+@router.post("/actions/draft-chase")
+def actions_draft_chase(body: DraftChaseIn,
+                        company_id: str = Depends(require_workspace),
+                        user: TokenPayload = Depends(get_current_user)):
+    """Propose a payment-reminder draft for a customer. Writes a 'proposed' row to
+    the action ledger — nothing is sent until a human approves it."""
+    from vinayak.tools import registry as _reg
+    from vinayak.tools.action_tools import register_action_tools
+    from vinayak.tools.executor import ToolContext, execute
+    register_action_tools()
+    tool = _reg.get("collections.draft_chase")
+    conn = _conn()
+    try:
+        ctx = ToolContext(conn=conn, company_id=company_id, user_id=user.sub)
+        args = {"customer_ref": body.customer_ref}
+        if body.tone:
+            args["tone"] = body.tone
+        res = execute(ctx, tool, args)
+    finally:
+        conn.close()
+    if res.error:
+        raise HTTPException(status_code=400, detail=res.error)
+    return res.data
+
+
+@router.get("/actions")
+def actions_list(status: str = Query(default="proposed"),
+                 company_id: str = Depends(require_workspace)):
+    """The approval inbox — proposed (or other-status) actions awaiting a human.
+    Includes the recipient email we have on file (if any), so the UI can show it."""
+    conn = _conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """SELECT a.id, a.tool_name, a.entity_ref, a.payload, a.status, a.gate,
+                          a.proposed_by, a.created_at, a.decided_by, a.decided_at, a.result,
+                          c.email
+                   FROM actions a
+                   LEFT JOIN customer_contacts c
+                     ON c.company_id = a.company_id AND c.customer_ref = a.entity_ref
+                   WHERE a.company_id = %s AND (%s = '' OR a.status = %s)
+                   ORDER BY a.created_at DESC LIMIT 100""",
+                (company_id, status, status),
+            )
+            rows = cur.fetchall()
+    finally:
+        conn.close()
+    return {"actions": [
+        {"id": str(r[0]), "tool_name": r[1], "entity_ref": r[2], "payload": r[3],
+         "status": r[4], "gate": r[5], "proposed_by": r[6],
+         "created_at": r[7].isoformat() if r[7] else None,
+         "decided_by": r[8], "decided_at": r[9].isoformat() if r[9] else None,
+         "result": r[10], "recipient_email": r[11]}
+        for r in rows]}
+
+
+class ContactIn(BaseModel):
+    customer_ref: str
+    email: str | None = None
+    phone: str | None = None
+
+
+@router.post("/contacts")
+def set_contact(body: ContactIn, company_id: str = Depends(require_workspace)):
+    """Save/update how to reach a customer (email/phone)."""
+    from vinayak import notify
+    conn = _conn()
+    try:
+        notify.upsert_contact(conn, company_id, body.customer_ref.strip(),
+                              email=(body.email or "").strip() or None,
+                              phone=(body.phone or "").strip() or None, source="manual")
+    finally:
+        conn.close()
+    return {"status": "ok", "customer_ref": body.customer_ref}
+
+
+class DecideIn(BaseModel):
+    decision: str            # approve | reject
+    email: str | None = None  # optional recipient override (saved to contacts)
+
+
+@router.post("/actions/{action_id}/decide")
+def actions_decide(action_id: str, body: DecideIn,
+                   company_id: str = Depends(require_workspace),
+                   user: TokenPayload = Depends(get_current_user)):
+    """Approve or reject a proposed action. Reject discards it. Approve records the
+    decision and — for a message action — attempts delivery to the customer's
+    contact email. Nothing is ever sent without this human approval; if no email
+    is on file (or no provider is configured) the approval is recorded but not sent."""
+    import json as _json
+    from vinayak import notify
+
+    decision = (body.decision or "").lower()
+    if decision not in ("approve", "reject"):
+        raise HTTPException(status_code=400, detail="decision must be 'approve' or 'reject'")
+
+    conn = _conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """SELECT payload, entity_ref FROM actions
+                   WHERE id = %s AND company_id = %s AND status = 'proposed'""",
+                (action_id, company_id),
+            )
+            row = cur.fetchone()
+            if not row:
+                raise HTTPException(status_code=404, detail="Action not found or already decided")
+            payload, entity_ref = (row[0] or {}), row[1]
+
+            if decision == "reject":
+                cur.execute(
+                    """UPDATE actions SET status='rejected', decided_by=%s, decided_at=NOW()
+                       WHERE id=%s AND company_id=%s""",
+                    (user.sub, action_id, company_id),
+                )
+                conn.commit()
+                return {"id": action_id, "status": "rejected", "sent": False}
+
+            # approve → try to deliver
+            if body.email and body.email.strip():
+                notify.upsert_contact(conn, company_id, entity_ref, email=body.email.strip(), source="manual")
+            to = notify.get_contact_email(conn, company_id, entity_ref)
+            subject = payload.get("subject") or payload.get("summary") or "Message"
+            text = payload.get("body") or ""
+
+            if not to:
+                result = {"sent": False, "reason": "no_contact_email"}
+                cur.execute(
+                    """UPDATE actions SET status='approved', decided_by=%s, decided_at=NOW(), result=%s
+                       WHERE id=%s AND company_id=%s""",
+                    (user.sub, _json.dumps(result), action_id, company_id),
+                )
+                conn.commit()
+                return {"id": action_id, "status": "approved", "sent": False, "need": "email"}
+
+            send = notify.send_email(to, subject, text)
+            new_status = "executed" if send.get("sent") else "approved"
+            cur.execute(
+                """UPDATE actions SET status=%s, decided_by=%s, decided_at=NOW(),
+                          executed_at = CASE WHEN %s THEN NOW() ELSE executed_at END, result=%s
+                   WHERE id=%s AND company_id=%s""",
+                (new_status, user.sub, bool(send.get("sent")), _json.dumps(send), action_id, company_id),
+            )
+        conn.commit()
+    finally:
+        conn.close()
+    return {"id": action_id, "status": new_status, "sent": bool(send.get("sent")), "detail": send}
+
+
+@router.get("/tools")
+def tool_catalog(company_id: str = Depends(require_workspace)):
+    """The read-tool catalog the Brain (and MCP clients) can call — name,
+    description, and typed input schema for each Layer-7 read tool."""
+    from vinayak.tools import registry
+    from vinayak.tools.read_tools import register_all
+    register_all()  # idempotent
+    tools = registry.all_tools("read")
+    return {
+        "count": len(tools),
+        "tools": [
+            {"name": t.name, "description": t.description,
+             "inputs": {k: {"type": i.json_type, "required": i.required, "description": i.description}
+                        for k, i in t.inputs.items()},
+             "schema": t.anthropic_schema()}
+            for t in tools
+        ],
+    }
+
+
+@router.get("/finance/overview")
+def finance_overview(company_id: str = Depends(require_workspace)):
+    """One-screen deterministic finance view for the morning check — revenue,
+    outstanding, overdue, DSO, top exposures, and the collections shortlist. No AI."""
+    conn = _conn()
+    try:
+        data = queries.get_finance_overview(conn, company_id)
+    finally:
+        conn.close()
+    return _envelope(data, report_id=102)
+
+
+@router.get("/finance/credit-risk")
+def finance_credit_risk(company_id: str = Depends(require_workspace)):
+    """Deterministic per-customer credit flags (over-exposed / stretching terms /
+    concentrated) with a hold/watch verdict — the non-AI credit gate."""
+    conn = _conn()
+    try:
+        data = queries.get_credit_risk_flags(conn, company_id)
+    finally:
+        conn.close()
+    return _envelope(data, report_id=102)
+
+
+@router.get("/finance/monthly-sales")
+def finance_monthly_sales(months: int = Query(default=12, ge=2, le=24),
+                          company_id: str = Depends(require_workspace)):
+    """Monthly sales (goods value) with month-over-month % change — compare
+    month to month. Deterministic."""
+    conn = _conn()
+    try:
+        data = queries.get_sales_monthly_comparison(conn, company_id, months=months)
+    finally:
+        conn.close()
+    return _envelope(data, report_id=29)
+
+
+@router.get("/finance/sales-by-category")
+def finance_sales_by_category(company_id: str = Depends(require_workspace)):
+    """Revenue split by product category — where the money comes from."""
+    conn = _conn()
+    try:
+        data = queries.get_sales_by_category(conn, company_id)
+    finally:
+        conn.close()
+    return _envelope(data, report_id=29)
+
+
+@router.get("/finance/customers")
+def finance_customers(company_id: str = Depends(require_workspace)):
+    """Per-customer finance snapshot for every customer — the searchable
+    lookup (outstanding, overdue, revenue, credit verdict)."""
+    conn = _conn()
+    try:
+        data = queries.get_customer_finance_list(conn, company_id)
+    finally:
+        conn.close()
+    return _envelope(data, report_id=102)
+
+
+@router.get("/finance/cash-movement")
+def finance_cash_movement(months: int = Query(default=12, ge=2, le=24),
+                          company_id: str = Depends(require_workspace)):
+    """Monthly money in (sales) vs out (purchase spend) and the net — deterministic."""
+    conn = _conn()
+    try:
+        data = queries.get_monthly_cashflow(conn, company_id, months=months)
+    finally:
+        conn.close()
+    return _envelope(data, report_id=29)
+
+
 @router.get("/purchases/overdue-pos")
 def overdue_pos(company_id: str = Depends(require_workspace)):
     """O3 — Overdue purchase orders."""
@@ -699,9 +971,34 @@ def ask(body: AskIn, company_id: str = Depends(require_workspace),
     conn = _conn()
     try:
         thread_id = body.thread_id
-        if not thread_id or not history._owns_thread(conn, company_id, user.sub, thread_id):
+        is_existing = bool(thread_id) and history._owns_thread(conn, company_id, user.sub, thread_id)
+        if not is_existing:
             thread_id = history.create_thread(conn, company_id, user.sub)["id"]
-        out = reason_answer(conn, company_id, q)
+
+        # Multi-turn: hand the engine the recent turns of this thread so
+        # follow-ups ("and which of those are overdue?") resolve correctly.
+        briefs: list[dict] = []
+        if is_existing:
+            import json as _json
+            for t in history.list_turns(conn, company_id, user.sub, thread_id)[-6:]:
+                a = t.get("answer")
+                if isinstance(a, str):
+                    try:
+                        a = _json.loads(a)
+                    except Exception:
+                        a = {"answer": a}
+                a = a or {}
+                briefs.append({"question": t.get("question") or "",
+                               "answer": (a.get("answer") or "")[:280],
+                               "intent": a.get("intent")})
+
+        # The agent (tool-calling) path is opt-in via AGENT_MODE while it is
+        # shadow-tested; otherwise the deterministic keyword engine answers.
+        from vinayak.reasoning import agent
+        if agent.enabled() and agent.agent_available():
+            out = agent.run_agent(conn, company_id, q, history_turns=briefs or None)
+        else:
+            out = reason_answer(conn, company_id, q, history_turns=briefs or None)
         out["thread_id"] = thread_id
         try:
             out["id"] = history.save_turn(conn, company_id, user.sub, thread_id, q, out)
@@ -782,7 +1079,6 @@ def trigger_sync(
     Runs synchronously — response returns after the sync completes.
     Only available for the 5 hourly pipelines (to avoid triggering heavy daily syncs).
     """
-    from datetime import date, timedelta
     from vinayak.pipelines import (
         ar_aging as ar_mod,
         sales_orders as so_mod,
@@ -791,12 +1087,14 @@ def trigger_sync(
         process_details as pd_mod,
     )
 
+    # TranzAct has no server-side date filter — a manual trigger is simply a
+    # newest-pages refresh of the report (same as the hourly sync).
     ALLOWED = {
-        "ar_aging":             (ar_mod.ARAgingPipeline,          1, 1),
-        "sales_orders":         (so_mod.SalesOrdersPipeline,      7, 7),
-        "purchase_orders":      (po_mod.PurchaseOrdersPipeline,   7, 7),
-        "inventory_valuation":  (inv_mod.InventoryValuationPipeline, 1, 1),
-        "process_details":      (pd_mod.ProcessDetailsPipeline,   7, 7),
+        "ar_aging":             ar_mod.ARAgingPipeline,
+        "sales_orders":         so_mod.SalesOrdersPipeline,
+        "purchase_orders":      po_mod.PurchaseOrdersPipeline,
+        "inventory_valuation":  inv_mod.InventoryValuationPipeline,
+        "process_details":      pd_mod.ProcessDetailsPipeline,
     }
 
     if pipeline_name not in ALLOWED:
@@ -805,10 +1103,7 @@ def trigger_sync(
             detail=f"Manual trigger only available for: {list(ALLOWED.keys())}"
         )
 
-    PipelineClass, from_days, to_days = ALLOWED[pipeline_name]
-    today = date.today()
-    from_date = today - timedelta(days=from_days)
-    to_date = today
+    PipelineClass = ALLOWED[pipeline_name]
 
     # Load this workspace's TranzAct credentials so the run authenticates as —
     # and tags data for — the right brand.
@@ -835,9 +1130,12 @@ def trigger_sync(
     creds = TranzactCreds(email=cred["email"], password=cred["password"], base_url=TRANZACT_BASE_URL)
 
     try:
-        PipelineClass().run(from_date, to_date, company_id=company_id, creds=creds)
+        # Newest-pages refresh (4 pages), same shape as the hourly sync.
+        res = PipelineClass().run_chunk(
+            company_id=company_id, creds=creds, start_page=1, max_pages=4,
+        )
     except Exception as exc:
         raise HTTPException(500, detail=f"Pipeline failed: {exc}")
 
     return {"status": "ok", "pipeline": pipeline_name,
-            "from_date": str(from_date), "to_date": str(to_date)}
+            "rows_fetched": res["rows_fetched"], "rows_upserted": res["rows_upserted"]}

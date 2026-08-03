@@ -13,6 +13,12 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+# ── Environment mode ──────────────────────────────────────────────────────────
+# VINAYAK_DEV_MODE=1 relaxes the fail-hard security checks for local dev only
+# (ephemeral JWT secret, optional internal key, localhost CORS). NEVER set it
+# in production.
+DEV_MODE = os.getenv("VINAYAK_DEV_MODE", "").strip().lower() in ("1", "true", "yes")
+
 # ── TranzAct API endpoints (infrastructure URLs, not credentials) ─────────────
 TRANZACT_BASE_URL      = os.getenv("TRANZACT_BASE_URL",      "https://be.letstranzact.com")
 # Confirmed 2026-05-22: reports live on a separate reporting subdomain

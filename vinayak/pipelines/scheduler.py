@@ -165,6 +165,65 @@ def _run_process_routing() -> None:
     _run_for_all("process_routing")
 
 
+# ── Zoho Books (source #2) ────────────────────────────────────────────────────
+def _iter_zoho_creds():
+    """Yield (company_id, ZohoCreds) for every active Zoho Books connection."""
+    from vinayak.api.routes.zoho import TOOL_NAME
+    from vinayak.api.routes.connections import _decrypt
+    from vinayak.adapters.zoho.auth import ZohoCreds
+
+    conn = psycopg2.connect(DATABASE_URL)
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """SELECT company_id, encrypted_credentials FROM tool_connections
+                   WHERE tool_name = %s AND is_active = TRUE""", (TOOL_NAME,))
+            rows = cur.fetchall()
+    finally:
+        conn.close()
+    for company_id, blob in rows:
+        try:
+            d = _decrypt(blob)
+            yield company_id, ZohoCreds(
+                client_id=d["client_id"], client_secret=d["client_secret"],
+                refresh_token=d["refresh_token"],
+                organization_id=d["organization_id"], dc=d.get("dc", "in"))
+        except Exception as exc:  # noqa: BLE001
+            logger.error("Scheduler: failed to load Zoho creds for %s: %s", company_id, exc)
+
+
+def _run_zoho_all() -> None:
+    """Hourly refresh of all four Zoho Books pipelines, per connected company.
+    A no-op when no workspace has a Zoho connection (the common case today)."""
+    from vinayak.pipelines.zoho import ALL_ZOHO_PIPELINES
+
+    companies = list(_iter_zoho_creds())
+    if not companies:
+        return
+    from vinayak.canonical.zoho_canonical import rebuild_canonical_zoho
+
+    for company_id, creds in companies:
+        for PipelineCls in ALL_ZOHO_PIPELINES:
+            p = PipelineCls()
+            try:
+                p.run(company_id, creds)
+            except Exception as exc:  # noqa: BLE001
+                logger.error("Scheduler: %s failed for %s: %s",
+                             p.PIPELINE_NAME, company_id, exc)
+        # Rebuild the canonical layer from the freshly-synced zb_* rows so the
+        # dashboard/AI (which read canon_* only) reflect the hourly update.
+        # Mirrors the /zoho/sync route; a canonical failure never aborts sync.
+        try:
+            conn = psycopg2.connect(DATABASE_URL)
+            try:
+                rebuild_canonical_zoho(conn, company_id)
+            finally:
+                conn.close()
+        except Exception as exc:  # noqa: BLE001
+            logger.error("Scheduler: Zoho canonical rebuild failed for %s: %s",
+                         company_id, exc)
+
+
 # ── Scheduler instance ────────────────────────────────────────────────────────
 
 scheduler = AsyncIOScheduler(timezone=_IST)
@@ -259,6 +318,17 @@ scheduler.add_job(
     trigger=CronTrigger(minute=56, timezone=_IST),
     id="process_routing_hourly",
     name="Process Routing (hourly, :56)",
+    replace_existing=True,
+    misfire_grace_time=300,
+)
+
+# Zoho Books runs on its own rate-limit budget (per-org), so it doesn't need
+# stagger coordination with the TranzAct jobs. :12 keeps it clear of the herd.
+scheduler.add_job(
+    _run_zoho_all,
+    trigger=CronTrigger(minute=12, timezone=_IST),
+    id="zoho_books_hourly",
+    name="Zoho Books — all pipelines (hourly, :12)",
     replace_existing=True,
     misfire_grace_time=300,
 )

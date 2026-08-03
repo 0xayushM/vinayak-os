@@ -189,6 +189,64 @@ export function useArSummary() {
   return useSWR<PanelResponse<ArSummary>>("/api/dashboard/ar-summary", fetcher, swrHourly);
 }
 
+// ── Finance: deterministic (non-AI) workflows ─────────────────────────────────
+export interface CollectionsItem { customer_name: string; outstanding: number; days_overdue: number; }
+export interface CollectionsPriority { items: CollectionsItem[]; total_overdue: number; top_share_pct: number; }
+export function useCollectionsPriority() {
+  return useSWR<PanelResponse<CollectionsPriority>>("/api/dashboard/collections-priority", fetcher, swrHourly);
+}
+
+export interface Dso { dso_days: number | null; outstanding: number; sales_window: number; days: number; }
+export function useDso() {
+  return useSWR<PanelResponse<Dso>>("/api/dashboard/dso", fetcher, swrHourly);
+}
+
+export type CreditVerdict = "hold" | "watch";
+export interface CreditRiskItem {
+  customer_name: string; outstanding: number; overdue: number; oldest_days_overdue: number;
+  exposure_share_pct: number; revenue_share_pct: number; flags: string[]; verdict: CreditVerdict;
+}
+export interface CreditRisk { items: CreditRiskItem[]; hold_count: number; watch_count: number; }
+export function useCreditRisk() {
+  return useSWR<PanelResponse<CreditRisk>>("/api/dashboard/credit-risk", fetcher, swrHourly);
+}
+
+export interface FinanceOverview {
+  revenue_goods: number; revenue_invoiced: number; ytd_goods: number;
+  outstanding: number; overdue: number; overdue_pct: number; dso_days: number | null;
+  collections_top: CollectionsItem[]; total_overdue: number;
+}
+export function useFinanceOverview() {
+  return useSWR<PanelResponse<FinanceOverview>>("/api/dashboard/finance-overview", fetcher, swrHourly);
+}
+
+export interface MonthlySalesRow { month: string; revenue: number; invoice_count: number; mom_pct: number | null; }
+export interface MonthlySales { months: MonthlySalesRow[]; best_month: string | null; best_revenue: number; }
+export function useMonthlySales(months = 12) {
+  return useSWR<PanelResponse<MonthlySales>>(`/api/dashboard/monthly-sales?months=${months}`, fetcher, swrDaily);
+}
+
+export interface SalesCategoryRow { category: string; revenue: number; pct: number; }
+export interface SalesByCategory { categories: SalesCategoryRow[]; total: number; }
+export function useSalesByCategory() {
+  return useSWR<PanelResponse<SalesByCategory>>("/api/dashboard/sales-by-category", fetcher, swrDaily);
+}
+
+export interface CustomerFinanceRow {
+  customer_name: string; outstanding: number; overdue: number; oldest_days_overdue: number;
+  revenue: number; invoice_count: number; verdict: "hold" | "watch" | "ok"; flags: string[];
+}
+export interface CustomerFinanceList { items: CustomerFinanceRow[]; customer_count: number; }
+export function useCustomerFinance() {
+  return useSWR<PanelResponse<CustomerFinanceList>>("/api/dashboard/customer-finance", fetcher, swrHourly);
+}
+
+export interface CashMonth { month: string; sales_in: number; spend_out: number; net: number; }
+export interface CashMovement { months: CashMonth[]; total_in: number; total_out: number; net: number; }
+export function useCashMovement(months = 12) {
+  return useSWR<PanelResponse<CashMovement>>(`/api/dashboard/cash-movement?months=${months}`, fetcher, swrHourly);
+}
+
 // ── Open orders panel ─────────────────────────────────────────────────────────
 export interface OpenOrderSummary {
   open_count: number; open_value: number; oldest_order_days: number;
@@ -445,7 +503,7 @@ export interface SyncRun {
   pipeline_name: string; status: string; started_at: string;
   completed_at: string | null; rows_upserted: number | null; error_message: string | null;
 }
-export interface SyncHealth { runs: SyncRun[]; stale_pipelines: string[]; healthy: boolean; }
+export interface SyncHealth { runs: SyncRun[]; stale_pipelines: string[]; failed_pipelines?: string[]; healthy: boolean; }
 
 // ── Layer-2: business profile + memory facts ──────────────────────────────────
 export interface BusinessProfile {

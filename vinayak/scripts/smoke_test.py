@@ -28,9 +28,6 @@ from vinayak.pipelines.inventory_valuation import InventoryValuationPipeline
 from vinayak.pipelines.process_routing import ProcessRoutingPipeline
 from vinayak.pipelines.process_details import ProcessDetailsPipeline
 
-TODAY = date.today()
-FROM  = TODAY - timedelta(days=90)
-
 PIPELINES = [
     ("Inventory Valuation", InventoryValuationPipeline),
     ("Process Routing",     ProcessRoutingPipeline),
@@ -43,13 +40,46 @@ PIPELINES = [
     ("Process Details",     ProcessDetailsPipeline),
 ]
 
-print(f"\n🚀  Smoke test: {FROM} → {TODAY}\n")
+
+def _creds_for(company_id: str):
+    """Load and decrypt the stored TranzAct credentials for a workspace."""
+    import psycopg2
+    from vinayak.config import DATABASE_URL, TRANZACT_BASE_URL
+    from vinayak.adapters.tranzact.client import TranzactCreds
+    from vinayak.api.routes.connections import _decrypt
+
+    conn = psycopg2.connect(DATABASE_URL)
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """SELECT encrypted_credentials FROM tool_connections
+                   WHERE company_id = %s AND tool_name = 'tranzact' AND is_active = TRUE""",
+                (company_id,),
+            )
+            row = cur.fetchone()
+    finally:
+        conn.close()
+    if not row:
+        sys.exit(f"No active TranzAct connection for workspace '{company_id}'.")
+    cred = _decrypt(row[0])
+    return TranzactCreds(email=cred["email"], password=cred["password"],
+                         base_url=TRANZACT_BASE_URL)
+
+
+if len(sys.argv) < 2:
+    sys.exit("Usage: python -m vinayak.scripts.smoke_test <company_id>   e.g. kbrushes")
+COMPANY = sys.argv[1]
+CREDS = _creds_for(COMPANY)
+
+print(f"\n🚀  Smoke test for workspace '{COMPANY}' (newest 2 pages per report)\n")
 total = 0
 for label, PipelineCls in PIPELINES:
     try:
-        rows = PipelineCls().run(FROM, TODAY)
-        print(f"  ✅  {label:<25} {rows:>5} rows upserted")
-        total += rows or 0
+        res = PipelineCls().run_chunk(
+            company_id=COMPANY, creds=CREDS, start_page=1, max_pages=2,
+        )
+        print(f"  ✅  {label:<25} fetched={res['rows_fetched']:>5}  upserted={res['rows_upserted']:>5}")
+        total += res["rows_upserted"] or 0
     except Exception as exc:
         print(f"  ❌  {label:<25} FAILED: {exc}")
 

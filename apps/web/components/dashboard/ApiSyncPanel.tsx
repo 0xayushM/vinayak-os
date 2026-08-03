@@ -2,9 +2,9 @@
 
 import { useEffect, useRef } from "react";
 import useSWR, { useSWRConfig } from "swr";
-import { RefreshCw, CheckCircle, XCircle, Loader2, Database, RotateCcw } from "lucide-react";
+import { RefreshCw, CheckCircle, AlertTriangle, Loader2, Database, RotateCcw } from "lucide-react";
 import { apiFetch } from "@/lib/api";
-import { cn } from "@/lib/utils/cn";
+import { cn, friendlySyncError } from "@/lib/utils/cn";
 
 /**
  * ApiSyncPanel
@@ -46,7 +46,7 @@ function subline(p: PipelineStatus): { text: string; tone: string } {
   if (p.status === "running")
     return { text: total ? `Migrating… ${stored} / ${total} rows` : `Migrating… ${stored} rows`, tone: "text-[#C08457]" };
   if (p.status === "failed")
-    return { text: p.error ?? "Failed", tone: "text-red-400" };
+    return { text: friendlySyncError(p.error), tone: "text-amber-400" };
   if (p.complete)
     return { text: total ? `Complete · ${total} rows` : `Complete · ${stored} rows`, tone: "text-[#d4a070]" };
   if (p.rows_stored > 0)
@@ -182,7 +182,7 @@ export function ApiSyncPanel() {
                 <div className="min-w-0 flex-1">
                   <p className="text-sm text-[#F2DEC8]/90 truncate flex items-center gap-1.5">
                     {p.complete && !running && <CheckCircle className="w-3.5 h-3.5 text-[#d4a070] shrink-0" />}
-                    {p.status === "failed" && <XCircle className="w-3.5 h-3.5 text-red-400 shrink-0" />}
+                    {p.status === "failed" && <AlertTriangle className="w-3.5 h-3.5 text-amber-400 shrink-0" />}
                     {running && <Loader2 className="w-3.5 h-3.5 text-[#C08457] animate-spin shrink-0" />}
                     {p.label}
                   </p>

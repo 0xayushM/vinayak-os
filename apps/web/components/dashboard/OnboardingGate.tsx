@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Loader2 } from "lucide-react";
 import ConnectTranzact from "./ConnectTranzact";
+import ConnectZoho from "./ConnectZoho";
 import { apiFetch } from "@/lib/api";
 
 interface Connection {
@@ -10,6 +11,17 @@ interface Connection {
   is_active: boolean;
   last_verified_at: string | null;
 }
+
+/** Data sources a brand can connect. TranzAct + Zoho are live; more to come. */
+type SourceId = "tranzact" | "zoho" | "busy" | "tally";
+const SOURCES: { id: SourceId; label: string; blurb: string; available: boolean }[] = [
+  { id: "tranzact", label: "TranzAct", blurb: "Manufacturing ERP", available: true },
+  { id: "zoho", label: "Zoho Books", blurb: "Accounting / invoicing", available: true },
+  { id: "busy", label: "Busy", blurb: "Coming soon", available: false },
+  { id: "tally", label: "Tally", blurb: "Coming soon", available: false },
+];
+// tool_connections.tool_name values that count as "connected".
+const ACTIVE_TOOL_NAMES = ["tranzact", "zoho_books"];
 
 /**
  * Gates the dashboard behind a verified TranzAct connection.
@@ -22,6 +34,7 @@ interface Connection {
  */
 export default function OnboardingGate({ children }: { children: React.ReactNode }) {
   const [state, setState] = useState<"loading" | "connected" | "disconnected">("loading");
+  const [chosen, setChosen] = useState<SourceId | null>(null);
 
   const check = useCallback(async () => {
     try {
@@ -32,8 +45,11 @@ export default function OnboardingGate({ children }: { children: React.ReactNode
       }
       const data = await res.json();
       const conns: Connection[] = data.connections ?? [];
-      const tz = conns.find((c) => c.tool_name === "tranzact");
-      setState(tz && tz.is_active && tz.last_verified_at ? "connected" : "disconnected");
+      // Connected if ANY supported source is active (TranzAct or Zoho today).
+      const active = conns.some(
+        (c) => ACTIVE_TOOL_NAMES.includes(c.tool_name) && c.is_active,
+      );
+      setState(active ? "connected" : "disconnected");
     } catch {
       setState("disconnected");
     }
@@ -58,10 +74,43 @@ export default function OnboardingGate({ children }: { children: React.ReactNode
         <div className="text-center">
           <h1 className="text-lg font-semibold text-zinc-100">Welcome to Brain OS</h1>
           <p className="text-sm text-zinc-500 mt-1">
-            Connect TranzAct to bring your business data into the dashboard.
+            {chosen
+              ? "Enter your credentials to bring your business data into the dashboard."
+              : "Choose the system your business runs on to get started."}
           </p>
         </div>
-        <ConnectTranzact onConnected={check} />
+
+        {!chosen && (
+          <div className="grid grid-cols-2 gap-3 w-full max-w-md">
+            {SOURCES.map((s) => (
+              <button
+                key={s.id}
+                disabled={!s.available}
+                onClick={() => s.available && setChosen(s.id)}
+                className={`rounded-2xl border p-4 text-left transition ${
+                  s.available
+                    ? "border-white/10 bg-white/[0.03] hover:border-[#C08457]/60 hover:bg-white/[0.06]"
+                    : "border-white/5 bg-white/[0.02] opacity-50 cursor-not-allowed"
+                }`}
+              >
+                <div className="text-sm font-semibold text-[#F2DEC8]">{s.label}</div>
+                <div className="text-xs text-zinc-500 mt-0.5">{s.blurb}</div>
+              </button>
+            ))}
+          </div>
+        )}
+
+        {chosen === "tranzact" && <ConnectTranzact onConnected={check} />}
+        {chosen === "zoho" && <ConnectZoho onConnected={check} />}
+
+        {chosen && (
+          <button
+            onClick={() => setChosen(null)}
+            className="text-xs text-zinc-500 hover:text-zinc-300"
+          >
+            ← Choose a different source
+          </button>
+        )}
       </div>
     );
   }

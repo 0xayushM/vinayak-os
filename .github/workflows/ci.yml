@@ -1,0 +1,61 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  test:
+    name: Unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          pip install -r vinayak/requirements.txt -r requirements-dev.txt
+
+      - name: Run unit tests
+        run: python -m pytest tests/ -q
+
+  eval:
+    name: Reasoning eval suite (ship gate)
+    runs-on: ubuntu-latest
+    needs: test
+    # Runs only when the EVAL_DATABASE_URL secret is configured (it needs the
+    # sandbox DB with kbrushes/protegere data). The harness exits 1 — failing
+    # the build — if the engine ever states an unsupported number or utters a
+    # forbidden phrase. Deterministic path only: no LLM key, so it is free,
+    # fast, and reproducible.
+    env:
+      EVAL_DATABASE_URL: ${{ secrets.EVAL_DATABASE_URL }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        if: env.EVAL_DATABASE_URL != ''
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        if: env.EVAL_DATABASE_URL != ''
+        run: pip install -r vinayak/requirements.txt
+
+      - name: Run eval harness
+        if: env.EVAL_DATABASE_URL != ''
+        env:
+          DATABASE_URL: ${{ secrets.EVAL_DATABASE_URL }}
+          JWT_SECRET: ci-only-not-used
+          INTERNAL_API_KEY: ci-only-not-used
+        run: python -m vinayak.eval.harness
+
+      - name: Skipped (no EVAL_DATABASE_URL secret)
+        if: env.EVAL_DATABASE_URL == ''
+        run: echo "EVAL_DATABASE_URL secret not set — eval suite skipped."

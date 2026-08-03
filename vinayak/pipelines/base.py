@@ -42,7 +42,7 @@ class BasePipeline(ABC):
 
     def run(
         self,
-        company_id: str = "protegere",
+        company_id: str,
         max_seconds: float | None = None,
         creds: TranzactCreds | None = None,
     ) -> int:
@@ -61,7 +61,7 @@ class BasePipeline(ABC):
 
     def run_chunk(
         self,
-        company_id: str = "protegere",
+        company_id: str,
         creds: TranzactCreds | None = None,
         start_page: int = 1,
         max_pages: int | None = None,
@@ -207,7 +207,7 @@ class BasePipeline(ABC):
             logger.error("Could not log pipeline failure: %s", log_exc)
 
     @classmethod
-    def get_last_success_date(cls, conn, company_id: str = "protegere") -> date | None:
+    def get_last_success_date(cls, conn, company_id: str) -> date | None:
         """
         Query tz_sync_runs for the completed_at date of the most recent
         successful run of this pipeline for this brand. Returns None if no run

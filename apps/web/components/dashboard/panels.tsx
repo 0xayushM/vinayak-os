@@ -28,11 +28,42 @@ import {
   useTopVendors, useSalesInvoices, useArInvoices,
   usePurchaseInvoices, useSalesOrders, usePurchaseOrders,
   useProductionList, useInventoryList,
+  useFinanceOverview, useCollectionsPriority, useCreditRisk, useMonthlySales,
+  useCustomerFinance, useCashMovement,
   type RangeOpts, type SalesInvoiceRow, type ArInvoiceRow,
   type PurchaseInvoiceRow, type SalesOrderRow, type PurchaseOrderRow,
-  type ProductionRow, type InventoryRow,
+  type ProductionRow, type InventoryRow, type CreditRiskItem, type CustomerFinanceRow,
 } from "@/hooks/useDashboard";
 import { formatCurrency, formatNumber } from "@/lib/utils/cn";
+import { apiFetch } from "@/lib/api";
+
+/** Proposes a payment reminder for a customer → lands in the Approvals inbox. */
+function DraftChaseButton({ customer }: { customer: string }) {
+  const [state, setState] = useState<"idle" | "sending" | "done" | "error">("idle");
+  const draft = async () => {
+    setState("sending");
+    try {
+      const res = await apiFetch("/api/be/dashboard/actions/draft-chase", {
+        method: "POST", credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ customer_ref: customer }),
+      });
+      setState(res.ok ? "done" : "error");
+    } catch {
+      setState("error");
+    }
+  };
+  return (
+    <button
+      onClick={draft}
+      disabled={state === "sending" || state === "done"}
+      className="text-[11px] px-2 py-1 rounded border border-white/10 hover:border-[#C08457]/50 hover:text-[#F2DEC8] text-zinc-400 disabled:opacity-50 whitespace-nowrap"
+      title="Draft a payment reminder (goes to Approvals for your review)"
+    >
+      {state === "done" ? "Queued ✓" : state === "sending" ? "…" : state === "error" ? "Retry" : "Draft reminder"}
+    </button>
+  );
+}
 
 // ── Shared helpers ────────────────────────────────────────────────────────────
 /** A page-level date range (start/end) → the hook's RangeOpts shape.
@@ -186,7 +217,7 @@ export function CustomerConcentrationPanel({ range }: { range?: DateRange } = {}
         </ResponsiveContainer>
         <div className="flex-1 space-y-1.5">
           {slices.map((s, i) => (
-            <div key={s.name} className="flex items-center justify-between text-xs">
+            <div key={`${s.name}-${i}`} className="flex items-center justify-between text-xs">
               <div className="flex items-center gap-1.5">
                 <span className="w-2 h-2 rounded-full shrink-0" style={{ background: COLORS[i % COLORS.length] }} />
                 <span title={s.name} className="text-[#F2DEC8]/75 truncate max-w-[150px]">{s.name}</span>
@@ -903,6 +934,310 @@ export function InventoryTablePanel() {
         onSortChange={setSort} onPageChange={setPage}
         searchPlaceholder="Search SKU, name, category, warehouse…" emptyMessage="No stock rows match these filters."
       />
+    </PanelWrapper>
+  );
+}
+
+// ── Finance: dynamic, deterministic (non-AI) tools ────────────────────────────
+// These are the finance-specific tools that don't live on any other page. They
+// double as the read layer the Brain queries to answer finance questions.
+
+const PER_PAGE = 10;
+
+function Pager({ page, pageCount, onPage, total }:
+  { page: number; pageCount: number; onPage: (p: number) => void; total: number }) {
+  if (pageCount <= 1) return <p className="pt-2 text-[11px] text-zinc-600">{total} row{total === 1 ? "" : "s"}</p>;
+  return (
+    <div className="flex items-center justify-between pt-2 text-xs text-zinc-500">
+      <button disabled={page <= 0} onClick={() => onPage(page - 1)}
+        className="px-2 py-1 rounded disabled:opacity-30 hover:text-zinc-200">← Prev</button>
+      <span>Page {page + 1} / {pageCount} · {total} rows</span>
+      <button disabled={page >= pageCount - 1} onClick={() => onPage(page + 1)}
+        className="px-2 py-1 rounded disabled:opacity-30 hover:text-zinc-200">Next →</button>
+    </div>
+  );
+}
+
+const selectCls =
+  "ml-2 rounded-lg bg-black/30 border border-white/10 px-2.5 py-1.5 text-sm text-zinc-100 outline-none focus:border-[#C08457]/60";
+const searchCls =
+  "w-full rounded-lg bg-black/30 border border-white/10 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-[#C08457]/60";
+
+/** One-screen finance snapshot — the headline numbers, computed. */
+export function FinanceOverviewPanel() {
+  const { data, error, isLoading } = useFinanceOverview();
+  const d = data?.data;
+  return (
+    <PanelWrapper title="Finance Snapshot" subtitle="The headline numbers, computed — no AI"
+      meta={data?.meta} loading={isLoading} error={error}>
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 pt-1">
+        <KpiCard label="Revenue (goods)" value={formatCurrency(d?.revenue_goods ?? 0, true)} accent="blue" />
+        <KpiCard label="Outstanding" value={formatCurrency(d?.outstanding ?? 0, true)} accent="blue" />
+        <KpiCard label="Overdue" value={formatCurrency(d?.overdue ?? 0, true)} accent="red"
+          sub={`${(d?.overdue_pct ?? 0).toFixed(1)}% of AR`} />
+        <KpiCard label="DSO" value={d?.dso_days != null ? `${d.dso_days} days` : "—"} accent="amber"
+          sub="days to get paid" />
+      </div>
+    </PanelWrapper>
+  );
+}
+
+/** Dynamic month-vs-month comparison — pick any two months. */
+export function MonthCompareTool() {
+  const { data, error, isLoading } = useMonthlySales(12);
+  const months = data?.data?.months ?? [];
+  const [a, setA] = useState<string>("");
+  const [b, setB] = useState<string>("");
+  const effA = a || (months.length >= 2 ? months[months.length - 2].month : "");
+  const effB = b || (months.length >= 1 ? months[months.length - 1].month : "");
+  const rowA = months.find((m) => m.month === effA);
+  const rowB = months.find((m) => m.month === effB);
+  const va = rowA?.revenue ?? 0;
+  const vb = rowB?.revenue ?? 0;
+  // Change is always chronological (later month vs earlier), independent of which
+  // dropdown holds which — so Feb↔Apr and Apr↔Feb give the same answer. Month
+  // strings are "YYYY-MM", so a string compare is a date compare.
+  const earlier = effA <= effB ? effA : effB;
+  const later = effA <= effB ? effB : effA;
+  const vEarlier = (earlier === effA ? va : vb);
+  const vLater = (later === effA ? va : vb);
+  const delta = vLater - vEarlier;
+  const pct = vEarlier ? (delta / vEarlier) * 100 : null;
+  return (
+    <PanelWrapper title="Compare Months" subtitle="Pick any two months to compare sales"
+      meta={data?.meta} loading={isLoading} error={error}>
+      <div className="space-y-4 pt-1">
+        <div className="flex flex-wrap items-center gap-2 text-sm">
+          <span className="text-zinc-400">Compare</span>
+          <select value={effA} onChange={(e) => setA(e.target.value)} className={selectCls}>
+            {months.map((m) => <option key={m.month} value={m.month}>{m.month}</option>)}
+          </select>
+          <span className="text-zinc-500">with</span>
+          <select value={effB} onChange={(e) => setB(e.target.value)} className={selectCls}>
+            {months.map((m) => <option key={m.month} value={m.month}>{m.month}</option>)}
+          </select>
+        </div>
+        <div className="grid grid-cols-3 gap-4">
+          <KpiCard label={effA || "Month A"} value={formatCurrency(va, true)} accent="blue"
+            sub={`${formatNumber(rowA?.invoice_count ?? 0)} invoices`} />
+          <KpiCard label={effB || "Month B"} value={formatCurrency(vb, true)} accent="blue"
+            sub={`${formatNumber(rowB?.invoice_count ?? 0)} invoices`} />
+          <KpiCard label={`Change (${earlier} → ${later})`}
+            value={`${delta >= 0 ? "+" : ""}${formatCurrency(delta, true)}`}
+            accent={delta >= 0 ? "emerald" : "red"}
+            sub={pct == null ? "—" : `${pct >= 0 ? "+" : ""}${pct.toFixed(1)}% vs ${earlier}`} />
+        </div>
+        <ResponsiveContainer width="100%" height={150}>
+          <BarChart data={months} margin={{ top: 6, right: 8, left: -16, bottom: 0 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="rgba(192,132,87,0.08)" vertical={false} />
+            <XAxis dataKey="month" tick={{ fill: "#C4977A", fontSize: 9 }} axisLine={false} tickLine={false} minTickGap={8} />
+            <YAxis tick={{ fill: "#C4977A", fontSize: 9 }} axisLine={false} tickLine={false} tickFormatter={(v) => formatCurrency(v, true)} />
+            <Tooltip {...tooltipStyle} formatter={fmt("Sales")} />
+            <Bar dataKey="revenue" radius={[3, 3, 0, 0]}>
+              {months.map((m) => (
+                <Cell key={m.month} fill={m.month === effA || m.month === effB ? "#F2DEC8" : "rgba(192,132,87,0.35)"} />
+              ))}
+            </Bar>
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+    </PanelWrapper>
+  );
+}
+
+/** Ranked chase list — deterministic, paginated. */
+export function CollectionsPriorityPanel() {
+  const { data, error, isLoading } = useCollectionsPriority();
+  const d = data?.data;
+  const items = d?.items ?? [];
+  const [page, setPage] = useState(0);
+  const pageCount = Math.max(1, Math.ceil(items.length / PER_PAGE));
+  const rows = items.slice(page * PER_PAGE, page * PER_PAGE + PER_PAGE);
+  return (
+    <PanelWrapper title="Collections Priority" subtitle="Overdue receivables ranked by recovery impact"
+      meta={data?.meta} loading={isLoading} error={error}>
+      <div className="space-y-3 pt-1">
+        <div className="grid grid-cols-2 gap-4">
+          <KpiCard label="Total Overdue" value={formatCurrency(d?.total_overdue ?? 0, true)} accent="red" />
+          <KpiCard label="Top Customer Share" value={`${(d?.top_share_pct ?? 0).toFixed(1)}%`} accent="amber"
+            sub="of overdue in one account" />
+        </div>
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="text-xs uppercase tracking-wide opacity-60">
+              <th className="text-left py-1.5 pr-2 font-medium">Customer</th>
+              <th className="text-right py-1.5 px-2 font-medium">Outstanding</th>
+              <th className="text-right py-1.5 px-2 font-medium">Days overdue</th>
+              <th className="text-right py-1.5 pl-2 font-medium">Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((c, i) => (
+              <tr key={i} className="border-t border-white/5">
+                <td className="py-1.5 pr-2 truncate max-w-[200px]">{c.customer_name}</td>
+                <td className="py-1.5 px-2 text-right tabular-nums">{formatCurrency(c.outstanding, true)}</td>
+                <td className="py-1.5 px-2 text-right tabular-nums">{c.days_overdue}</td>
+                <td className="py-1.5 pl-2 text-right"><DraftChaseButton customer={c.customer_name} /></td>
+              </tr>
+            ))}
+            {items.length === 0 && (
+              <tr><td colSpan={4} className="py-3 text-center opacity-60">Nothing overdue — nice.</td></tr>
+            )}
+          </tbody>
+        </table>
+        <Pager page={page} pageCount={pageCount} onPage={setPage} total={items.length} />
+      </div>
+    </PanelWrapper>
+  );
+}
+
+/** Customer credit table — searchable, sortable-by-verdict, paginated. */
+export function CreditRiskPanel() {
+  const { data, error, isLoading } = useCreditRisk();
+  const d = data?.data;
+  const all: CreditRiskItem[] = d?.items ?? [];
+  const [q, setQ] = useState("");
+  const [page, setPage] = useState(0);
+  const filtered = q ? all.filter((c) => c.customer_name.toLowerCase().includes(q.toLowerCase())) : all;
+  const pageCount = Math.max(1, Math.ceil(filtered.length / PER_PAGE));
+  const safePage = Math.min(page, pageCount - 1);
+  const rows = filtered.slice(safePage * PER_PAGE, safePage * PER_PAGE + PER_PAGE);
+  const badge = (v: string) =>
+    v === "hold"
+      ? "bg-red-500/15 text-red-300 border border-red-500/30"
+      : "bg-amber-500/15 text-amber-300 border border-amber-500/30";
+  return (
+    <PanelWrapper title="Credit Risk" subtitle="Deterministic flags — a human still makes the credit call"
+      meta={data?.meta} loading={isLoading} error={error}>
+      <div className="space-y-3 pt-1">
+        <div className="grid grid-cols-2 gap-4">
+          <KpiCard label="Hold" value={String(d?.hold_count ?? 0)} accent="red" sub="don't extend more credit" />
+          <KpiCard label="Watch" value={String(d?.watch_count ?? 0)} accent="amber" />
+        </div>
+        <input value={q} onChange={(e) => { setQ(e.target.value); setPage(0); }}
+          placeholder="Search customer…" className={searchCls} />
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="text-xs uppercase tracking-wide opacity-60">
+              <th className="text-left py-1.5 pr-2 font-medium">Customer</th>
+              <th className="text-right py-1.5 px-2 font-medium">Outstanding</th>
+              <th className="text-left py-1.5 px-2 font-medium">Flags</th>
+              <th className="text-right py-1.5 pl-2 font-medium">Verdict</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((c, i) => (
+              <tr key={i} className="border-t border-white/5">
+                <td className="py-1.5 pr-2 truncate max-w-[200px]">{c.customer_name}</td>
+                <td className="py-1.5 px-2 text-right tabular-nums">{formatCurrency(c.outstanding, true)}</td>
+                <td className="py-1.5 px-2 opacity-70 text-xs">{c.flags.join(", ")}</td>
+                <td className="py-1.5 pl-2 text-right">
+                  <span className={`px-2 py-0.5 rounded text-xs uppercase ${badge(c.verdict)}`}>{c.verdict}</span>
+                </td>
+              </tr>
+            ))}
+            {filtered.length === 0 && (
+              <tr><td colSpan={4} className="py-3 text-center opacity-60">No matching customers.</td></tr>
+            )}
+          </tbody>
+        </table>
+        <Pager page={safePage} pageCount={pageCount} onPage={setPage} total={filtered.length} />
+      </div>
+    </PanelWrapper>
+  );
+}
+
+/** Money in (sales) vs out (purchase spend) per month, and the net. Compact. */
+export function CashMovementPanel() {
+  const { data, error, isLoading } = useCashMovement(12);
+  const d = data?.data;
+  const months = d?.months ?? [];
+  const net = d?.net ?? 0;
+  return (
+    <PanelWrapper title="Cash Movement" subtitle="Money in vs out, monthly"
+      meta={data?.meta} loading={isLoading} error={error}>
+      <div className="space-y-4 pt-1">
+        <div className="grid grid-cols-3 gap-4">
+          <KpiCard label="Money in" value={formatCurrency(d?.total_in ?? 0, true)} accent="emerald" sub="sales (goods)" />
+          <KpiCard label="Money out" value={formatCurrency(d?.total_out ?? 0, true)} accent="red" sub="purchase spend" />
+          <KpiCard label="Net" value={formatCurrency(net, true)}
+            accent={net >= 0 ? "blue" : "red"} sub="in − out" />
+        </div>
+        <ResponsiveContainer width="100%" height={150}>
+          <BarChart data={months} margin={{ top: 6, right: 8, left: -16, bottom: 0 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="rgba(192,132,87,0.08)" vertical={false} />
+            <XAxis dataKey="month" tick={{ fill: "#C4977A", fontSize: 9 }} axisLine={false} tickLine={false} minTickGap={8} />
+            <YAxis tick={{ fill: "#C4977A", fontSize: 9 }} axisLine={false} tickLine={false} tickFormatter={(v) => formatCurrency(v, true)} />
+            <Tooltip {...tooltipStyle} formatter={fmt("Net")} />
+            <Bar dataKey="net" radius={[3, 3, 0, 0]}>
+              {months.map((m) => <Cell key={m.month} fill={m.net >= 0 ? "#4ea36a" : "#c0564a"} />)}
+            </Bar>
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+    </PanelWrapper>
+  );
+}
+
+/** Searchable per-customer finance lookup — the dynamic drill-down. */
+export function CustomerFinancePanel() {
+  const { data, error, isLoading } = useCustomerFinance();
+  const all: CustomerFinanceRow[] = data?.data?.items ?? [];
+  const [q, setQ] = useState("");
+  const [sortKey, setSortKey] = useState<"outstanding" | "revenue" | "overdue">("outstanding");
+  const [page, setPage] = useState(0);
+  const filtered = (q ? all.filter((c) => c.customer_name.toLowerCase().includes(q.toLowerCase())) : all)
+    .slice().sort((a, b) => b[sortKey] - a[sortKey]);
+  const pageCount = Math.max(1, Math.ceil(filtered.length / PER_PAGE));
+  const safePage = Math.min(page, pageCount - 1);
+  const rows = filtered.slice(safePage * PER_PAGE, safePage * PER_PAGE + PER_PAGE);
+  const badge = (v: string) =>
+    v === "hold" ? "bg-red-500/15 text-red-300 border border-red-500/30"
+      : v === "watch" ? "bg-amber-500/15 text-amber-300 border border-amber-500/30"
+      : "bg-emerald-500/12 text-emerald-300/80 border border-emerald-500/25";
+  const th = (label: string, key?: "outstanding" | "revenue" | "overdue") => (
+    <th className={`py-1.5 px-2 font-medium ${key ? "cursor-pointer select-none hover:text-zinc-200" : ""} ${key === sortKey ? "text-zinc-200" : ""}`}
+      onClick={() => key && (setSortKey(key), setPage(0))}>
+      {label}{key === sortKey ? " ↓" : ""}
+    </th>
+  );
+  return (
+    <PanelWrapper title="Customer Finance" subtitle={`Look up any customer · ${data?.data?.customer_count ?? 0} total`}
+      meta={data?.meta} loading={isLoading} error={error}>
+      <div className="space-y-3 pt-1">
+        <input value={q} onChange={(e) => { setQ(e.target.value); setPage(0); }}
+          placeholder="Search customer…" className={searchCls} />
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm min-w-[560px]">
+            <thead>
+              <tr className="text-xs uppercase tracking-wide opacity-60 text-right">
+                <th className="text-left py-1.5 pr-2 font-medium">Customer</th>
+                {th("Revenue", "revenue")}
+                {th("Outstanding", "outstanding")}
+                {th("Overdue", "overdue")}
+                <th className="text-right py-1.5 pl-2 font-medium">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((c, i) => (
+                <tr key={i} className="border-t border-white/5">
+                  <td className="py-1.5 pr-2 truncate max-w-[200px]">{c.customer_name}</td>
+                  <td className="py-1.5 px-2 text-right tabular-nums">{formatCurrency(c.revenue, true)}</td>
+                  <td className="py-1.5 px-2 text-right tabular-nums">{formatCurrency(c.outstanding, true)}</td>
+                  <td className="py-1.5 px-2 text-right tabular-nums opacity-80">{c.overdue ? formatCurrency(c.overdue, true) : "—"}</td>
+                  <td className="py-1.5 pl-2 text-right">
+                    <span className={`px-2 py-0.5 rounded text-xs uppercase ${badge(c.verdict)}`}>{c.verdict}</span>
+                  </td>
+                </tr>
+              ))}
+              {filtered.length === 0 && (
+                <tr><td colSpan={5} className="py-3 text-center opacity-60">No matching customers.</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+        <Pager page={safePage} pageCount={pageCount} onPage={setPage} total={filtered.length} />
+      </div>
     </PanelWrapper>
   );
 }

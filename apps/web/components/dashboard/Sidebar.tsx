@@ -25,8 +25,10 @@ const NAV = [
     ],
   },
   {
-    section: "Receivables",
+    section: "Finance",
     items: [
+      { label: "Finance",               href: "/dashboard/finance",    icon: CreditCard },
+      { label: "Approvals",             href: "/dashboard/approvals",  icon: ShieldCheck },
       { label: "AR Aging",              href: "/dashboard/ar",         icon: CreditCard },
       { label: "Open Sales Orders",     href: "/dashboard/orders",     icon: ShoppingCart },
     ],
@@ -269,10 +271,16 @@ function RailContent({ onNavigate }: { onNavigate?: () => void }) {
             )}
           />
           {health === undefined
-            ? "Checking sync…"
+            ? "Checking data…"
             : health.healthy
-            ? "All pipelines healthy"
-            : `${health.stale_pipelines.length} stale pipeline${health.stale_pipelines.length > 1 ? "s" : ""}`}
+            ? "Data up to date"
+            : (() => {
+                const n = new Set([
+                  ...(health.failed_pipelines ?? []),
+                  ...(health.stale_pipelines ?? []),
+                ]).size;
+                return `${n} ${n === 1 ? "area needs" : "areas need"} attention`;
+              })()}
         </Link>
       </div>
 

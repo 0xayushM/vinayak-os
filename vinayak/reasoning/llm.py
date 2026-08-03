@@ -80,6 +80,50 @@ def route(question: str, intents: list[tuple[str, str]], model: str | None = Non
         return None
 
 
+# ── 1b. Follow-up rewriting (multi-turn) ──────────────────────────────────────
+# Resolves "and which of those are overdue?" into a standalone question using
+# the recent conversation. The rewritten question then flows through the SAME
+# deterministic router → handlers → evidence → validation as any other
+# question, so this adds no new way to invent a number.
+_REWRITE_SYSTEM = (
+    "You rewrite a follow-up business question into ONE standalone question, using the "
+    "conversation so far to resolve references like 'those', 'them', 'it', 'that customer'. "
+    "Rules: preserve the user's intent and wording as much as possible; only replace the "
+    "reference with what it points to (e.g. 'those' → 'my overdue customers'). Never copy "
+    "amounts, numbers, or long lists from the answers into the question. Do not add new "
+    "asks, filters, or time periods the user didn't imply. Keep it short and natural. "
+    "Reply with ONLY the rewritten question, nothing else. "
+    "If the question is already fully standalone, reply exactly: SAME."
+)
+
+
+def rewrite_followup(question: str, history: list[dict], model: str | None = None) -> str | None:
+    """Rewrite a follow-up into a standalone question using recent turns.
+    `history` is a list of {"question": ..., "answer": ...} briefs, oldest first.
+    Returns the rewritten question, or None (already standalone / LLM off / error)."""
+    client = _get_client()
+    if client is None or not history:
+        return None
+    convo = "\n".join(
+        f"Q: {h.get('question', '')}\nA: {(h.get('answer') or '')[:280]}"
+        for h in history[-6:]
+    )
+    try:
+        resp = client.messages.create(
+            model=model or model_fast(), max_tokens=80,
+            system=_REWRITE_SYSTEM,
+            messages=[{"role": "user", "content":
+                       f"Conversation so far:\n{convo}\n\nFollow-up question: {question}\n\nStandalone question:"}],
+        )
+        text = "".join(getattr(b, "text", "") for b in resp.content).strip()
+        if not text or text.upper().strip(".") == "SAME":
+            return None
+        text = text.splitlines()[0].strip().strip('"')[:300]
+        return text if text and text.lower() != question.strip().lower() else None
+    except Exception:
+        return None
+
+
 # ── 2. Phrasing ───────────────────────────────────────────────────────────────
 _PHRASE_SYSTEM = (
     "You are a sharp management consultant and chartered accountant advising the owner of "
@@ -126,6 +170,12 @@ def _context_block(context: dict | None) -> str:
         block += "Business context:\n" + "\n".join(f"- {b}" for b in bits) + "\n"
     if facts:
         block += "Owner-confirmed facts:\n" + "\n".join(f"- {f}" for f in facts) + "\n"
+    convo = context.get("recent_conversation") or []
+    if convo:
+        block += ("Recent conversation (for continuity — numbers in it are NOT claims; "
+                  "never restate an amount from here unless it also appears in the claims):\n"
+                  + "\n".join(f"- Q: {h.get('question','')} → A: {(h.get('answer') or '')[:160]}"
+                              for h in convo) + "\n")
     return block
 
 
