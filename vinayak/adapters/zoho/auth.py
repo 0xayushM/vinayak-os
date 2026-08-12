@@ -61,16 +61,13 @@ class _TokenCache:
     lock: threading.Lock = field(default_factory=threading.Lock)
 
 
-_caches: dict[tuple, _TokenCache] = {}
-_caches_lock = threading.Lock()
+from vinayak.adapters.base import TokenCacheRegistry
+_registry: TokenCacheRegistry[_TokenCache] = TokenCacheRegistry()
 
 
 def _cache_for(creds: ZohoCreds) -> _TokenCache:
     key = (creds.dc, creds.client_id, creds.refresh_token)
-    with _caches_lock:
-        if key not in _caches:
-            _caches[key] = _TokenCache()
-        return _caches[key]
+    return _registry.get_or_create(key, _TokenCache)
 
 
 def get_access_token(creds: ZohoCreds) -> str:

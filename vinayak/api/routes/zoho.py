@@ -40,8 +40,11 @@ class ZohoConnectIn(BaseModel):
     dc: str = "in"
 
 
+from vinayak.db.session import db as _db
+
+
 def _conn():
-    return psycopg2.connect(DATABASE_URL)
+    return _db.connect()
 
 
 def _load_creds(conn, company_id: str) -> ZohoCreds:

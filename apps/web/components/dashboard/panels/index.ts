@@ -1,0 +1,36 @@
+/** panels — barrel. One file per card; re-exported so
+ *  `@/components/dashboard/panels` imports keep working. */
+export { RevenueKpiPanel } from "./RevenueKpiPanel";
+export { RevenueDailyPanel } from "./RevenueDailyPanel";
+export { RevenueTrendPanel } from "./RevenueTrendPanel";
+export { CustomerConcentrationPanel } from "./CustomerConcentrationPanel";
+export { TopSkusPanel } from "./TopSkusPanel";
+export { TopSkusTablePanel } from "./TopSkusTablePanel";
+export { QuotePipelinePanel } from "./QuotePipelinePanel";
+export { PurchaseSummaryPanel } from "./PurchaseSummaryPanel";
+export { TopVendorsPanel } from "./TopVendorsPanel";
+export { BomCoveragePanel } from "./BomCoveragePanel";
+export { ArAgingPanel } from "./ArAgingPanel";
+export { ArBucketTablePanel } from "./ArBucketTablePanel";
+export { OpenOrdersPanel } from "./OpenOrdersPanel";
+export { OpenOrdersTablePanel } from "./OpenOrdersTablePanel";
+export { OpenPosTablePanel } from "./OpenPosTablePanel";
+export { OpenPosPanel } from "./OpenPosPanel";
+export { InventoryPanel } from "./InventoryPanel";
+export { InventoryCategoryTablePanel } from "./InventoryCategoryTablePanel";
+export { GrnPanel } from "./GrnPanel";
+export { ProductionPanel } from "./ProductionPanel";
+export { SalesInvoicesTablePanel } from "./SalesInvoicesTablePanel";
+export { ArInvoicesTablePanel } from "./ArInvoicesTablePanel";
+export { PurchaseInvoicesTablePanel } from "./PurchaseInvoicesTablePanel";
+export { SalesOrdersTablePanel } from "./SalesOrdersTablePanel";
+export { PurchaseOrdersTablePanel } from "./PurchaseOrdersTablePanel";
+export { ProductionTablePanel } from "./ProductionTablePanel";
+export { InventoryTablePanel } from "./InventoryTablePanel";
+export { FinanceOverviewPanel } from "./FinanceOverviewPanel";
+export { MonthCompareTool } from "./MonthCompareTool";
+export { CollectionsPriorityPanel } from "./CollectionsPriorityPanel";
+export { CreditRiskPanel } from "./CreditRiskPanel";
+export { CashMovementPanel } from "./CashMovementPanel";
+export { CustomerFinancePanel } from "./CustomerFinancePanel";
+export { COLORS } from "./_shared";

@@ -23,11 +23,20 @@ import json
 import logging
 import os
 
-from vinayak.reasoning.engine import Answer, Evidence, _num_tokens, _norm_num
+from vinayak.reasoning.engine import Answer, Evidence
+from vinayak.reasoning import safety
 from vinayak.memory import store as M
 from vinayak.tools import registry
 from vinayak.tools.executor import ToolContext, execute
 from vinayak.tools.read_tools import register_all
+
+# The deterministic safety spine lives in reasoning/safety.py so every runner
+# (native loop, ADK, LangGraph) reuses it. These aliases keep the loop below
+# readable and preserve the existing call sites/tests.
+_grounded = safety.grounded
+_confidence = safety.confidence
+_safe_summary = safety.safe_summary
+_answer_text = safety.answer_text
 
 logger = logging.getLogger(__name__)
 
@@ -80,57 +89,6 @@ def should_use() -> bool:
     if os.getenv("AGENT_MODE", "").strip().lower() in ("0", "off", "false", "no"):
         return False
     return agent_available()
-
-
-def _grounded(text: str, evidence: list[Evidence]) -> bool:
-    """Every money figure in `text` must trace to a tool's evidence — either its
-    rounded display ('₹2.40 Cr') or its exact raw value ('₹2,39,53,022.37'). Both
-    are legitimate ways to quote the same tool figure, so both are allowed;
-    anything else fails closed and the numeric guard blocks it."""
-    allowed: set[str] = set()
-    for e in evidence:
-        allowed |= _num_tokens(e.display)
-        allowed |= _num_tokens(str(e.value))
-        # The raw numeric value, normalised the way a ₹-prefixed quote of it would
-        # be — so the model quoting the exact figure grounds cleanly.
-        if isinstance(e.value, (int, float)) and not isinstance(e.value, bool):
-            allowed.add(_norm_num(str(e.value)))
-    return all(tok in allowed for tok in _num_tokens(text or ""))
-
-
-def _confidence(grounded: bool, evidence: list[Evidence], used_tools: list[str],
-                blocked: bool = False) -> str:
-    if not used_tools:
-        return "UNCERTAIN"          # answered without consulting any tool
-    if blocked:
-        return "PROBABLE"           # model tried to invent a figure; we fell back
-    if grounded and evidence:
-        return "CERTAIN"
-    return "PROBABLE"               # tools used but a figure didn't verify cleanly
-
-
-def _answer_text(resp) -> str:
-    """Concatenate the text blocks of a model response."""
-    return "".join(getattr(b, "text", "") for b in getattr(resp, "content", [])
-                   if getattr(b, "type", None) == "text").strip()
-
-
-def _safe_summary(evidence: list[Evidence]) -> str:
-    """A grounded fallback that never surfaces a figure the tools didn't return.
-    Used when the model keeps stating an uncited rupee amount even after a
-    correction — we answer only from the evidence we actually hold."""
-    if not evidence:
-        return ("I couldn't find the figures needed to answer that reliably. "
-                "Try asking about a specific metric (revenue, outstanding, overdue).")
-    seen, parts = set(), []
-    for e in evidence:
-        if e.display in seen:
-            continue
-        seen.add(e.display)
-        parts.append(f"{e.label}: {e.display}")
-        if len(parts) >= 6:
-            break
-    return "Here's what the data shows — " + "; ".join(parts) + "."
 
 
 def _system_prompt(conn, company_id: str) -> str:
@@ -186,6 +144,25 @@ def _finalize(question: str, text: str, evidence: list[Evidence], used_tools: li
     return out
 
 
+def _as_model(client):
+    """Return a ModelPort. Production uses the shared model behind the port; tests
+    may inject a raw Anthropic-style client (with .messages.create), which we wrap
+    to the same port surface so the loop below never touches a raw client."""
+    if client is None:
+        from vinayak.model import get_model
+        return get_model()
+
+    class _InjectedClientModel:
+        def chat(self, *, system, messages, tools=None, model=None, max_tokens=1024):
+            kwargs = {"model": model, "max_tokens": max_tokens,
+                      "system": system, "messages": messages}
+            if tools is not None:
+                kwargs["tools"] = tools
+            return client.messages.create(**kwargs)
+
+    return _InjectedClientModel()
+
+
 def run_agent(conn, company_id: str, question: str,
               history_turns: list[dict] | None = None,
               client=None, max_iters: int = MAX_ITERS) -> dict:
@@ -198,7 +175,7 @@ def run_agent(conn, company_id: str, question: str,
         return engine.answer(conn, company_id, question, use_llm=False,
                              history_turns=history_turns)
 
-    client = client or llm._get_client()
+    mdl = _as_model(client)   # ModelPort — never a raw client below this line
     register_all()  # idempotent
     schemas = registry.anthropic_schemas(read_only=True)
     ctx = ToolContext(conn=conn, company_id=company_id)
@@ -215,7 +192,7 @@ def run_agent(conn, company_id: str, question: str,
 
     for _ in range(max_iters):
         try:
-            resp = client.messages.create(
+            resp = mdl.chat(
                 model=llm.model_smart(), max_tokens=1024,
                 system=_system_prompt(conn, company_id),
                 tools=schemas, messages=messages,
@@ -235,7 +212,7 @@ def run_agent(conn, company_id: str, question: str,
             if evidence_all and text and not _grounded(text, evidence_all):
                 messages.append({"role": "user", "content": _CORRECTION})
                 try:
-                    fix = client.messages.create(
+                    fix = mdl.chat(
                         model=llm.model_smart(), max_tokens=1024,
                         system=_system_prompt(conn, company_id),
                         messages=messages,   # no tools: force a text rewrite

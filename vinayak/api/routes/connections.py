@@ -230,8 +230,11 @@ def _decrypt(blob: str) -> dict:
 
 
 # ── DB helper ─────────────────────────────────────────────────────────────────
+from vinayak.db.session import db as _db
+
+
 def _conn():
-    return psycopg2.connect(DATABASE_URL)
+    return _db.connect()
 
 
 def _raise_if_schema_missing(exc: Exception) -> None:

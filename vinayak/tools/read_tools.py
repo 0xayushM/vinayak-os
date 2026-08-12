@@ -21,8 +21,9 @@ from __future__ import annotations
 
 from typing import Any, Callable
 
-from vinayak.reasoning.engine import Evidence
-from vinayak.schema import queries
+from vinayak.domain.models import Evidence
+from vinayak.domain.money import Money
+from vinayak.query import service as queries   # the read door (proxies the repository)
 from vinayak.tools import registry
 from vinayak.tools.contract import Tool, ToolInput, ToolResult
 
@@ -32,12 +33,7 @@ def _display(value: Any, kind: str) -> str:
     if value is None:
         return "—"
     if kind == "money":
-        v = float(value)
-        a = abs(v)
-        sign = "-" if v < 0 else ""
-        if a >= 1e7:  return f"{sign}₹{a / 1e7:.2f} Cr"
-        if a >= 1e5:  return f"{sign}₹{a / 1e5:.2f} L"
-        return f"{sign}₹{a:,.0f}"
+        return Money.spaced(value)
     if kind == "pct":   return f"{value}%"
     if kind == "days":  return f"{value} days"
     return str(value)

@@ -64,18 +64,12 @@ class _TokenCache:
 # Per-account token caches, keyed by (base_url, email). A single global
 # cache would let one brand's login clobber another's token when two
 # TranzAct accounts sync concurrently, so each account gets its own.
-_caches: dict[tuple[str, str], _TokenCache] = {}
-_caches_lock = threading.Lock()
+from vinayak.adapters.base import TokenCacheRegistry
+_registry: TokenCacheRegistry[_TokenCache] = TokenCacheRegistry()
 
 
 def _cache_for(base_url: str, email: str) -> _TokenCache:
-    key = (base_url, email.lower())
-    with _caches_lock:
-        cache = _caches.get(key)
-        if cache is None:
-            cache = _TokenCache()
-            _caches[key] = cache
-        return cache
+    return _registry.get_or_create((base_url, email.lower()), _TokenCache)
 
 
 def _decode_exp(token: str) -> float:
