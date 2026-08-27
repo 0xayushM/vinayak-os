@@ -3,6 +3,7 @@
  * Browser → /api/connections/* → FastAPI /connections/*
  */
 import { NextRequest, NextResponse } from "next/server";
+import { backendAuthHeaders } from "@/lib/supabase/server";
 
 const FASTAPI_URL  = process.env.FASTAPI_INTERNAL_URL ?? "http://localhost:8000";
 const INTERNAL_KEY = process.env.INTERNAL_API_KEY     ?? "";
@@ -21,6 +22,7 @@ async function proxy(request: NextRequest, segments: string[]) {
         "Content-Type":   "application/json",
         "X-Internal-Key": INTERNAL_KEY,
         "X-Workspace-Id": request.headers.get("x-workspace-id") ?? "",
+        ...(await backendAuthHeaders()),
         Cookie: request.headers.get("cookie") ?? "",
       },
       body: body || undefined,

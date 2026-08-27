@@ -6,9 +6,10 @@
  *   POST /api/workspaces  → FastAPI POST /workspaces/   (create a new brand)
  *
  * No X-Workspace-Id needed: these operate across all of the owner's brands and
- * are authorised purely by the JWT cookie.
+ * are authorised purely by the Supabase access token forwarded below.
  */
 import { NextRequest, NextResponse } from "next/server";
+import { backendAuthHeaders } from "@/lib/supabase/server";
 
 const FASTAPI_URL  = process.env.FASTAPI_INTERNAL_URL ?? "http://localhost:8000";
 const INTERNAL_KEY = process.env.INTERNAL_API_KEY     ?? "";
@@ -22,6 +23,7 @@ async function proxy(request: NextRequest, method: "GET" | "POST") {
       headers: {
         "Content-Type":   "application/json",
         "X-Internal-Key": INTERNAL_KEY,
+        ...(await backendAuthHeaders()),
         Cookie: request.headers.get("cookie") ?? "",
       },
       body: body || undefined,

@@ -8,6 +8,7 @@
  * TranzAct is connected.
  */
 import { NextRequest, NextResponse } from "next/server";
+import { backendAuthHeaders } from "@/lib/supabase/server";
 
 const FASTAPI_URL  = process.env.FASTAPI_INTERNAL_URL ?? "http://localhost:8000";
 const INTERNAL_KEY = process.env.INTERNAL_API_KEY     ?? "";
@@ -21,6 +22,7 @@ export async function GET(request: NextRequest) {
         "Content-Type":   "application/json",
         "X-Internal-Key": INTERNAL_KEY,
         "X-Workspace-Id": request.headers.get("x-workspace-id") ?? "",
+        ...(await backendAuthHeaders()),
         Cookie: request.headers.get("cookie") ?? "",
       },
       cache: "no-store",

@@ -1,12 +1,11 @@
 "use client";
 
 import { useState, FormEvent } from "react";
-import { useRouter } from "next/navigation";
 import Image from "next/image";
 import { Loader2, AlertTriangle } from "lucide-react";
+import { createClient } from "@/lib/supabase/client";
 
 export default function LoginPage() {
-  const router = useRouter();
   const [email, setEmail]       = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading]   = useState(false);
@@ -18,23 +17,26 @@ export default function LoginPage() {
     setError("");
 
     try {
-      const res = await fetch("/api/auth/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ email, password }),
+      // Supabase Auth owns login: it verifies the password and writes the
+      // session cookies the proxy + BFF read. FastAPI only verifies the token.
+      const supabase = createClient();
+      const { error: signInError } = await supabase.auth.signInWithPassword({
+        email,
+        password,
       });
 
-      const data = await res.json();
-
-      if (!res.ok) {
-        setError(data.detail ?? "Login failed. Check your credentials.");
+      if (signInError) {
+        setError(signInError.message);
         return;
       }
 
-      router.replace("/");
+      // Full navigation (not router.replace) so the proxy sees the new cookies.
+      // ?next= is read from the URL directly — using useSearchParams here would
+      // force this page behind a Suspense boundary.
+      const next = new URLSearchParams(window.location.search).get("next");
+      window.location.href = next ?? "/";
     } catch {
-      setError("Could not reach the server. Make sure the backend is running.");
+      setError("Could not reach Supabase. Check your network and configuration.");
     } finally {
       setLoading(false);
     }

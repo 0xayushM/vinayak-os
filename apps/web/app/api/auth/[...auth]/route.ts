@@ -1,11 +1,13 @@
 /**
  * app/api/auth/[...auth]/route.ts
  * BFF proxy for platform auth endpoints.
- *   POST /api/auth/login   → FastAPI /auth/login
- *   POST /api/auth/logout  → FastAPI /auth/logout
  *   GET  /api/auth/me      → FastAPI /auth/me
+ *
+ * Login/logout are handled by Supabase Auth on the client; FastAPI only verifies
+ * the Supabase access token, which is forwarded here as a Bearer header.
  */
 import { NextRequest, NextResponse } from "next/server";
+import { backendAuthHeaders } from "@/lib/supabase/server";
 
 const FASTAPI_URL  = process.env.FASTAPI_INTERNAL_URL ?? "http://localhost:8000";
 const INTERNAL_KEY = process.env.INTERNAL_API_KEY     ?? "";
@@ -21,6 +23,7 @@ async function proxy(request: NextRequest, segments: string[]) {
     headers: {
       "Content-Type":   "application/json",
       "X-Internal-Key": INTERNAL_KEY,
+      ...(await backendAuthHeaders()),
       Cookie: request.headers.get("cookie") ?? "",
     },
     body: body || undefined,

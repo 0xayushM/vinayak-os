@@ -48,3 +48,17 @@ ANTHROPIC_MODEL_FAST  = os.getenv("ANTHROPIC_MODEL_FAST",  "claude-haiku-4-5")
 ANTHROPIC_MODEL_SMART = os.getenv("ANTHROPIC_MODEL_SMART", "claude-sonnet-4-6")
 # Back-compat single override (if set, used as the SMART model).
 ANTHROPIC_MODEL = os.getenv("ANTHROPIC_MODEL", ANTHROPIC_MODEL_SMART)
+
+# ── Supabase Auth ─────────────────────────────────────────────────────────────
+# Auth is delegated to Supabase (GoTrue). When SUPABASE_JWT_SECRET is set, the
+# backend VERIFIES Supabase-issued JWTs (it no longer issues its own) — this flips
+# the auth layer from the legacy custom JWT to Supabase, with no other changes.
+# Until it is set, the legacy email+password/JWT path stays active (no breakage).
+#   • SUPABASE_URL / SUPABASE_ANON_KEY   — used by the frontend Supabase client
+#   • SUPABASE_SERVICE_ROLE_KEY          — used ONLY by the one-off user migration
+#   • SUPABASE_JWT_SECRET                — the project's JWT secret (HS256) the
+#                                          backend verifies access tokens against
+SUPABASE_URL              = os.getenv("SUPABASE_URL", "")
+SUPABASE_ANON_KEY         = os.getenv("SUPABASE_ANON_KEY", "")
+SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
+SUPABASE_JWT_SECRET       = os.getenv("SUPABASE_JWT_SECRET", "")

@@ -6,6 +6,7 @@
  * reshapes response bodies to match the TypeScript types in hooks/useDashboard.ts.
  */
 import { NextRequest, NextResponse } from "next/server";
+import { backendAuthHeaders } from "@/lib/supabase/server";
 
 const FASTAPI = process.env.FASTAPI_INTERNAL_URL ?? "http://localhost:8000";
 const API_KEY = process.env.INTERNAL_API_KEY ?? "";
@@ -339,6 +340,7 @@ export async function GET(
       headers: {
         "X-Internal-Key": API_KEY,
         "X-Workspace-Id": request.headers.get("x-workspace-id") ?? "",
+        ...(await backendAuthHeaders()),
         Cookie: request.headers.get("cookie") ?? "",
       },
       cache: "no-store",
