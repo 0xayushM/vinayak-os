@@ -50,3 +50,7 @@ next-env.d.ts
 # debug artifacts
 response.json
 scripts/
+
+# local db backups
+*.dump
+backup-old-supabase-*

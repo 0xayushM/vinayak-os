@@ -172,9 +172,14 @@ def _verify_supabase_jwt(token: str) -> dict:
 
 def _resolve_company(email: str) -> str:
     """Map an authenticated email → its company_id via the users profile table.
-    Empty string = global admin (workspace then resolved from X-Workspace-Id)."""
+
+    The `users` table is the ALLOWLIST. Fail closed: a valid Supabase account
+    with no row here is DENIED (403) — otherwise anyone who could sign up would
+    silently become a global admin. Only an existing row whose company_id is
+    NULL is a global admin (workspace then resolved from X-Workspace-Id)."""
     if not email:
-        return ""
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,
+                            detail="Token carries no email")
     from vinayak.db.session import db
     conn = db.connect()
     try:
@@ -183,7 +188,10 @@ def _resolve_company(email: str) -> str:
             row = cur.fetchone()
     finally:
         conn.close()
-    return (row[0] if row else "") or ""
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN,
+                            detail="This account has no workspace access. Ask an admin to add it.")
+    return row[0] or ""   # '' = global admin
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────

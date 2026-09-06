@@ -87,6 +87,41 @@ def test_supabase_missing_token_is_401(monkeypatch):
     assert exc.value.status_code == 401
 
 
+class _FakeCur:
+    def __init__(self, row): self._row = row
+    def __enter__(self): return self
+    def __exit__(self, *a): return False
+    def execute(self, *a): pass
+    def fetchone(self): return self._row
+
+class _FakeConn:
+    def __init__(self, row): self._row = row
+    def cursor(self): return _FakeCur(self._row)
+    def close(self): pass
+
+
+def test_resolve_company_fails_closed_for_unknown_email(monkeypatch):
+    """A valid Supabase account NOT in the users allowlist must be denied (403),
+    never silently treated as a global admin."""
+    import vinayak.db.session as S
+    monkeypatch.setattr(S.db, "connect", lambda: _FakeConn(None))
+    with pytest.raises(HTTPException) as exc:
+        auth._resolve_company("stranger@example.com")
+    assert exc.value.status_code == 403
+
+
+def test_resolve_company_null_company_is_global_admin(monkeypatch):
+    import vinayak.db.session as S
+    monkeypatch.setattr(S.db, "connect", lambda: _FakeConn((None,)))   # row exists, company NULL
+    assert auth._resolve_company("owner@vinayak.com") == ""            # '' = global admin
+
+
+def test_resolve_company_returns_mapped_company(monkeypatch):
+    import vinayak.db.session as S
+    monkeypatch.setattr(S.db, "connect", lambda: _FakeConn(("kbrushes",)))
+    assert auth._resolve_company("owner@vinayak.com") == "kbrushes"
+
+
 def test_legacy_cookie_path_unaffected(monkeypatch):
     monkeypatch.setattr(auth, "SUPABASE_MODE", False)
     tok = auth._issue_jwt("owner@vinayak.com", "kbrushes")
