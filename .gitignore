@@ -54,3 +54,7 @@ scripts/
 # local db backups
 *.dump
 backup-old-supabase-*
+
+# all env variants carry secrets
+.env.*
+!.env.example
