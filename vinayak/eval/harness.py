@@ -61,7 +61,7 @@ def _answer_for(conn, company_id, case, runner_name: str | None):
     is named ('native'/'adk'), grade that orchestrator's live output instead, so
     the agent path is covered by the same scoreboard."""
     if runner_name:
-        from vinayak.reasoning.runner import make_runner
+        from vinayak.agents.runner import make_runner
         return make_runner(runner_name).run(conn, company_id, case["q"])
     return reason_answer(conn, company_id, case["q"], use_llm=False)
 

@@ -49,9 +49,7 @@ api/               deps.py (get_db, get_current_user, require_workspace) · main
 eval/              harness.py · cases.py
 ```
 
-Compatibility facades (so old imports still resolve): `reasoning/engine` re-exports
-`Evidence/Answer/inr/_num_tokens/...`; `reasoning/runner.py` and
-`reasoning/adk_runner.py` re-export from `agents/`.
+`reasoning/engine` re-exports the core types (`Evidence/Answer/inr/_num_tokens/...`) from `domain/` for callers that predate the split.
 
 ---
 

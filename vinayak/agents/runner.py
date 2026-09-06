@@ -1,5 +1,5 @@
 """
-reasoning/runner.py
+agents/runner.py
 ────────────────────
 The AgentRunner port — the single seam behind which the orchestration engine
 lives (BIDE Part 1A, "the frozen core"). Every way of driving the universal loop
@@ -10,7 +10,7 @@ implements ONE interface:
 Today's default implementation is `NativeAgentRunner`, a thin wrapper over the
 owned Anthropic tool-use loop in reasoning/agent.py. Tomorrow, a LangGraph or
 Google ADK engine is just another class implementing this same interface — see
-reasoning/adk_runner.py. Because callers depend only on this port, swapping the
+agents/adk.py. Because callers depend only on this port, swapping the
 engine touches nothing above it: not the tools, the evidence contract, the
 safety spine, memory, or the gates.
 

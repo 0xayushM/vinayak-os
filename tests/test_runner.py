@@ -1,5 +1,5 @@
 """
-Tests for the AgentRunner port (reasoning/runner.py) and the standalone safety
+Tests for the AgentRunner port (agents/runner.py) and the standalone safety
 spine (reasoning/safety.py). No model or DB required.
 
 The point of these tests is the seam: callers depend only on `get_runner().run`,
@@ -10,7 +10,8 @@ import os
 
 import pytest
 
-from vinayak.reasoning import safety, runner
+from vinayak.reasoning import safety
+from vinayak.agents import runner
 from vinayak.reasoning.engine import Evidence
 
 
@@ -69,7 +70,7 @@ def test_native_runner_delegates_to_run_agent(monkeypatch):
 def test_harness_grades_via_runner(monkeypatch):
     """The eval harness can grade a runner's live output, not just the engine."""
     from vinayak.eval import harness
-    import vinayak.reasoning.runner as R
+    import vinayak.agents.runner as R
 
     class _FakeRunner:
         name = "fake"
@@ -92,7 +93,7 @@ def test_harness_flags_ungrounded_agent_answer(monkeypatch):
     """An agent answer whose grounding gate failed (and isn't a refusal) is a
     hallucination signal — the ship-gate must catch it."""
     from vinayak.eval import harness
-    import vinayak.reasoning.runner as R
+    import vinayak.agents.runner as R
 
     class _BadRunner:
         name = "bad"
@@ -115,7 +116,7 @@ def test_adk_runner_selected_without_install_is_clear(monkeypatch):
     monkeypatch.setenv("AGENT_RUNNER", "adk")
     # If google-adk isn't installed, selecting it must raise an actionable error,
     # not fail silently. (If it IS installed in some env, just skip.)
-    from vinayak.reasoning.adk_runner import _adk_available
+    from vinayak.agents.adk import _adk_available
     if _adk_available():
         pytest.skip("google-adk is installed in this environment")
     with pytest.raises(RuntimeError, match="google-adk is not installed"):

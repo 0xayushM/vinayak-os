@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(curl -s \"http://localhost:3000/api/dashboard/quote-summary?days=30\")",
+      "Bash(curl -s \"http://localhost:3000/api/dashboard/bom-coverage\")",
+      "Bash(curl -s \"http://localhost:3000/api/dashboard/revenue-summary?days=30\")",
+      "Bash(curl -s \"http://localhost:3000/api/dashboard/sync-health\")",
+      "Bash(curl -s http://localhost:8000/health)",
+      "Bash(curl -s http://localhost:8000/dashboard/revenue/summary?period_days=30)",
+      "Bash(curl -s \"http://localhost:8000/dashboard/revenue/summary?period_days=30\")",
+      "Bash(psql *)",
+      "Bash(.venv/bin/python3 *)",
+      "Bash(pkill -f \"uvicorn vinayak.api.main\")",
+      "Bash(.venv/bin/uvicorn vinayak.api.main:app *)",
+      "Bash(curl -s \"http://localhost:8000/health\")"
+    ]
+  }
+}

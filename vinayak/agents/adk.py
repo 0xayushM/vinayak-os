@@ -1,8 +1,8 @@
 """
-reasoning/adk_runner.py
+agents/adk.py
 ────────────────────────
 Google ADK adapter — a SCAFFOLD implementation of the AgentRunner port
-(reasoning/runner.py). It shows exactly how a framework plugs in behind the seam
+(agents/runner.py). It shows exactly how a framework plugs in behind the seam
 without disturbing the frozen core: ADK drives tool selection, but our tools, our
 evidence contract, and our safety spine are unchanged, and the output is the same
 Answer dict every other runner produces.
@@ -68,7 +68,7 @@ class AdkAgentRunner:
             raise RuntimeError(
                 "AGENT_RUNNER=adk but google-adk is not installed. "
                 "Run `pip install google-adk litellm` and set ADK_MODEL "
-                "(see reasoning/adk_runner.py for the setup guide), or unset "
+                "(see agents/adk.py for the setup guide), or unset "
                 "AGENT_RUNNER to use the default native runner."
             )
 
