@@ -44,7 +44,7 @@ class ProcessRoutingRow(BaseModel):
         mapped = {
             "sku_code":        data.get("itemid"),
             "sku_name":        data.get("fg_name"),
-            "process_name":    data.get("full_routing_name"),
+            "process_name":    data.get("full_routing_name") or data.get("bom_name"),  # Aug-2026 report re-key: new column name
             "sequence_number": None,
             "standard_hours":  None,
             "machine_centre":  None,

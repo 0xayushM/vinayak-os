@@ -18,6 +18,7 @@ Confirmed endpoint (2026-05-22):
 from __future__ import annotations
 
 import logging
+import re
 import time
 from dataclasses import dataclass
 from typing import Any
@@ -66,6 +67,58 @@ def _throttle() -> None:
     if wait > 0:
         time.sleep(wait)
     _last_request_at = time.monotonic()
+
+
+# ── Report catalog + id resolution (TranzAct re-keyed reports on 2026-08-11) ──
+# Reports are now identified by per-company UUIDs, discoverable only via
+# GET {reporting}/get_reports. Each report's `function_name` is the stable key,
+# so pipelines keep their legacy numeric label and we resolve at fetch time:
+#     legacy id ("29") → function_name → live UUID          (cached per account)
+# Passing the old numeric id to /generate_report yields an HTTP 500, not a 404.
+
+_UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.I)
+_CATALOG_TTL_SECS = 6 * 60 * 60
+_catalog_cache: dict[tuple[str, str], tuple[float, dict[str, str]]] = {}   # (base_url,email) → (fetched_at, {function_name: uuid})
+
+
+def _report_catalog(creds: "TranzactCreds", force: bool = False) -> dict[str, str]:
+    """{function_name: report_uuid} for this account, fetched from get_reports and
+    cached for a few hours. `force=True` refetches (used after a lookup miss)."""
+    key = (creds.base_url, creds.email.lower())
+    now = time.monotonic()
+    hit = _catalog_cache.get(key)
+    if hit and not force and now - hit[0] < _CATALOG_TTL_SECS:
+        return hit[1]
+    token = get_access_token(base_url=creds.base_url, email=creds.email, password=creds.password)
+    _throttle()
+    resp = requests.get(f"{TRANZACT_REPORTING_URL}/get_reports",
+                        headers={"Authorization": f"Bearer {token}"}, timeout=60)
+    if resp.status_code != 200:
+        raise RuntimeError(f"get_reports failed: HTTP {resp.status_code} — {resp.text[:200]}")
+    reports = (resp.json() or {}).get("data") or []
+    catalog = {r["function_name"]: r["id"] for r in reports if r.get("function_name") and r.get("id")}
+    _catalog_cache[key] = (now, catalog)
+    logger.info("tranzact: report catalog loaded for %s — %d reports", creds.email, len(catalog))
+    return catalog
+
+
+def resolve_report_id(creds: "TranzactCreds", key: str) -> str:
+    """Turn whatever a caller passes — a live UUID, a legacy numeric id, or a
+    function_name — into the report UUID /generate_report accepts today."""
+    from vinayak.adapters.tranzact.reports import LEGACY_ID_TO_FUNCTION
+    key = str(key)
+    if _UUID_RE.match(key):
+        return key
+    fn = LEGACY_ID_TO_FUNCTION.get(key, key)          # legacy id → function_name (or already one)
+    catalog = _report_catalog(creds)
+    if fn not in catalog:
+        catalog = _report_catalog(creds, force=True)   # maybe the catalog changed — refetch once
+    if fn not in catalog:
+        raise RuntimeError(
+            f"TranzAct report '{key}' (function '{fn}') not found in this account's "
+            f"catalog of {len(catalog)} reports — check REPORT_FUNCTIONS in reports.py"
+        )
+    return catalog[fn]
 
 
 # ── Response shape helpers (confirmed 2026-05-22) ────────────────────────────
@@ -261,6 +314,9 @@ def fetch_report(
     last_page_rows = 0
     deadline = (time.monotonic() + max_seconds) if max_seconds else None
 
+    # Legacy numeric id / function_name → the live per-company UUID (Aug-2026 re-keying).
+    live_report_id = resolve_report_id(creds, report_id)
+
     with requests.Session() as session:
         while True:
             if deadline is not None and time.monotonic() >= deadline:
@@ -275,7 +331,8 @@ def fetch_report(
                 break
 
             payload: dict[str, Any] = {
-                "report": {"id": report_id},
+                "report": {"id": live_report_id},
+                "output": "display",          # required since Aug 2026 (omitting it → HTTP 500)
                 "pagination": {"page": page, "per_page": per_page},
             }
             if filters:

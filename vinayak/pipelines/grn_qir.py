@@ -46,7 +46,7 @@ class GRNQIRRow(BaseModel):
     def remap_api_fields(cls, data):
         if not isinstance(data, dict):
             return data
-        received = data.get("received_quantity")
+        received = data.get("received_quantity") or data.get("inward_quantity")  # Aug-2026 report re-key: new column name
         mapped = {
             "grn_date":     data.get("inward_date"),
             "grn_number":   data.get("inward_number"),

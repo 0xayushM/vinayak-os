@@ -55,7 +55,7 @@ class SalesInvoiceRow(BaseModel):
             "invoice_date":   data.get("document_date"),
             "invoice_number": data.get("document_no_text"),
             "customer_name":  data.get("customer_name"),
-            "customer_code":  data.get("counter_party_uuid"),
+            "customer_code":  data.get("counter_party_uuid") or data.get("counter_party_company_id"),  # Aug-2026 report re-key: new column name
             "sku_code":       data.get("itemid"),
             "sku_name":       data.get("item_name"),
             "category":       data.get("product_category"),
