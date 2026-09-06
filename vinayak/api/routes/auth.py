@@ -28,7 +28,7 @@ from passlib.context import CryptContext
 from pydantic import BaseModel
 from jose import JWTError, jwt
 
-from vinayak.config import DATABASE_URL
+from vinayak.config import DATABASE_URL, SUPABASE_JWT_SECRET, SUPABASE_URL
 
 logger = logging.getLogger(__name__)
 
@@ -83,6 +83,115 @@ class TokenPayload(BaseModel):
     sub: str          # user email
     company_id: str
     exp: float
+    user_id: Optional[str] = None   # Supabase auth.users uuid (Supabase mode only)
+
+
+# ── Supabase mode ─────────────────────────────────────────────────────────────
+# When SUPABASE_JWT_SECRET is set, Supabase (GoTrue) owns login/passwords/sessions
+# and issues the access token; the backend only VERIFIES it and maps the user's
+# email → company_id via the existing `users` table (now purely a profile/mapping
+# table — the password_hash column is no longer consulted). The frontend forwards
+# the Supabase access token as `Authorization: Bearer <token>`.
+SUPABASE_MODE = bool(SUPABASE_JWT_SECRET)
+
+
+def _bearer_token(request: Request) -> Optional[str]:
+    """The Supabase access token from the Authorization header (BFF forwards it),
+    falling back to a Supabase/legacy cookie if present."""
+    header = request.headers.get("Authorization", "")
+    if header.lower().startswith("bearer "):
+        return header[7:].strip()
+    return request.cookies.get("sb-access-token") or request.cookies.get(COOKIE_NAME)
+
+
+# Supabase signs access tokens either with the project's shared HS256 secret
+# (legacy) or with asymmetric signing keys (ES256/RS256) published as JWKS. The
+# token header says which, so both are supported without extra configuration.
+SUPABASE_JWKS_URL = (
+    f"{SUPABASE_URL.rstrip('/')}/auth/v1/.well-known/jwks.json" if SUPABASE_URL else ""
+)
+_ASYMMETRIC_ALGS = ("RS256", "RS512", "ES256", "ES512", "EdDSA")
+_JWKS_TTL_SECS   = 600
+_jwks_by_kid: dict[str, dict] = {}
+_jwks_fetched_at = 0.0
+
+
+def _supabase_jwks(force: bool = False) -> dict[str, dict]:
+    """kid → JWK for the project's public signing keys, cached for 10 minutes."""
+    global _jwks_fetched_at
+    if not SUPABASE_JWKS_URL:
+        return {}
+    if _jwks_by_kid and not force and (time.time() - _jwks_fetched_at) < _JWKS_TTL_SECS:
+        return _jwks_by_kid
+
+    import httpx
+    try:
+        resp = httpx.get(SUPABASE_JWKS_URL, timeout=5.0)
+        resp.raise_for_status()
+        keys = resp.json().get("keys", [])
+    except Exception as exc:  # network/JSON errors — keep serving with the cache
+        logger.warning("Could not fetch Supabase JWKS from %s: %s", SUPABASE_JWKS_URL, exc)
+        return _jwks_by_kid
+
+    _jwks_by_kid.clear()
+    _jwks_by_kid.update({k["kid"]: k for k in keys if k.get("kid")})
+    _jwks_fetched_at = time.time()
+    return _jwks_by_kid
+
+
+def _verify_supabase_jwt(token: str) -> dict:
+    """Verify a Supabase-issued access token (aud='authenticated')."""
+    try:
+        header = jwt.get_unverified_header(token)
+    except JWTError as exc:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,
+                            detail=f"Malformed Supabase token: {exc}")
+
+    alg = header.get("alg", "")
+    if alg in _ASYMMETRIC_ALGS:
+        kid = header.get("kid", "")
+        key = _supabase_jwks().get(kid)
+        if key is None:  # key rotated since we cached — refetch once
+            key = _supabase_jwks(force=True).get(kid)
+        if key is None:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,
+                                detail=f"Unknown Supabase signing key: {kid or '<none>'}")
+        secret, algorithms = key, [alg]
+    else:
+        if not SUPABASE_JWT_SECRET:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,
+                                detail="No Supabase JWT secret configured for HS256 tokens")
+        secret, algorithms = SUPABASE_JWT_SECRET, ["HS256"]
+
+    try:
+        return jwt.decode(token, secret, algorithms=algorithms, audience="authenticated")
+    except JWTError as exc:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,
+                            detail=f"Invalid or expired Supabase token: {exc}")
+
+
+def _resolve_company(email: str) -> str:
+    """Map an authenticated email → its company_id via the users profile table.
+
+    The `users` table is the ALLOWLIST. Fail closed: a valid Supabase account
+    with no row here is DENIED (403) — otherwise anyone who could sign up would
+    silently become a global admin. Only an existing row whose company_id is
+    NULL is a global admin (workspace then resolved from X-Workspace-Id)."""
+    if not email:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,
+                            detail="Token carries no email")
+    from vinayak.db.session import db
+    conn = db.connect()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT company_id FROM users WHERE LOWER(email) = LOWER(%s)", (email,))
+            row = cur.fetchone()
+    finally:
+        conn.close()
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN,
+                            detail="This account has no workspace access. Ask an admin to add it.")
+    return row[0] or ""   # '' = global admin
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -107,14 +216,28 @@ def _verify_jwt(token: str) -> TokenPayload:
         )
 
 
-def get_current_user(vb_access_token: Optional[str] = Cookie(default=None)) -> TokenPayload:
-    """FastAPI dependency — extract and validate the platform JWT from cookie."""
-    if not vb_access_token:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Not authenticated",
-        )
-    return _verify_jwt(vb_access_token)
+def get_current_user(request: Request) -> TokenPayload:
+    """FastAPI dependency — resolve the authenticated user.
+
+    • Supabase mode (SUPABASE_JWT_SECRET set): verify the Supabase access token
+      (Bearer header) and map email → company_id.
+    • Legacy mode: verify the platform JWT from the httpOnly cookie.
+    """
+    if SUPABASE_MODE:
+        token = _bearer_token(request)
+        if not token:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,
+                                detail="Not authenticated")
+        claims = _verify_supabase_jwt(token)
+        email = (claims.get("email") or "").strip()
+        return TokenPayload(sub=email, company_id=_resolve_company(email),
+                            exp=float(claims.get("exp", 0)), user_id=claims.get("sub"))
+
+    token = request.cookies.get(COOKIE_NAME)
+    if not token:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,
+                            detail="Not authenticated")
+    return _verify_jwt(token)
 
 
 def require_internal_key(request: Request) -> None:
@@ -131,12 +254,18 @@ def require_internal_key(request: Request) -> None:
 
 
 # ── Routes ────────────────────────────────────────────────────────────────────
-@router.post("/login", summary="Issue platform JWT as httpOnly cookie")
+@router.post("/login", summary="Issue platform JWT as httpOnly cookie (legacy)")
 def login(req: LoginRequest, response: Response):
     """
-    Validates email + password against the users table (bcrypt hash).
-    Run `python -m vinayak.scripts.setup_db` to create the initial admin user.
+    Legacy email+password login. In Supabase mode this endpoint is disabled —
+    the frontend authenticates directly with Supabase (signInWithPassword) and
+    the backend only verifies the resulting token.
     """
+    if SUPABASE_MODE:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Login is handled by Supabase Auth on the client; this endpoint is disabled.",
+        )
     conn = psycopg2.connect(DATABASE_URL)
     try:
         with conn.cursor() as cur:

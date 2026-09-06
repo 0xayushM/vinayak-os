@@ -314,3 +314,111 @@ domain input (the 50-question golden set + raw-dump baseline) or is small
 follow-up (`customer_contacts`, entity resolution). Phase 2 — the read-tool wraps
 over the proven query functions — is the cheapest high-leverage next step toward
 the agent.
+
+---
+
+## Architecture wiring: the runner port, safety spine, ADK, and harness
+
+This section is the setup/onboarding guide for the finalized architecture
+(BIDE Part 1A — *Stable Core, Pluggable Edges*). It maps each frozen contract to
+its file and gives the exact steps to run the agent, swap the orchestrator, and
+grade any engine with the scoreboard.
+
+### The module map (frozen core → files)
+
+| Contract (Part 1A) | Where it lives |
+|---|---|
+| Canonical model | `vinayak/canonical/`, `schema/migrations/002,010–016` |
+| Evidence contract | `reasoning/engine.py` (`Evidence`, `_num_tokens`, `_norm_num`) |
+| Tool contract | `tools/contract.py` (`Tool`, `ToolResult`, `side_effect`) |
+| **Safety spine** | `reasoning/safety.py` (`grounded`, `confidence`, `safe_summary`) |
+| **AgentRunner port** | `reasoning/runner.py` (`AgentRunner`, `NativeAgentRunner`, `get_runner`) |
+| Memory schema | `memory/store.py`, `memory/entity_summary.py`, migrations `003,016,017` |
+| Event contract | `schema/migrations/008_v0_foundation.sql` (`events`) |
+| Tenancy / provenance | `api/routes/workspaces.py` (`require_workspace`), every query scoped by `company_id` |
+
+Pluggable edges: source adapters (`adapters/`, `pipelines/`), tools
+(`tools/read_tools.py`, `tools/action_tools.py`), the orchestration engine
+(`reasoning/runner.py` + adapters), the model (`reasoning/llm.py`), workflows
+(declarative, on the `events` bus), and MCP exposure (future transport over the
+same registry).
+
+### Running the chat agent
+
+The answer path is chosen at two levels, both by env, so nothing is hard-wired:
+
+- `AGENT_MODE` — *whether* the tool-calling agent answers. Unset/`1` = agent when
+  a model is configured (default); `0`/`off` = force the deterministic keyword
+  engine. The native runner falls back to the engine on any model failure, so
+  `/ask` never hard-fails.
+- `AGENT_RUNNER` — *which* engine drives the agent: `native` (default, the owned
+  Anthropic tool-use loop) or `adk` (the Google ADK adapter).
+
+```bash
+# default: native runner, agent on when ANTHROPIC_API_KEY is set
+uvicorn vinayak.api.main:app
+
+AGENT_MODE=0 uvicorn vinayak.api.main:app          # deterministic engine only
+AGENT_RUNNER=adk uvicorn vinayak.api.main:app      # drive with Google ADK
+```
+
+`/ask` calls `get_runner().run(...)`. Adding or swapping an engine means adding a
+class that implements `AgentRunner.run(conn, company_id, question, history_turns)
+-> dict` and returning it from the factory — no change to tools, evidence,
+memory, or gates.
+
+### Setting up Google ADK (the swappable orchestrator)
+
+ADK plugs in behind the AgentRunner port; it only *chooses* which read tools to
+call. Numbers still come from our tools, and the output is routed through the
+same `reasoning/safety.py` spine, so ADK cannot loosen the honesty guarantees.
+
+```bash
+pip install google-adk litellm
+
+# Keep Claude (so the grounding contract holds) via LiteLLM:
+export AGENT_RUNNER=adk
+export ADK_MODEL="anthropic/claude-sonnet-4-6"   # LiteLlm model id
+export ANTHROPIC_API_KEY=...                      # already set
+
+# Or drive Gemini directly:
+#   export ADK_MODEL="gemini-2.0-flash" && export GOOGLE_API_KEY=...
+```
+
+`reasoning/adk_runner.py` already wires the tool bridge (registry → ADK
+FunctionTools, each recording Evidence, `company_id` bound by the layer) and the
+safety finalisation. The one piece to complete against a live install is the
+session loop in `_invoke()` (marked `TODO(adk)` — drive
+`google.adk.runners.InMemoryRunner`, feed the question + history, collect the
+final text). Until then, selecting `adk` without a completed loop falls back to
+native rather than answering wrongly. **Do not flip `AGENT_RUNNER=adk` in
+production until it passes the harness (below).**
+
+### The harness (the scoreboard / "compiler")
+
+The eval harness holds real owner questions with hand-verified expectations and
+ship-blocks any build that states an uncited number or a banned phrase. It grades
+the deterministic engine by default and can now grade any runner.
+
+```bash
+# default: grade the deterministic engine (fast, free, the permanent ship-gate)
+PYTHONPATH=. python -m vinayak.eval.harness              # both companies
+PYTHONPATH=. python -m vinayak.eval.harness kbrushes     # one
+
+# grade a live orchestrator (calls the model)
+PYTHONPATH=. python -m vinayak.eval.harness kbrushes --runner native
+PYTHONPATH=. python -m vinayak.eval.harness kbrushes --runner adk
+```
+
+Metrics: `citation_compliance` (must be 1.0), `correct_refusal_rate`,
+`bucket_accuracy`, `must_not_say_violations`; `ship_blocked` trips on any uncited
+number or forbidden phrase. For the deterministic path, grounding is proven via
+claim→evidence tracing; for a runner, grounding is enforced at generation time by
+the safety spine, so a non-grounded answer (that isn't a legitimate refusal) is
+flagged as the hallucination signal. CI runs the default (engine) gate on every
+push (`.github/workflows/ci.yml`); grow the golden set in `eval/cases.py` toward
+the 50 hand-verified questions and record the raw-dump baseline to beat.
+
+**Immediate next harness task:** run `--runner native` across the golden set,
+hand-verify, and wire it into CI alongside the engine gate so the agent path is
+ship-gated too.

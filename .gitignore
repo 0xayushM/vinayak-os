@@ -38,6 +38,7 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env
+.env*.local
 
 # vercel
 .vercel
@@ -49,3 +50,7 @@ next-env.d.ts
 # debug artifacts
 response.json
 scripts/
+
+# local db backups
+*.dump
+backup-old-supabase-*

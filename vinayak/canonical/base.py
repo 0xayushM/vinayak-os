@@ -21,6 +21,15 @@ from dataclasses import dataclass, field
 from typing import Any, Protocol
 
 
+def distinct_company_ids(conn, table: str) -> list[str]:
+    """Distinct company_ids present in a source table — the set of tenants a
+    canonical rebuild should run for. Shared by every source builder (each passes
+    its own source table) instead of reimplementing the query per module."""
+    with conn.cursor() as cur:
+        cur.execute(f"SELECT DISTINCT company_id FROM {table} ORDER BY 1")
+        return [r[0] for r in cur.fetchall()]
+
+
 @dataclass
 class Unmapped:
     """Returned by map() when a row cannot be confidently mapped."""

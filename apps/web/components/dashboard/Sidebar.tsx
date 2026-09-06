@@ -12,6 +12,7 @@ import {
 import { cn } from "@/lib/utils/cn";
 import { useSyncHealth } from "@/hooks/useDashboard";
 import { apiFetch, workspacePath } from "@/lib/api";
+import { createClient } from "@/lib/supabase/client";
 import { useChatDock } from "@/components/dashboard/ChatDock";
 
 const NAV = [
@@ -194,7 +195,8 @@ function RailContent({ onNavigate }: { onNavigate?: () => void }) {
   const link = (suffix: string) => workspacePath(ws, suffix);
 
   async function handleLogout() {
-    await apiFetch("/api/auth/logout", { method: "POST", credentials: "include" });
+    // Supabase owns the session — signOut clears the auth cookies the proxy reads.
+    await createClient().auth.signOut();
     window.location.href = "/login";
   }
 

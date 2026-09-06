@@ -301,9 +301,8 @@ def rebuild_canonical_zoho(conn, company_id: str) -> LoadStats:
 
 
 def _companies(conn) -> list[str]:
-    with conn.cursor() as cur:
-        cur.execute("SELECT DISTINCT company_id FROM zb_invoices ORDER BY 1")
-        return [r[0] for r in cur.fetchall()]
+    from vinayak.canonical.base import distinct_company_ids
+    return distinct_company_ids(conn, "zb_invoices")
 
 
 if __name__ == "__main__":

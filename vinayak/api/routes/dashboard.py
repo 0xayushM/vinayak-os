@@ -18,7 +18,6 @@ The meta dict is shown to the user as the "last synced X min ago" stamp.
 """
 from __future__ import annotations
 
-import psycopg2
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
@@ -26,25 +25,11 @@ from pydantic import BaseModel
 import logging
 logger = logging.getLogger(__name__)
 
-from vinayak.config import DATABASE_URL
 from vinayak.schema import queries
 from vinayak.memory import store as memory
-from vinayak.api.routes.workspaces import require_workspace
-from vinayak.api.routes.auth import get_current_user, TokenPayload
+from vinayak.api.deps import get_db as _conn, get_current_user, require_workspace, TokenPayload
 
 router = APIRouter()
-
-
-def _conn():
-    """Open a new psycopg2 connection. Caller is responsible for closing."""
-    try:
-        return psycopg2.connect(DATABASE_URL)
-    except psycopg2.OperationalError as exc:
-        logger.error("DB connection failed: %s", exc)
-        raise HTTPException(
-            status_code=503,
-            detail="Database unavailable — check DATABASE_URL (Supabase direct connection, port 5432)",
-        ) from exc
 
 
 def _envelope(data: dict, report_id: int) -> dict:
@@ -992,11 +977,16 @@ def ask(body: AskIn, company_id: str = Depends(require_workspace),
                                "answer": (a.get("answer") or "")[:280],
                                "intent": a.get("intent")})
 
-        # The agent (tool-calling) path is opt-in via AGENT_MODE while it is
-        # shadow-tested; otherwise the deterministic keyword engine answers.
+        # The agent (tool-calling) path answers whenever a model is configured;
+        # set AGENT_MODE=0 to force the deterministic keyword engine. The engine
+        # to drive it is chosen by the AgentRunner port (AGENT_RUNNER=native|adk),
+        # so swapping orchestrators never touches this route. The native runner
+        # falls back to the deterministic engine on any model failure, so /ask
+        # always returns a grounded answer.
         from vinayak.reasoning import agent
-        if agent.enabled() and agent.agent_available():
-            out = agent.run_agent(conn, company_id, q, history_turns=briefs or None)
+        from vinayak.agents import get_runner
+        if agent.should_use():
+            out = get_runner().run(conn, company_id, q, history_turns=briefs or None)
         else:
             out = reason_answer(conn, company_id, q, history_turns=briefs or None)
         out["thread_id"] = thread_id

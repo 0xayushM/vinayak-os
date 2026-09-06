@@ -55,27 +55,44 @@ def _cleanup(conn, company_id, ids):
     conn.commit()
 
 
-def _check_case(conn, company_id, case) -> dict:
+def _answer_for(conn, company_id, case, runner_name: str | None):
+    """Produce the answer to grade. Default (runner_name=None) is the deterministic
+    engine — fast, free, reproducible, and the permanent ship-gate. When a runner
+    is named ('native'/'adk'), grade that orchestrator's live output instead, so
+    the agent path is covered by the same scoreboard."""
+    if runner_name:
+        from vinayak.reasoning.runner import make_runner
+        return make_runner(runner_name).run(conn, company_id, case["q"])
+    return reason_answer(conn, company_id, case["q"], use_llm=False)
+
+
+def _check_case(conn, company_id, case, runner_name: str | None = None) -> dict:
     created = _seed(conn, company_id, case.get("seed_facts", []))
     try:
-        # Deterministic path: the eval gates the validated numbers/labels, which
-        # the LLM phrasing layer never changes. Keeps eval fast, free, reproducible.
-        a = reason_answer(conn, company_id, case["q"], use_llm=False)
+        a = _answer_for(conn, company_id, case, runner_name)
     finally:
         _cleanup(conn, company_id, created)
 
-    text = (a["answer"] + " " + " ".join(c["text"] for c in a["claims"])).lower()
-    ev_ids = {e["id"] for e in a["evidence"]}
+    claims = a.get("claims", []) or []
+    text = (a["answer"] + " " + " ".join(c["text"] for c in claims)).lower()
+    ev_ids = {e["id"] for e in a.get("evidence", [])}
 
-    # unsupported computed claims
-    computed = [c for c in a["claims"] if c["type"] == "computed"]
+    # unsupported computed claims (deterministic path). The agent path emits no
+    # claims because grounding is enforced at generation time by the safety spine;
+    # for it, a non-grounded answer is the equivalent signal.
+    computed = [c for c in claims if c["type"] == "computed"]
     unsupported = [c for c in computed
                    if not c["evidence"] or not all(e in ev_ids for e in c["evidence"])]
+    grounded_gate = a.get("gates", {}).get("grounded", True)
+    if runner_name and not grounded_gate and not case.get("refusal"):
+        unsupported = unsupported or [{"agent_ungrounded": True}]
 
     must_not = [s for s in case.get("must_not_say", []) if s.lower() in text]
 
     checks = {
-        "intent_ok": (case.get("expect_intent") is None) or (a["intent"] == case["expect_intent"]),
+        # For a runner (the model routes), intent isn't graded — routing is its job.
+        "intent_ok": (runner_name is not None) or (case.get("expect_intent") is None)
+                     or (a["intent"] == case["expect_intent"]),
         "bucket_ok": (case.get("expect_bucket") is None) or (a["confidence_level"] in case["expect_bucket"]),
         "refusal_ok": (not case.get("refusal")) or (a["confidence_level"] == "UNCERTAIN"),
         "must_not_say_ok": len(must_not) == 0,
@@ -127,14 +144,14 @@ def compute_metrics(results: list[dict]) -> dict:
     return metrics
 
 
-def run_eval(conn, company_id: str | None = None) -> dict:
+def run_eval(conn, company_id: str | None = None, runner_name: str | None = None) -> dict:
     results = []
     for case in CASES:
         companies = case.get("companies", BOTH)
         if company_id:
             companies = [company_id] if company_id in companies else []
         for cid in companies:
-            results.append(_check_case(conn, cid, case))
+            results.append(_check_case(conn, cid, case, runner_name=runner_name))
 
     return {"metrics": compute_metrics(results), "results": results}
 
@@ -144,9 +161,20 @@ if __name__ == "__main__":
     import psycopg2
     from dotenv import load_dotenv
     load_dotenv()
+
+    # Usage: python -m vinayak.eval.harness [company_id] [--runner native|adk]
+    argv = sys.argv[1:]
+    runner_name = None
+    if "--runner" in argv:
+        i = argv.index("--runner")
+        runner_name = argv[i + 1]
+        del argv[i:i + 2]
+    cid = argv[0] if argv else None
+
     conn = psycopg2.connect(os.environ["DATABASE_URL"])
-    cid = sys.argv[1] if len(sys.argv) > 1 else None
-    report = run_eval(conn, cid)
+    report = run_eval(conn, cid, runner_name=runner_name)
+    if runner_name:
+        print(f"(grading via the '{runner_name}' runner)")
     m = report["metrics"]
     print(json.dumps(m, indent=2))
     print(f"\n{m['passed']}/{m['cases_run']} cases passed · "

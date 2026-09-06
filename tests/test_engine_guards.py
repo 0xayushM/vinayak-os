@@ -26,12 +26,20 @@ def test_inr_negative():
 
 # ── Numeric guard ──────────────────────────────────────────────────────────────
 def test_norm_num_variants():
-    assert _norm_num("₹2.50L") == _norm_num("2.50 lakh") == "2.50l"
-    assert _norm_num("₹3.00Cr") == _norm_num("3.00 crores") == "3.00cr"
+    # Trailing decimal zeros are canonicalised, so "2.50L" and "2.5 lakh" match.
+    assert _norm_num("₹2.50L") == _norm_num("2.50 lakh") == "2.5l"
+    assert _norm_num("₹3.00Cr") == _norm_num("3.00 crores") == "3cr"
+
+def test_norm_num_canonicalises_trailing_zeros():
+    # A phrasing difference (2.40 vs 2.4) must not look like a different number…
+    assert _norm_num("₹2.40Cr") == _norm_num("₹2.4Cr")
+    assert _norm_num("₹21.00L") == _norm_num("₹21L")
+    # …but genuinely different values stay distinct.
+    assert _norm_num("₹5Cr") != _norm_num("₹2.4Cr")
 
 def test_num_tokens_extracts_money_only():
     toks = _num_tokens("We billed ₹2.50L across 37 invoices (12%).")
-    assert "2.50l" in toks
+    assert "2.5l" in toks
     # plain counts and percentages are not money tokens
     assert not any(t.startswith("37") for t in toks)
 

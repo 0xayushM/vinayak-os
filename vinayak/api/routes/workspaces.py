@@ -38,8 +38,11 @@ WORKSPACE_HEADER = "X-Workspace-Id"
 _SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{1,48}$")
 
 
+from vinayak.db.session import db as _db
+
+
 def _conn():
-    return psycopg2.connect(DATABASE_URL)
+    return _db.connect()
 
 
 def _owns_clause(user: TokenPayload) -> tuple[str, tuple]:

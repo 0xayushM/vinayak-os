@@ -30,6 +30,15 @@ def test_grounded_true_when_no_numbers():
     assert agent._grounded("Things look steady overall.", []) is True
 
 
+def test_grounded_accepts_exact_raw_value():
+    """The model may quote the precise tool value, not just its rounded display."""
+    ev = [Evidence("ar:out", "Outstanding", 23953022.37, "₹2.40 Cr")]
+    assert agent._grounded("Your outstanding is ₹2,39,53,022.37.", ev) is True
+    assert agent._grounded("Your outstanding is ₹2.40 Cr.", ev) is True     # display form
+    assert agent._grounded("Your outstanding is ₹2.4 Cr.", ev) is True      # phrasing variant
+    assert agent._grounded("Your outstanding is ₹99,99,999.", ev) is False  # invented
+
+
 def test_confidence_levels():
     ev = [Evidence("a", "A", 1, "₹1")]
     assert agent._confidence(True, ev, ["finance.get_overview"]) == "CERTAIN"
@@ -86,7 +95,10 @@ def test_agent_loop_calls_tool_then_grounds_answer():
     assert "₹21.00 L" in out["answer"]
 
 
-def test_agent_downgrades_when_model_invents_a_number():
+def test_agent_blocks_invented_number_when_correction_unavailable():
+    """Model invents a figure and the correction call can't run (script exhausted →
+    treated as a failed model call): we must NOT surface the invented number, and
+    fall back to the evidence-only summary."""
     _register_fake_tool()
     script = [
         _Resp("tool_use", [_Block(type="tool_use", id="t1", name="fake.get_x", input={})]),
@@ -94,8 +106,10 @@ def test_agent_downgrades_when_model_invents_a_number():
     ]
     out = agent.run_agent(conn=None, company_id="acme", question="how much is owed?",
                           client=_FakeClient(script))
-    assert out["gates"]["grounded"] is False
-    assert out["confidence_level"] == "PROBABLE"   # tools used but figure didn't verify
+    assert "₹5.00 Cr" not in out["answer"]         # the invented figure is blocked
+    assert "₹21.00 L" in out["answer"]             # real evidence is surfaced instead
+    assert out["meta"]["numeric_guard"] == "blocked"
+    assert out["confidence_level"] == "PROBABLE"
 
 
 def test_agent_answer_without_tools_is_uncertain():
@@ -104,3 +118,52 @@ def test_agent_answer_without_tools_is_uncertain():
                           client=_FakeClient(script))
     assert out["data_used"] == []
     assert out["confidence_level"] == "UNCERTAIN"
+
+
+# ── the numeric guard: retry, then safe fallback ──────────────────────────────
+def test_agent_retry_recovers_when_correction_fixes_the_figure():
+    """Model invents a figure, gets corrected, then quotes the real one → CERTAIN."""
+    _register_fake_tool()
+    script = [
+        _Resp("tool_use", [_Block(type="tool_use", id="t1", name="fake.get_x", input={})]),
+        _Resp("end_turn", [_Block(type="text", text="You are owed ₹5.00 Cr.")]),   # invented
+        _Resp("end_turn", [_Block(type="text", text="Your outstanding is ₹21.00 L.")]),  # corrected
+    ]
+    out = agent.run_agent(conn=None, company_id="acme", question="how much is owed?",
+                          client=_FakeClient(script))
+    assert out["gates"]["grounded"] is True
+    assert out["confidence_level"] == "CERTAIN"
+    assert "₹5.00 Cr" not in out["answer"]        # the invented figure never shows
+    assert "₹21.00 L" in out["answer"]
+    assert out["meta"]["numeric_guard"] == "ok"
+
+
+def test_agent_blocks_and_falls_back_when_model_keeps_inventing():
+    """Model invents both times → we block it and answer from evidence only."""
+    _register_fake_tool()
+    script = [
+        _Resp("tool_use", [_Block(type="tool_use", id="t1", name="fake.get_x", input={})]),
+        _Resp("end_turn", [_Block(type="text", text="You are owed ₹5.00 Cr.")]),   # invented
+        _Resp("end_turn", [_Block(type="text", text="Actually it's ₹9.00 Cr.")]),  # invented again
+    ]
+    out = agent.run_agent(conn=None, company_id="acme", question="how much is owed?",
+                          client=_FakeClient(script))
+    assert "₹5.00 Cr" not in out["answer"]        # neither invented figure survives
+    assert "₹9.00 Cr" not in out["answer"]
+    assert "₹21.00 L" in out["answer"]            # the real evidence is surfaced
+    assert out["meta"]["numeric_guard"] == "blocked"
+    assert out["confidence_level"] == "PROBABLE"
+
+
+def test_should_use_respects_opt_out(monkeypatch):
+    # A model being available makes the agent the default…
+    monkeypatch.setattr(agent, "agent_available", lambda: True)
+    monkeypatch.delenv("AGENT_MODE", raising=False)
+    assert agent.should_use() is True
+    # …unless explicitly disabled.
+    monkeypatch.setenv("AGENT_MODE", "0")
+    assert agent.should_use() is False
+    # And with no model, the engine answers regardless.
+    monkeypatch.setattr(agent, "agent_available", lambda: False)
+    monkeypatch.delenv("AGENT_MODE", raising=False)
+    assert agent.should_use() is False
