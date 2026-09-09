@@ -1,0 +1,557 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head><body><title>BIDE High-Level Design</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,700&family=Manrope:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+:root{
+  --paper:#F3F2EE; --paper-2:#EAE8E1; --ink:#1B1D1F; --ink-2:#4A4E52; --ink-3:#7A7F84;
+  --rule:#D6D3CA; --accent:#2B3A67; --accent-ink:#F3F2EE; --accent-soft:#DDE3F3;
+  --risk:#B3341F; --warn:#B7791F; --good:#2E7A5A;
+  --chip-risk:#F6DED8; --chip-warn:#F8EBCF; --chip-good:#D9EEE3; --chip-neutral:#E4E6EE;
+  --code-bg:#E9EAE6; --dia-fill:#EAE8E1;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --paper:#151617; --paper-2:#1E2022; --ink:#ECEAE3; --ink-2:#B9B6AD; --ink-3:#7F7D76;
+    --rule:#33363A; --accent:#9DB0E6; --accent-ink:#151617; --accent-soft:#26304A;
+    --risk:#E4705C; --warn:#D9A24A; --good:#5FB48E;
+    --chip-risk:#3B211C; --chip-warn:#3A2E17; --chip-good:#17302A; --chip-neutral:#24282F;
+    --code-bg:#1E2124; --dia-fill:#1E2022;
+  }
+}
+:root[data-theme="dark"]{
+  --paper:#151617; --paper-2:#1E2022; --ink:#ECEAE3; --ink-2:#B9B6AD; --ink-3:#7F7D76;
+  --rule:#33363A; --accent:#9DB0E6; --accent-ink:#151617; --accent-soft:#26304A;
+  --risk:#E4705C; --warn:#D9A24A; --good:#5FB48E;
+  --chip-risk:#3B211C; --chip-warn:#3A2E17; --chip-good:#17302A; --chip-neutral:#24282F;
+  --code-bg:#1E2124; --dia-fill:#1E2022;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--ink);font-family:Manrope,"Segoe UI",system-ui,sans-serif;font-size:16px;line-height:1.6;-webkit-font-smoothing:antialiased}
+a{color:var(--accent)}
+.wrap{max-width:1240px;margin:0 auto;padding:40px 24px 96px;display:grid;grid-template-columns:220px minmax(0,1fr);gap:56px}
+@media (max-width:900px){.wrap{grid-template-columns:1fr;gap:24px}}
+nav.toc{position:sticky;top:24px;align-self:start;font-size:13px;line-height:1.45}
+@media (max-width:900px){nav.toc{position:static}}
+nav.toc .eyebrow{margin-bottom:10px}
+nav.toc ol{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:5px;border-left:1px solid var(--rule)}
+nav.toc a{display:block;padding:2px 0 2px 12px;color:var(--ink-2);text-decoration:none;border-left:2px solid transparent;margin-left:-1px}
+nav.toc a:hover,nav.toc a:focus-visible{color:var(--ink);border-left-color:var(--accent);outline:none}
+main{max-width:800px}
+.eyebrow{font-size:11.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3);font-weight:600}
+h1,h2,h3{font-family:"Bricolage Grotesque",Manrope,sans-serif;text-wrap:balance;line-height:1.1;margin:0}
+h1{font-size:44px;font-weight:700;letter-spacing:-.02em;margin:10px 0 18px}
+h2{font-size:28px;font-weight:600;letter-spacing:-.01em;margin:72px 0 16px;padding-top:26px;border-top:1px solid var(--rule)}
+h3{font-size:19px;font-weight:600;margin:34px 0 8px}
+p{margin:0 0 16px;max-width:70ch}
+.lede{font-size:19px;line-height:1.5;color:var(--ink-2);max-width:62ch}
+.meta{display:flex;flex-wrap:wrap;gap:8px 20px;font-size:13px;color:var(--ink-3);margin-bottom:8px}
+.meta b{color:var(--ink-2);font-weight:600}
+strong{font-weight:700}
+code{font-family:"JetBrains Mono",ui-monospace,Menlo,monospace;font-size:.88em;background:var(--code-bg);padding:1px 5px;border-radius:3px}
+.table-wrap{overflow-x:auto;margin:0 0 20px}
+table{border-collapse:collapse;width:100%;font-size:13.5px;min-width:560px}
+th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--rule);vertical-align:top}
+th{font-size:11.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3);font-weight:600}
+.chip{display:inline-block;font-size:11px;font-weight:700;letter-spacing:.04em;padding:2px 8px;border-radius:999px;white-space:nowrap}
+.chip.good{background:var(--chip-good);color:var(--good)}.chip.warn{background:var(--chip-warn);color:var(--warn)}.chip.risk{background:var(--chip-risk);color:var(--risk)}.chip.neutral{background:var(--chip-neutral);color:var(--ink-2)}
+.callout{border-left:3px solid var(--accent);padding:6px 0 6px 18px;margin:20px 0 24px;color:var(--ink-2)}
+.callout p:last-child{margin-bottom:0}
+ul.plain{padding-left:18px;margin:0 0 16px;max-width:70ch}
+ul.plain li{margin-bottom:7px}
+figure{margin:18px 0 28px}
+figure svg{max-width:100%;height:auto;display:block;font-family:Manrope,system-ui,sans-serif}
+figure svg text{fill:currentColor}
+figure svg .box{fill:var(--dia-fill);stroke:currentColor;stroke-width:1}
+figure svg .ext{fill:none;stroke:currentColor;stroke-width:1;stroke-dasharray:4 3}
+figure svg .hi{fill:var(--accent-soft);stroke:var(--accent);stroke-width:1.4}
+figure svg .lane{fill:none;stroke:var(--rule);stroke-width:1}
+figure svg .arrow{fill:none;stroke:currentColor;stroke-width:1.2}
+figure svg .arrow-hi{fill:none;stroke:var(--accent);stroke-width:1.6}
+figure svg .arrow-dash{fill:none;stroke:currentColor;stroke-width:1.2;stroke-dasharray:4 3}
+figure svg .t{font-size:12px}
+figure svg .tb{font-size:12.5px;font-weight:700}
+figure svg .ts{font-size:10.5px;fill:var(--ink-3)}
+figure svg .tl{font-size:10.5px}
+figure svg .mono{font-family:"JetBrains Mono",monospace;font-size:10.5px}
+figcaption{font-size:13px;color:var(--ink-2);margin-top:8px;max-width:70ch}
+.footnote{font-size:13px;color:var(--ink-3);border-top:1px solid var(--rule);padding-top:16px;margin-top:56px}
+@media (prefers-reduced-motion:no-preference){html{scroll-behavior:smooth}}
+</style>
+
+<div class="wrap">
+<nav class="toc" aria-label="Contents">
+  <div class="eyebrow">Contents</div>
+  <ol>
+    <li><a href="#scope">1 · Scope and quality goals</a></li>
+    <li><a href="#context">2 · System context</a></li>
+    <li><a href="#containers">3 · Containers</a></li>
+    <li><a href="#components">4 · Components</a></li>
+    <li><a href="#data">5 · Data architecture</a></li>
+    <li><a href="#runtime">6 · Runtime views</a></li>
+    <li><a href="#integration">7 · Integration</a></li>
+    <li><a href="#security">8 · Security and tenancy</a></li>
+    <li><a href="#deploy">9 · Deployment and scaling</a></li>
+    <li><a href="#xcut">10 · Cross-cutting concerns</a></li>
+    <li><a href="#decisions">11 · Key design decisions</a></li>
+    <li><a href="#risks">12 · Risks</a></li>
+  </ol>
+</nav>
+
+<main>
+<div class="eyebrow">High-level design · v1 · September 2026</div>
+<h1>BIDE High-Level Design</h1>
+<p class="lede">The system-level design of the Business IDE: what the parts are, how they talk, where data lives, what a request and a background pass move through, how sources plug in, where the trust boundaries sit, and the decisions that shape all of it.</p>
+<div class="meta"><span><b>Companion documents</b> BIDE Build Reference (mechanism detail per field) · BIDE Stage Review (status and gaps) · The Business IDE reference (product rationale)</span></div>
+
+<h2 id="scope">1 · Scope and quality goals</h2>
+<p><strong>In scope.</strong> A multi-tenant platform that ingests a company's operating data from its ERPs and other sources, normalises it into one canonical model, serves a decision-oriented dashboard, answers questions with cited, confidence-labelled numbers, runs background watchers that prepare actions, and executes approved actions through outbound channels and write-backs. Group-level views across sister companies. Adapters for TranzAct, Zoho Books and Tally (via an on-premises bridge).</p>
+<p><strong>Out of scope for v1.</strong> Being the statutory ledger (BIDE posts to one; §7.4 of the Build Reference stages the path); real-time shop-floor telemetry; a self-serve onboarding flow.</p>
+
+<div class="table-wrap"><table>
+<thead><tr><th>Quality goal</th><th>Target</th><th>How the design meets it</th></tr></thead>
+<tbody>
+<tr><td>Numeric honesty</td><td>0 uncited money figures shipped, ever</td><td>Numbers only from deterministic queries; numeric guard on every model output; eval ship-gate in CI</td></tr>
+<tr><td>Safe autonomy</td><td>Money and regulator actions never execute without a human</td><td>Side-effect classes on every tool; deterministic gate; ledger with idempotency; autonomy earned per watcher from approval history</td></tr>
+<tr><td>Tenant isolation</td><td>No cross-workspace read or write</td><td><code>company_id</code> injected by the layer on every query; model never chooses it; allowlist-based auth</td></tr>
+<tr><td>Freshness</td><td>Hourly for API sources, 15 min for Tally while open; staleness always visible</td><td>Scheduled incremental syncs; per-panel freshness envelope; <code>data.stale</code> event</td></tr>
+<tr><td>Resilience</td><td>A failed sync never blanks data; a failed model call never fails a request</td><td>Upsert-only writes; deterministic engine as fallback; buffered bridge queue</td></tr>
+<tr><td>Auditability</td><td>Every number and every action traceable</td><td>Raw rows kept forever; provenance on canonical rows; episodic log of every pass</td></tr>
+<tr><td>Cost</td><td>Cost per question tracked and bounded</td><td>Pre-aggregated tool outputs; two model tiers; cached prompt prefix; deterministic detectors before any model call</td></tr>
+</tbody></table></div>
+
+<h2 id="context">2 · System context</h2>
+<figure>
+<svg viewBox="0 0 880 400" role="img" aria-label="System context: five kinds of users on the left use BIDE in the centre; BIDE reads from TranzAct, Zoho and Tally (through a bridge), calls the Claude model, sends through email and WhatsApp providers, and exposes tools to MCP clients.">
+<defs><marker id="a1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker></defs>
+<g class="t">
+<rect x="20" y="40" width="150" height="34" rx="4" class="box"/><text x="95" y="61" text-anchor="middle">Owner / CEO</text>
+<rect x="20" y="92" width="150" height="34" rx="4" class="box"/><text x="95" y="113" text-anchor="middle">CFO / accountant</text>
+<rect x="20" y="144" width="150" height="34" rx="4" class="box"/><text x="95" y="165" text-anchor="middle">CA</text>
+<rect x="20" y="196" width="150" height="34" rx="4" class="box"/><text x="95" y="217" text-anchor="middle">Sales head</text>
+<rect x="20" y="248" width="150" height="34" rx="4" class="box"/><text x="95" y="269" text-anchor="middle">Group CFO (Vinayak)</text>
+</g>
+<rect x="300" y="40" width="270" height="242" rx="8" class="hi"/>
+<text x="435" y="75" text-anchor="middle" class="tb" style="font-size:16px">BIDE</text>
+<text x="435" y="100" text-anchor="middle" class="t">Dashboard · Inbox · Ask · Brief</text>
+<text x="435" y="122" text-anchor="middle" class="t">Canonical model · Memory</text>
+<text x="435" y="144" text-anchor="middle" class="t">Agent runtime · Watchers · Gate</text>
+<text x="435" y="166" text-anchor="middle" class="t">Action ledger · Executors</text>
+<text x="435" y="210" text-anchor="middle" class="ts">one workspace per company</text>
+<text x="435" y="226" text-anchor="middle" class="ts">groups of workspaces for Vinayak</text>
+<text x="435" y="262" text-anchor="middle" class="ts">users: browser + WhatsApp brief; questions and approvals</text>
+<line x1="170" y1="57" x2="300" y2="100" class="arrow" marker-end="url(#a1)"/>
+<line x1="170" y1="109" x2="300" y2="128" class="arrow" marker-end="url(#a1)"/>
+<line x1="170" y1="161" x2="300" y2="156" class="arrow" marker-end="url(#a1)"/>
+<line x1="170" y1="213" x2="300" y2="184" class="arrow" marker-end="url(#a1)"/>
+<line x1="170" y1="265" x2="300" y2="212" class="arrow" marker-end="url(#a1)"/>
+<g class="t">
+<rect x="700" y="30" width="160" height="34" rx="4" class="ext"/><text x="780" y="51" text-anchor="middle">TranzAct (reporting API)</text>
+<rect x="700" y="82" width="160" height="34" rx="4" class="ext"/><text x="780" y="103" text-anchor="middle">Zoho Books (REST)</text>
+<rect x="700" y="134" width="160" height="34" rx="4" class="ext"/><text x="780" y="155" text-anchor="middle">Tally ← Bridge (on-prem)</text>
+<rect x="700" y="196" width="160" height="34" rx="4" class="ext"/><text x="780" y="217" text-anchor="middle">Claude (Anthropic API)</text>
+<rect x="700" y="248" width="160" height="34" rx="4" class="ext"/><text x="780" y="269" text-anchor="middle">Email · WhatsApp providers</text>
+<rect x="700" y="300" width="160" height="34" rx="4" class="ext"/><text x="780" y="321" text-anchor="middle">MCP clients</text>
+</g>
+<line x1="700" y1="47" x2="570" y2="70" class="arrow" marker-end="url(#a1)"/>
+<line x1="700" y1="99" x2="570" y2="99" class="arrow" marker-end="url(#a1)"/>
+<line x1="700" y1="146" x2="570" y2="128" class="arrow" marker-end="url(#a1)"/>
+<line x1="570" y1="150" x2="700" y2="158" class="arrow-dash" marker-end="url(#a1)"/>
+<line x1="570" y1="185" x2="700" y2="213" class="arrow" marker-end="url(#a1)"/>
+<line x1="570" y1="230" x2="700" y2="265" class="arrow" marker-end="url(#a1)"/>
+<line x1="700" y1="317" x2="570" y2="260" class="arrow-dash" marker-end="url(#a1)"/>
+<text x="635" y="36" text-anchor="middle" class="ts">reads (pull, hourly)</text>
+<text x="635" y="91" text-anchor="middle" class="ts">reads</text>
+<text x="635" y="176" text-anchor="middle" class="ts">write-back (stage 2+)</text>
+<text x="640" y="192" text-anchor="middle" class="ts">tool-use turns</text>
+<text x="650" y="238" text-anchor="middle" class="ts">approved sends only</text>
+<text x="660" y="304" text-anchor="middle" class="ts">tool calls (later)</text>
+<line x1="20" y1="360" x2="60" y2="360" class="arrow"/><text x="68" y="364" class="ts">data or command today</text>
+<line x1="220" y1="360" x2="260" y2="360" class="arrow-dash"/><text x="268" y="364" class="ts">planned / conditional flow</text>
+<rect x="440" y="352" width="30" height="16" class="ext"/><text x="478" y="364" class="ts">external system</text>
+</svg>
+<figcaption>Everything on the right is pulled from or pushed to by BIDE; nothing external calls into BIDE except the Tally bridge (an on-premises BIDE component) and, later, MCP clients.</figcaption>
+</figure>
+<p>Users interact through the web app and, for the morning brief, through WhatsApp or email. Sources are read by pull on a schedule (TranzAct and Zoho over the internet; Tally over its LAN gateway via the bridge). The model is called only by the agent runtime and only with tool schemas and capped evidence. Outbound channels are reached only by executors after a human decision. External clients reach the tool registry over MCP in a later stage.</p>
+
+<h2 id="containers">3 · Containers</h2>
+<figure>
+<svg viewBox="0 0 900 480" role="img" aria-label="Container view: browser talks to the Next.js BFF on Vercel; the BFF forwards with internal key and workspace id to the FastAPI API on Railway; API and worker share Supabase Postgres; the worker runs syncs, detectors, watchers and the daily brief; the Tally bridge on premises pushes batches to the API; the model and outbound providers are called by the shared code in API and worker.">
+<defs><marker id="a2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker></defs>
+<rect x="20" y="20" width="200" height="120" rx="6" class="lane"/><text x="30" y="38" class="ts">USER DEVICE</text>
+<rect x="250" y="20" width="200" height="120" rx="6" class="lane"/><text x="260" y="38" class="ts">VERCEL</text>
+<rect x="480" y="20" width="400" height="300" rx="6" class="lane"/><text x="490" y="38" class="ts">RAILWAY</text>
+<rect x="480" y="340" width="400" height="120" rx="6" class="lane"/><text x="490" y="358" class="ts">SUPABASE</text>
+<rect x="20" y="180" width="430" height="120" rx="6" class="lane"/><text x="30" y="198" class="ts">CUSTOMER PREMISES (LAN)</text>
+<rect x="20" y="340" width="430" height="120" rx="6" class="lane"/><text x="30" y="358" class="ts">THIRD-PARTY SERVICES</text>
+<g class="t">
+<rect x="40" y="60" width="160" height="60" rx="4" class="box"/><text x="120" y="85" text-anchor="middle" class="tb">Browser</text><text x="120" y="103" text-anchor="middle" class="ts">Next.js app · SWR</text>
+<rect x="270" y="60" width="160" height="60" rx="4" class="box"/><text x="350" y="85" text-anchor="middle" class="tb">BFF route handlers</text><text x="350" y="103" text-anchor="middle" class="ts">Supabase session · proxy.ts</text>
+<rect x="510" y="60" width="160" height="70" rx="4" class="hi"/><text x="590" y="85" text-anchor="middle" class="tb">API (FastAPI)</text><text x="590" y="103" text-anchor="middle" class="ts">auth · panels · ask · ledger</text><text x="590" y="118" text-anchor="middle" class="ts">connections · ingest</text>
+<rect x="700" y="60" width="160" height="70" rx="4" class="hi"/><text x="780" y="85" text-anchor="middle" class="tb">Worker</text><text x="780" y="103" text-anchor="middle" class="ts">syncs · rebuild · detectors</text><text x="780" y="118" text-anchor="middle" class="ts">watchers · brief · executors</text>
+<rect x="510" y="200" width="350" height="80" rx="4" class="box"/><text x="685" y="225" text-anchor="middle" class="tb">Shared Python package</text><text x="685" y="245" text-anchor="middle" class="ts">adapters · canonical · query · tools · runtime · safety · memory</text><text x="685" y="263" text-anchor="middle" class="ts">two processes today (APScheduler inside the API)</text>
+<rect x="40" y="220" width="180" height="60" rx="4" class="box"/><text x="130" y="243" text-anchor="middle" class="tb">Tally Bridge</text><text x="130" y="261" text-anchor="middle" class="ts">Windows service · SQLite queue</text>
+<rect x="260" y="220" width="170" height="60" rx="4" class="ext"/><text x="345" y="243" text-anchor="middle" class="tb">TallyPrime</text><text x="345" y="261" text-anchor="middle" class="ts">XML gateway :9000</text>
+<rect x="510" y="380" width="350" height="60" rx="4" class="box"/><text x="685" y="403" text-anchor="middle" class="tb">Postgres (+ pgvector later)</text><text x="685" y="423" text-anchor="middle" class="ts">raw · canonical · memory · events · actions · brain_runs · snapshots</text>
+<rect x="40" y="380" width="120" height="60" rx="4" class="ext"/><text x="100" y="403" text-anchor="middle" class="tb">Claude</text><text x="100" y="423" text-anchor="middle" class="ts">Anthropic API</text>
+<rect x="175" y="380" width="130" height="60" rx="4" class="ext"/><text x="240" y="403" text-anchor="middle" class="tb">Resend / SMTP</text><text x="240" y="423" text-anchor="middle" class="ts">WhatsApp BSP</text>
+<rect x="320" y="380" width="110" height="60" rx="4" class="ext"/><text x="375" y="403" text-anchor="middle" class="tb">TranzAct</text><text x="375" y="423" text-anchor="middle" class="ts">Zoho Books</text>
+</g>
+<line x1="200" y1="90" x2="270" y2="90" class="arrow" marker-end="url(#a2)"/><text x="235" y="82" text-anchor="middle" class="ts">HTTPS</text>
+<line x1="430" y1="90" x2="510" y2="90" class="arrow" marker-end="url(#a2)"/><text x="470" y="72" text-anchor="middle" class="ts">Bearer · internal key</text><text x="470" y="108" text-anchor="middle" class="ts">workspace id</text>
+<line x1="590" y1="130" x2="590" y2="200" class="arrow" marker-end="url(#a2)"/><text x="604" y="168" class="ts">uses</text>
+<line x1="780" y1="130" x2="780" y2="200" class="arrow" marker-end="url(#a2)"/><text x="794" y="168" class="ts">uses</text>
+<line x1="670" y1="95" x2="700" y2="95" class="arrow-dash" marker-end="url(#a2)"/><text x="685" y="150" text-anchor="middle" class="ts">enqueues</text>
+<line x1="685" y1="280" x2="685" y2="380" class="arrow" marker-end="url(#a2)"/><text x="699" y="335" class="ts">SQL</text>
+<line x1="220" y1="250" x2="260" y2="250" class="arrow" marker-end="url(#a2)"/><text x="240" y="242" text-anchor="middle" class="ts">XML</text>
+<path d="M220,232 C300,160 420,125 510,125" class="arrow" marker-end="url(#a2)"/><text x="330" y="168" text-anchor="middle" class="ts">TLS push: batches · heartbeat</text>
+<path d="M160,395 C330,330 430,250 510,240" class="arrow-dash" marker-end="url(#a2)"/><text x="300" y="320" text-anchor="middle" class="ts">tool-use turns</text>
+<path d="M305,400 C400,340 460,270 510,250" class="arrow" marker-end="url(#a2)"/><text x="420" y="330" text-anchor="middle" class="ts">approved sends</text>
+<path d="M430,400 C470,340 480,290 510,262" class="arrow" marker-end="url(#a2)"/><text x="500" y="330" text-anchor="middle" class="ts">pull (hourly)</text>
+</svg>
+<figcaption>Two processes share one package: the API answers requests, the worker does everything that is scheduled or event-driven. The bridge is the only component outside the cloud and the only external thing that calls in.</figcaption>
+</figure>
+<div class="table-wrap"><table>
+<thead><tr><th>Container</th><th>Technology</th><th>Responsibility</th><th>Talks to</th></tr></thead>
+<tbody>
+<tr><td>Web app</td><td>Next.js 16, React 19, Tailwind 4, SWR</td><td>Dashboard, Pulse, Inbox, Ask, Settings, onboarding; per-role layouts</td><td>BFF only</td></tr>
+<tr><td>BFF</td><td>Next.js route handlers, <code>@supabase/ssr</code></td><td>Session gate; forward with Bearer token, internal key, workspace id; never exposes backend URL</td><td>API</td></tr>
+<tr><td>API</td><td>FastAPI, Python 3.11</td><td>Token verification, allowlist, tenancy; panels; Ask; ledger decisions; connections; ingest endpoint for the bridge</td><td>Postgres, model, executors</td></tr>
+<tr><td>Worker</td><td>APScheduler in-process now → Celery + Redis</td><td>Hourly syncs, canonical rebuild, snapshots, detectors, event consumption, watchers, daily brief, executors</td><td>Postgres, sources, model, channels</td></tr>
+<tr><td>Database</td><td>Supabase Postgres, pgvector later</td><td>All seven stores; RLS not relied on — the API enforces tenancy</td><td>—</td></tr>
+<tr><td>Tally Bridge</td><td>Signed Windows service, SQLite queue</td><td>Pull from Tally over XML, buffer, push; later write-back</td><td>Tally :9000, API</td></tr>
+<tr><td>Model</td><td>Anthropic API behind <code>ModelPort</code></td><td>Tool-use turns, routing, phrasing; two tiers</td><td>—</td></tr>
+<tr><td>Channels</td><td>Resend/SMTP; WhatsApp BSP</td><td>Deliver approved messages; delivery receipts back to the ledger</td><td>—</td></tr>
+</tbody></table></div>
+
+<h2 id="components">4 · Components</h2>
+<p>Inside the shared package, dependencies point one way only. Nothing below imports something above it, which is what allows a source, a tool, a runner or the model to change without touching the core.</p>
+<figure>
+<svg viewBox="0 0 860 430" role="img" aria-label="Component layering from bottom to top: config and domain; database gateway; adapters and canonical builders; query repository and service; memory, tools, model port; safety spine and reasoning engine; agent runtime with runners and watchers; API routes, worker jobs, eval harness. Arrows show imports pointing downward only.">
+<defs><marker id="a3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker></defs>
+<g class="t">
+<!-- row 1 top -->
+<rect x="40" y="20" width="240" height="44" rx="4" class="box"/><text x="160" y="39" text-anchor="middle" class="tb">api/routes</text><text x="160" y="55" text-anchor="middle" class="ts">auth · workspaces · dashboard · connections · ingest</text>
+<rect x="310" y="20" width="240" height="44" rx="4" class="box"/><text x="430" y="39" text-anchor="middle" class="tb">worker/jobs</text><text x="430" y="55" text-anchor="middle" class="ts">sync · rebuild · detect · consume · brief</text>
+<rect x="580" y="20" width="240" height="44" rx="4" class="box"/><text x="700" y="39" text-anchor="middle" class="tb">eval/harness</text><text x="700" y="55" text-anchor="middle" class="ts">golden cases · trajectories · action cases</text>
+<!-- row 2 -->
+<rect x="40" y="100" width="380" height="44" rx="4" class="hi"/><text x="230" y="119" text-anchor="middle" class="tb">agents (AgentRunner port)</text><text x="230" y="135" text-anchor="middle" class="ts">native loop · adk adapter · watcher runner · gate</text>
+<rect x="450" y="100" width="370" height="44" rx="4" class="box"/><text x="635" y="119" text-anchor="middle" class="tb">workflows</text><text x="635" y="135" text-anchor="middle" class="ts">declarative watcher rows · detectors (SQL) · event catalogue</text>
+<!-- row 3 -->
+<rect x="40" y="180" width="240" height="44" rx="4" class="hi"/><text x="160" y="199" text-anchor="middle" class="tb">reasoning/safety</text><text x="160" y="215" text-anchor="middle" class="ts">grounded · confidence · safe_summary</text>
+<rect x="310" y="180" width="240" height="44" rx="4" class="box"/><text x="430" y="199" text-anchor="middle" class="tb">reasoning/engine</text><text x="430" y="215" text-anchor="middle" class="ts">deterministic router · handlers · fallback</text>
+<rect x="580" y="180" width="240" height="44" rx="4" class="box"/><text x="700" y="199" text-anchor="middle" class="tb">ledger / executors</text><text x="700" y="215" text-anchor="middle" class="ts">actions · notify · write-back · idempotency</text>
+<!-- row 4 -->
+<rect x="40" y="260" width="240" height="44" rx="4" class="hi"/><text x="160" y="279" text-anchor="middle" class="tb">tools</text><text x="160" y="295" text-anchor="middle" class="ts">contract · registry · executor · read/action</text>
+<rect x="310" y="260" width="240" height="44" rx="4" class="box"/><text x="430" y="279" text-anchor="middle" class="tb">memory</text><text x="430" y="295" text-anchor="middle" class="ts">profile · facts · summaries · threads · episodic</text>
+<rect x="580" y="260" width="240" height="44" rx="4" class="box"/><text x="700" y="279" text-anchor="middle" class="tb">model (ModelPort)</text><text x="700" y="295" text-anchor="middle" class="ts">anthropic · fast/smart tiers · cache</text>
+<!-- row 5 -->
+<rect x="40" y="340" width="380" height="44" rx="4" class="box"/><text x="230" y="359" text-anchor="middle" class="tb">query (the one read door)</text><text x="230" y="375" text-anchor="middle" class="ts">schema/queries repository → QueryService</text>
+<rect x="450" y="340" width="370" height="44" rx="4" class="box"/><text x="635" y="359" text-anchor="middle" class="tb">adapters + canonical</text><text x="635" y="375" text-anchor="middle" class="ts">tranzact · zoho · tally · builders · ingest_issues</text>
+<!-- row 6 -->
+<rect x="40" y="400" width="780" height="26" rx="4" class="box"/><text x="430" y="417" text-anchor="middle" class="ts">domain (Evidence · Claim · Answer · Money) · db/session · config</text>
+</g>
+<!-- arrows: a few representative downward imports -->
+<line x1="160" y1="64" x2="160" y2="100" class="arrow" marker-end="url(#a3)"/>
+<line x1="430" y1="64" x2="430" y2="100" class="arrow" marker-end="url(#a3)"/>
+<line x1="700" y1="64" x2="700" y2="100" class="arrow" marker-end="url(#a3)"/>
+<line x1="160" y1="144" x2="160" y2="180" class="arrow" marker-end="url(#a3)"/>
+<line x1="330" y1="144" x2="430" y2="180" class="arrow" marker-end="url(#a3)"/>
+<line x1="635" y1="144" x2="700" y2="180" class="arrow" marker-end="url(#a3)"/>
+<line x1="160" y1="224" x2="160" y2="260" class="arrow" marker-end="url(#a3)"/>
+<line x1="430" y1="224" x2="430" y2="260" class="arrow" marker-end="url(#a3)"/>
+<line x1="700" y1="224" x2="700" y2="260" class="arrow" marker-end="url(#a3)"/>
+<line x1="160" y1="304" x2="160" y2="340" class="arrow" marker-end="url(#a3)"/>
+<line x1="700" y1="304" x2="635" y2="340" class="arrow" marker-end="url(#a3)"/>
+<line x1="230" y1="384" x2="230" y2="400" class="arrow" marker-end="url(#a3)"/>
+<line x1="635" y1="384" x2="635" y2="400" class="arrow" marker-end="url(#a3)"/>
+<text x="840" y="230" transform="rotate(90 840 230)" text-anchor="middle" class="ts">imports point down only</text>
+</svg>
+<figcaption>Highlighted components are the swap points: the runner port, the safety spine and the tool contract are the seams that let orchestrator, model and sources change without touching the rest.</figcaption>
+</figure>
+
+<div class="table-wrap"><table>
+<thead><tr><th>Component</th><th>Responsibility</th><th>Key interface</th></tr></thead>
+<tbody>
+<tr><td>adapters</td><td>Authenticate, fetch, paginate, throttle, back off; land raw rows</td><td><code>fetch_report()</code> / <code>fetch_all()</code>; bridge ingest handler</td></tr>
+<tr><td>canonical</td><td>Rebuild canonical objects from raw; log unmappables; refresh summaries and snapshots</td><td><code>rebuild_canonical(conn, company_id)</code></td></tr>
+<tr><td>query</td><td>Typed, capped, company-scoped aggregations; the only read path for panels and tools</td><td>~60 functions on <code>QueryService</code></td></tr>
+<tr><td>tools</td><td>Declare tools; validate inputs; execute reads; propose non-reads to the ledger</td><td><code>Tool</code>, <code>ToolResult</code>, <code>execute(ctx, tool, args)</code></td></tr>
+<tr><td>memory</td><td>Profile, facts (supersede/decay), summaries, threads, episodic log</td><td><code>write_fact</code>, <code>active_facts</code>, <code>refresh_customer_summaries</code>, <code>record_run</code></td></tr>
+<tr><td>model</td><td>Provider-agnostic chat with tools, tiers, caching</td><td><code>ModelPort.chat(system, messages, tools)</code></td></tr>
+<tr><td>reasoning/safety</td><td>Grounding, numeric guard, confidence, fallback text</td><td><code>grounded()</code>, <code>confidence()</code>, <code>safe_summary()</code></td></tr>
+<tr><td>agents</td><td>Run a trigger through the loop with a chosen runner; apply the gate</td><td><code>AgentRunner.run(conn, company_id, trigger, context)</code></td></tr>
+<tr><td>workflows</td><td>Watcher definitions, SQL detectors, event types, cooldowns</td><td><code>detect(company_id) → events</code>; <code>consume(event)</code></td></tr>
+<tr><td>ledger / executors</td><td>Propose, decide, execute, record outcome; channels and write-backs</td><td><code>propose()</code>, <code>decide()</code>, <code>execute()</code></td></tr>
+</tbody></table></div>
+
+<h2 id="data">5 · Data architecture</h2>
+<p>Seven stores with different write rules, all in one Postgres, all keyed by <code>company_id</code> and joined through the entity reference <code>type:code</code>.</p>
+<figure>
+<svg viewBox="0 0 900 400" role="img" aria-label="Data flow between the seven stores: sources land in raw tables; a rebuild derives canonical tables and flat views, which in turn refresh entity summaries and daily snapshots and feed detectors; detectors write events; watchers read canonical, memory and history and write proposals to the actions ledger; executions write outcomes back to actions and to the episodic log; owner corrections write memory facts; the knowledge plane sits apart and meets the rest only at the tool interface.">
+<defs><marker id="a4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker></defs>
+<g class="t">
+<rect x="20" y="40" width="130" height="50" rx="4" class="ext"/><text x="85" y="61" text-anchor="middle" class="tb">Sources</text><text x="85" y="78" text-anchor="middle" class="ts">API · bridge · CSV</text>
+<rect x="200" y="40" width="150" height="50" rx="4" class="box"/><text x="275" y="61" text-anchor="middle" class="tb">1 · Raw</text><text x="275" y="78" text-anchor="middle" class="ts">tz_* zb_* ty_* · kept forever</text>
+<rect x="400" y="40" width="170" height="50" rx="4" class="hi"/><text x="485" y="61" text-anchor="middle" class="tb">2 · Canonical</text><text x="485" y="78" text-anchor="middle" class="ts">canon_* + _flat views</text>
+<rect x="620" y="40" width="130" height="50" rx="4" class="box"/><text x="685" y="61" text-anchor="middle" class="tb">ingest_issues</text><text x="685" y="78" text-anchor="middle" class="ts">what wouldn't map</text>
+<rect x="400" y="130" width="170" height="50" rx="4" class="box"/><text x="485" y="151" text-anchor="middle" class="tb">6 · History</text><text x="485" y="168" text-anchor="middle" class="ts">*_daily_snapshot</text>
+<rect x="620" y="130" width="130" height="50" rx="4" class="box"/><text x="685" y="151" text-anchor="middle" class="tb">3 · Memory</text><text x="685" y="168" text-anchor="middle" class="ts">profile · facts · summaries</text>
+<rect x="200" y="220" width="150" height="50" rx="4" class="box"/><text x="275" y="241" text-anchor="middle" class="tb">4a · Events</text><text x="275" y="258" text-anchor="middle" class="ts">typed · idempotent</text>
+<rect x="400" y="220" width="170" height="50" rx="4" class="hi"/><text x="485" y="241" text-anchor="middle" class="tb">Watcher pass</text><text x="485" y="258" text-anchor="middle" class="ts">runtime + gate</text>
+<rect x="620" y="220" width="130" height="50" rx="4" class="box"/><text x="685" y="241" text-anchor="middle" class="tb">4b · Actions</text><text x="685" y="258" text-anchor="middle" class="ts">proposed → executed</text>
+<rect x="400" y="310" width="170" height="50" rx="4" class="box"/><text x="485" y="331" text-anchor="middle" class="tb">5 · Episodic</text><text x="485" y="348" text-anchor="middle" class="ts">brain_runs</text>
+<rect x="620" y="310" width="130" height="50" rx="4" class="box"/><text x="685" y="331" text-anchor="middle" class="tb">4c · Flags</text><text x="685" y="348" text-anchor="middle" class="ts">customer_flags …</text>
+<rect x="780" y="40" width="110" height="320" rx="4" class="ext"/><text x="835" y="200" text-anchor="middle" class="tb" transform="rotate(-90 835 200)">7 · Knowledge plane (pgvector + graph)</text>
+</g>
+<line x1="150" y1="65" x2="200" y2="65" class="arrow" marker-end="url(#a4)"/><text x="175" y="57" text-anchor="middle" class="ts">upsert</text>
+<line x1="350" y1="65" x2="400" y2="65" class="arrow" marker-end="url(#a4)"/><text x="375" y="57" text-anchor="middle" class="ts">rebuild</text>
+<line x1="570" y1="65" x2="620" y2="65" class="arrow" marker-end="url(#a4)"/>
+<line x1="485" y1="90" x2="485" y2="130" class="arrow" marker-end="url(#a4)"/><text x="530" y="112" text-anchor="middle" class="ts">snapshot daily</text>
+<line x1="570" y1="80" x2="640" y2="130" class="arrow" marker-end="url(#a4)"/><text x="660" y="98" text-anchor="middle" class="ts">refresh summaries</text>
+<line x1="440" y1="90" x2="300" y2="220" class="arrow" marker-end="url(#a4)"/><text x="330" y="150" text-anchor="middle" class="ts">detectors (SQL)</text>
+<line x1="350" y1="245" x2="400" y2="245" class="arrow" marker-end="url(#a4)"/><text x="375" y="237" text-anchor="middle" class="ts">consume</text>
+<line x1="485" y1="180" x2="485" y2="220" class="arrow" marker-end="url(#a4)"/><text x="515" y="205" class="ts">read</text>
+<line x1="640" y1="180" x2="560" y2="220" class="arrow" marker-end="url(#a4)"/><text x="620" y="205" text-anchor="middle" class="ts">read facts</text>
+<line x1="570" y1="245" x2="620" y2="245" class="arrow" marker-end="url(#a4)"/><text x="595" y="237" text-anchor="middle" class="ts">propose</text>
+<line x1="485" y1="270" x2="485" y2="310" class="arrow" marker-end="url(#a4)"/><text x="520" y="290" class="ts">record pass</text>
+<line x1="685" y1="270" x2="685" y2="310" class="arrow" marker-end="url(#a4)"/><text x="720" y="295" class="ts">leave state</text>
+<line x1="620" y1="265" x2="570" y2="325" class="arrow-dash" marker-end="url(#a4)"/><text x="600" y="308" text-anchor="middle" class="ts">outcome</text>
+<path d="M685,220 C685,200 685,190 685,180" class="arrow-dash" marker-end="url(#a4)"/><text x="695" y="205" class="ts">correction → fact</text>
+<line x1="780" y1="245" x2="750" y2="245" class="arrow-dash"/><text x="765" y="236" text-anchor="middle" class="ts">tools only</text>
+<line x1="20" y1="385" x2="60" y2="385" class="arrow"/><text x="68" y="389" class="ts">write / derive</text>
+<line x1="180" y1="385" x2="220" y2="385" class="arrow-dash"/><text x="228" y="389" class="ts">feedback path</text>
+</svg>
+<figcaption>Raw is the only store a source writes; everything else is derived or written by BIDE itself. Money figures come from stores 2 and 6 only; the knowledge plane can never be the source of a number.</figcaption>
+</figure>
+
+<div class="table-wrap"><table>
+<thead><tr><th>Store</th><th>Tables</th><th>Write rule</th><th>Retention</th></tr></thead>
+<tbody>
+<tr><td>1 Raw</td><td><code>tz_*</code>, <code>zb_*</code>, <code>ty_*</code></td><td>Upsert on <code>(company_id, raw_id)</code>; never truncate</td><td>Forever</td></tr>
+<tr><td>2 Canonical</td><td><code>canon_*</code>, <code>canon_*_flat</code>, <code>canon_entity_alias</code>, <code>ingest_issues</code></td><td>Rebuilt from raw after every sync; upsert on <code>(company_id, source, source_ref)</code>; <code>source='bide'</code> rows are originals written by transactional screens</td><td>Forever</td></tr>
+<tr><td>3 Memory</td><td><code>business_profile</code>, <code>memory_fact</code>, <code>entity_summary</code>, <code>chat_thread</code>, <code>chat_turn</code></td><td>Facts supersede; stale on expiry or contradiction; summaries refreshed after rebuild</td><td>Forever (superseded kept)</td></tr>
+<tr><td>4 Bus &amp; ledger</td><td><code>events</code>, <code>actions</code>, <code>customer_flags</code>, <code>campaigns</code>, <code>campaign_targets</code></td><td>Events idempotent by key; actions append with status transitions; flags upserted per entity</td><td>Events pruned after processing + 90 d; actions forever</td></tr>
+<tr><td>5 Episodic</td><td><code>brain_runs</code></td><td>Append-only</td><td>Forever (compressed after 1 y)</td></tr>
+<tr><td>6 History</td><td><code>ar_daily_snapshot</code>, <code>ap_daily_snapshot</code>, <code>stock_daily_snapshot</code>, <code>pipeline_daily_snapshot</code></td><td>One insert batch per day per company</td><td>Forever (rows are tiny)</td></tr>
+<tr><td>7 Knowledge</td><td><code>knowledge_source</code>, <code>knowledge_chunk</code>, <code>knowledge_node</code>, <code>knowledge_edge</code></td><td>Chunked and embedded on upload; deduped by content hash</td><td>Until the owner removes the source</td></tr>
+<tr><td>Platform</td><td><code>companies</code>, <code>groups</code>, <code>group_members</code>, <code>users</code>, <code>user_layouts</code>, <code>tool_connections</code>, <code>workflows</code>, <code>tz_sync_runs</code>, <code>tz_sync_cursor</code>, <code>bridge_devices</code></td><td>Administrative</td><td>—</td></tr>
+</tbody></table></div>
+<p><strong>Referencing.</strong> Every store that points at a business thing does so with <code>entity_ref = type:code</code> using the canonical code, so a join across invoices, facts, tickets, actions and episodes is one equality. <code>canon_entity_alias</code> maps every source's spelling to that code, within a company and across a group.</p>
+
+<h2 id="runtime">6 · Runtime views</h2>
+<h3>6.1 A question</h3>
+<figure>
+<svg viewBox="0 0 900 330" role="img" aria-label="Sequence for a question: browser posts to BFF; BFF forwards to API with token, key and workspace; API resolves tenancy and loads context from memory; runtime calls the model with tool schemas; model requests tools; executor runs queries and returns evidence; model writes an answer; safety spine checks grounding and sets confidence; API saves the turn and returns.">
+<defs><marker id="a5" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker></defs>
+<g class="tb">
+<text x="60" y="24" text-anchor="middle">Browser</text><text x="200" y="24" text-anchor="middle">BFF</text><text x="340" y="24" text-anchor="middle">API</text><text x="480" y="24" text-anchor="middle">Runtime</text><text x="620" y="24" text-anchor="middle">Tools / DB</text><text x="770" y="24" text-anchor="middle">Model</text>
+</g>
+<g class="lane"><line x1="60" y1="34" x2="60" y2="320"/><line x1="200" y1="34" x2="200" y2="320"/><line x1="340" y1="34" x2="340" y2="320"/><line x1="480" y1="34" x2="480" y2="320"/><line x1="620" y1="34" x2="620" y2="320"/><line x1="770" y1="34" x2="770" y2="320"/></g>
+<g class="tl">
+<line x1="60" y1="55" x2="200" y2="55" class="arrow" marker-end="url(#a5)"/><text x="130" y="49" text-anchor="middle">POST /api/be/dashboard/ask</text>
+<line x1="200" y1="80" x2="340" y2="80" class="arrow" marker-end="url(#a5)"/><text x="270" y="74" text-anchor="middle">+Bearer +X-Internal-Key +X-Workspace-Id</text>
+<line x1="340" y1="105" x2="480" y2="105" class="arrow" marker-end="url(#a5)"/><text x="410" y="99" text-anchor="middle">verify · allowlist · company_id</text>
+<line x1="480" y1="128" x2="620" y2="128" class="arrow" marker-end="url(#a5)"/><text x="550" y="122" text-anchor="middle">load profile, facts, summary, turns</text>
+<line x1="480" y1="155" x2="770" y2="155" class="arrow-hi" marker-end="url(#a5)"/><text x="625" y="149" text-anchor="middle">chat(system, messages, read-tool schemas)</text>
+<line x1="770" y1="178" x2="480" y2="178" class="arrow-hi" marker-end="url(#a5)"/><text x="625" y="172" text-anchor="middle">tool_use(name, input)</text>
+<line x1="480" y1="200" x2="620" y2="200" class="arrow" marker-end="url(#a5)"/><text x="550" y="194" text-anchor="middle">execute → query (company_id injected)</text>
+<line x1="620" y1="220" x2="480" y2="220" class="arrow" marker-end="url(#a5)"/><text x="550" y="214" text-anchor="middle">data + Evidence + quality</text>
+<line x1="480" y1="242" x2="770" y2="242" class="arrow-hi" marker-end="url(#a5)"/><text x="625" y="236" text-anchor="middle">tool_result … (loop ≤ 5)</text>
+<line x1="770" y1="264" x2="480" y2="264" class="arrow-hi" marker-end="url(#a5)"/><text x="625" y="258" text-anchor="middle">final text</text>
+<rect x="405" y="272" width="150" height="20" rx="3" class="hi"/><text x="480" y="286" text-anchor="middle">safety: guard · confidence</text>
+<line x1="480" y1="308" x2="340" y2="308" class="arrow" marker-end="url(#a5)"/><text x="410" y="303" text-anchor="middle">Answer + evidence + label</text>
+<line x1="340" y1="318" x2="60" y2="318" class="arrow" marker-end="url(#a5)"/><text x="200" y="312" text-anchor="middle">save turn · respond</text>
+</g>
+</svg>
+<figcaption>The model sees tool schemas and capped tool results, never the database. If the model is unavailable or a figure fails the guard twice, the deterministic engine answers from the same tools.</figcaption>
+</figure>
+
+<h3>6.2 A background pass</h3>
+<figure>
+<svg viewBox="0 0 900 330" role="img" aria-label="Sequence for a background pass: sync lands raw rows; rebuild derives canonical and snapshots; detectors emit events; the worker consumes an event, runs the watcher through the runtime which gathers evidence and composes a draft under the guard; the gate decides confirm; a proposal is written to the ledger and the owner is notified; on approval the executor sends and records the outcome and episode.">
+<defs><marker id="a6" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker></defs>
+<g class="tb">
+<text x="70" y="24" text-anchor="middle">Source</text><text x="210" y="24" text-anchor="middle">Worker</text><text x="360" y="24" text-anchor="middle">DB</text><text x="510" y="24" text-anchor="middle">Runtime + gate</text><text x="660" y="24" text-anchor="middle">Owner (Inbox)</text><text x="810" y="24" text-anchor="middle">Channel</text>
+</g>
+<g class="lane"><line x1="70" y1="34" x2="70" y2="320"/><line x1="210" y1="34" x2="210" y2="320"/><line x1="360" y1="34" x2="360" y2="320"/><line x1="510" y1="34" x2="510" y2="320"/><line x1="660" y1="34" x2="660" y2="320"/><line x1="810" y1="34" x2="810" y2="320"/></g>
+<g class="tl">
+<line x1="210" y1="55" x2="70" y2="55" class="arrow" marker-end="url(#a6)"/><text x="140" y="49" text-anchor="middle">hourly pull / bridge push</text>
+<line x1="210" y1="78" x2="360" y2="78" class="arrow" marker-end="url(#a6)"/><text x="285" y="72" text-anchor="middle">upsert raw · rebuild canonical · snapshot</text>
+<line x1="210" y1="102" x2="360" y2="102" class="arrow" marker-end="url(#a6)"/><text x="285" y="96" text-anchor="middle">run detectors (SQL) → events</text>
+<line x1="360" y1="126" x2="210" y2="126" class="arrow" marker-end="url(#a6)"/><text x="285" y="120" text-anchor="middle">pending event: invoice.overdue{rung:2}</text>
+<line x1="210" y1="150" x2="510" y2="150" class="arrow-hi" marker-end="url(#a6)"/><text x="360" y="144" text-anchor="middle">run watcher(event) — gather tools, compose draft, numeric guard</text>
+<rect x="450" y="160" width="120" height="20" rx="3" class="hi"/><text x="510" y="174" text-anchor="middle">gate → confirm</text>
+<line x1="510" y1="196" x2="360" y2="196" class="arrow" marker-end="url(#a6)"/><text x="435" y="190" text-anchor="middle">actions: proposed + brain_runs</text>
+<line x1="510" y1="218" x2="660" y2="218" class="arrow" marker-end="url(#a6)"/><text x="585" y="212" text-anchor="middle">notify: 1 item waiting</text>
+<line x1="660" y1="244" x2="360" y2="244" class="arrow" marker-end="url(#a6)"/><text x="510" y="238" text-anchor="middle">decide: approve (edit?) / reject</text>
+<line x1="360" y1="268" x2="210" y2="268" class="arrow" marker-end="url(#a6)"/><text x="285" y="262" text-anchor="middle">approved action</text>
+<line x1="210" y1="290" x2="810" y2="290" class="arrow" marker-end="url(#a6)"/><text x="510" y="284" text-anchor="middle">executor: send (idempotent) → receipt</text>
+<line x1="210" y1="312" x2="360" y2="312" class="arrow-dash" marker-end="url(#a6)"/><text x="285" y="306" text-anchor="middle">executed · outcome · approval history</text>
+</g>
+</svg>
+<figcaption>Detection is deterministic SQL and costs nothing; the model is invited only after something has been detected, and only to word a draft that the guard then checks. The approval history feeds the gate's autonomy ladder.</figcaption>
+</figure>
+
+<h3>6.3 The gate</h3>
+<figure>
+<svg viewBox="0 0 900 200" role="img" aria-label="Gate decision: a proposed action enters; if side effect is money or regulator it always routes to human; otherwise if data is stale or the entity is unresolved it escalates; otherwise if the watcher's approval history has earned auto it runs after a cancellable hold; otherwise it waits for confirm in the inbox.">
+<defs><marker id="a7" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker></defs>
+<g class="t">
+<rect x="20" y="80" width="120" height="40" rx="4" class="box"/><text x="80" y="104" text-anchor="middle">proposed action</text>
+<rect x="190" y="70" width="150" height="60" rx="4" class="hi"/><text x="265" y="94" text-anchor="middle" class="tb">side_effect?</text><text x="265" y="112" text-anchor="middle" class="ts">read · writes · money · regulator</text>
+<rect x="400" y="70" width="150" height="60" rx="4" class="hi"/><text x="475" y="94" text-anchor="middle" class="tb">quality?</text><text x="475" y="112" text-anchor="middle" class="ts">data fresh · entity resolved</text>
+<rect x="610" y="70" width="150" height="60" rx="4" class="hi"/><text x="685" y="94" text-anchor="middle" class="tb">history?</text><text x="685" y="112" text-anchor="middle" class="ts">N unedited approvals · caps</text>
+<rect x="190" y="150" width="150" height="34" rx="4" class="box"/><text x="265" y="172" text-anchor="middle">HUMAN — always</text>
+<rect x="400" y="150" width="150" height="34" rx="4" class="box"/><text x="475" y="172" text-anchor="middle">ESCALATE — say what's missing</text>
+<rect x="610" y="150" width="150" height="34" rx="4" class="box"/><text x="685" y="172" text-anchor="middle">CONFIRM — Inbox</text>
+<rect x="780" y="80" width="110" height="40" rx="4" class="box"/><text x="835" y="99" text-anchor="middle">AUTO</text><text x="835" y="113" text-anchor="middle" class="ts">24 h cancellable hold</text>
+<rect x="190" y="20" width="150" height="30" rx="4" class="box"/><text x="265" y="39" text-anchor="middle">read → run inline</text>
+</g>
+<line x1="140" y1="100" x2="190" y2="100" class="arrow" marker-end="url(#a7)"/>
+<line x1="265" y1="70" x2="265" y2="50" class="arrow" marker-end="url(#a7)"/>
+<line x1="340" y1="100" x2="400" y2="100" class="arrow" marker-end="url(#a7)"/><text x="370" y="92" text-anchor="middle" class="ts">writes</text>
+<line x1="265" y1="130" x2="265" y2="150" class="arrow" marker-end="url(#a7)"/><text x="300" y="143" class="ts">money / regulator</text>
+<line x1="550" y1="100" x2="610" y2="100" class="arrow" marker-end="url(#a7)"/><text x="580" y="92" text-anchor="middle" class="ts">ok</text>
+<line x1="475" y1="130" x2="475" y2="150" class="arrow" marker-end="url(#a7)"/><text x="510" y="143" class="ts">stale / unresolved</text>
+<line x1="760" y1="100" x2="780" y2="100" class="arrow" marker-end="url(#a7)"/><text x="770" y="92" text-anchor="middle" class="ts">earned</text>
+<line x1="685" y1="130" x2="685" y2="150" class="arrow" marker-end="url(#a7)"/><text x="720" y="143" class="ts">not yet</text>
+</svg>
+<figcaption>Three questions in a fixed order. The first is answered by the tool's declared class, not by anything the model said; a rejection at any watcher demotes it back to confirm.</figcaption>
+</figure>
+
+<h2 id="integration">7 · Integration</h2>
+<p>Every source implements one contract — extract, map, load — and lands in raw before anything else touches it. The difference between sources is only where the extraction runs.</p>
+<figure>
+<svg viewBox="0 0 900 260" role="img" aria-label="Three adapter shapes side by side: TranzAct and Zoho are pulled by the cloud worker over HTTPS; Tally is pulled by the on-premises bridge over its LAN XML gateway, buffered in a local queue, and pushed to the cloud; CSV and email drops are watched folders or mailboxes. All three land in raw tables and share one mapper contract into canonical.">
+<defs><marker id="a8" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker></defs>
+<g class="t">
+<rect x="20" y="30" width="130" height="44" rx="4" class="ext"/><text x="85" y="49" text-anchor="middle" class="tb">TranzAct / Zoho</text><text x="85" y="65" text-anchor="middle" class="ts">cloud APIs</text>
+<rect x="20" y="110" width="130" height="44" rx="4" class="ext"/><text x="85" y="129" text-anchor="middle" class="tb">Tally</text><text x="85" y="145" text-anchor="middle" class="ts">LAN PC · XML :9000</text>
+<rect x="20" y="190" width="130" height="44" rx="4" class="ext"/><text x="85" y="209" text-anchor="middle" class="tb">CSV / email drop</text><text x="85" y="225" text-anchor="middle" class="ts">costs · contacts</text>
+<rect x="210" y="110" width="150" height="44" rx="4" class="box"/><text x="285" y="129" text-anchor="middle" class="tb">Bridge</text><text x="285" y="145" text-anchor="middle" class="ts">pull by ALTERID · SQLite queue</text>
+<rect x="410" y="30" width="190" height="204" rx="4" class="hi"/><text x="505" y="60" text-anchor="middle" class="tb">Worker / ingest API</text><text x="505" y="82" text-anchor="middle" class="ts">throttle · paginate</text><text x="505" y="98" text-anchor="middle" class="ts">validate (Pydantic)</text><text x="505" y="114" text-anchor="middle" class="ts">dedupe (content hash)</text><text x="505" y="130" text-anchor="middle" class="ts">upsert raw</text><text x="505" y="160" text-anchor="middle" class="ts">then per source:</text><text x="505" y="176" text-anchor="middle" class="ts">map() → CanonRow | Unmapped</text><text x="505" y="192" text-anchor="middle" class="ts">load() → canon_* upsert</text><text x="505" y="208" text-anchor="middle" class="ts">issues → ingest_issues</text>
+<rect x="650" y="90" width="110" height="44" rx="4" class="box"/><text x="705" y="109" text-anchor="middle" class="tb">Raw</text><text x="705" y="125" text-anchor="middle" class="ts">tz_ zb_ ty_</text>
+<rect x="650" y="160" width="110" height="44" rx="4" class="box"/><text x="705" y="179" text-anchor="middle" class="tb">Canonical</text><text x="705" y="195" text-anchor="middle" class="ts">one model</text>
+<rect x="790" y="90" width="100" height="114" rx="4" class="box"/><text x="840" y="140" text-anchor="middle" class="tb">Sync log</text><text x="840" y="158" text-anchor="middle" class="ts">runs · cursors</text><text x="840" y="172" text-anchor="middle" class="ts">bridge heartbeats</text>
+</g>
+<line x1="410" y1="52" x2="150" y2="52" class="arrow" marker-end="url(#a8)"/><text x="280" y="44" text-anchor="middle" class="ts">HTTPS pull, hourly, 8 req/min</text>
+<line x1="210" y1="132" x2="150" y2="132" class="arrow" marker-end="url(#a8)"/><text x="180" y="124" text-anchor="middle" class="ts">XML</text>
+<line x1="360" y1="132" x2="410" y2="132" class="arrow" marker-end="url(#a8)"/><text x="385" y="124" text-anchor="middle" class="ts">TLS push</text>
+<line x1="410" y1="212" x2="150" y2="212" class="arrow-dash" marker-end="url(#a8)"/><text x="280" y="204" text-anchor="middle" class="ts">watched folder / mailbox</text>
+<line x1="600" y1="112" x2="650" y2="112" class="arrow" marker-end="url(#a8)"/>
+<line x1="600" y1="182" x2="650" y2="182" class="arrow" marker-end="url(#a8)"/>
+<line x1="705" y1="134" x2="705" y2="160" class="arrow" marker-end="url(#a8)"/>
+<line x1="760" y1="147" x2="790" y2="147" class="arrow" marker-end="url(#a8)"/>
+<line x1="210" y1="146" x2="150" y2="146" class="arrow-dash" marker-end="url(#a8)"/><text x="180" y="168" text-anchor="middle" class="ts">write-back (later)</text>
+</svg>
+<figcaption>Only the extraction step differs: a cloud API is pulled from the worker, Tally is pulled on premises and relayed, files are watched. From raw onward the path is identical.</figcaption>
+</figure>
+<div class="table-wrap"><table>
+<thead><tr><th>Integration</th><th>Direction</th><th>Mechanism</th><th>Status</th></tr></thead>
+<tbody>
+<tr><td>TranzAct</td><td>Read</td><td>Reporting API, report ids resolved via catalogue, 8 req/min, page-walk with cursor</td><td><span class="chip good">Built</span></td></tr>
+<tr><td>Zoho Books</td><td>Read; write later</td><td>REST v3 with OAuth refresh token; contacts, items, invoices, bills, payments</td><td><span class="chip warn">Partial</span></td></tr>
+<tr><td>Tally</td><td>Read; write later</td><td>On-prem bridge → XML gateway; incremental by <code>ALTERID</code>; <code>Import Data</code> for write-back</td><td><span class="chip risk">To build</span></td></tr>
+<tr><td>CSV / email drop</td><td>Read</td><td>Upload screen, watched mailbox; same mapper</td><td><span class="chip risk">To build</span></td></tr>
+<tr><td>Email out</td><td>Write</td><td>Resend or SMTP; executor only</td><td><span class="chip good">Built</span></td></tr>
+<tr><td>WhatsApp</td><td>Write; read for support</td><td>Business API via a BSP; DLT registration</td><td><span class="chip risk">To build</span></td></tr>
+<tr><td>Model</td><td>Call</td><td>Anthropic API via <code>ModelPort</code>; tools-only</td><td><span class="chip good">Built</span></td></tr>
+<tr><td>MCP</td><td>Serve; consume</td><td>Registry published as an MCP server with per-client scopes; external MCP servers wrapped as external tools</td><td><span class="chip risk">To build</span></td></tr>
+<tr><td>e-Invoice / e-Way</td><td>Write</td><td>GSP APIs to the IRP and e-way bill system; needed only when BIDE issues invoices</td><td><span class="chip neutral">Stage 3</span></td></tr>
+</tbody></table></div>
+
+<h2 id="security">8 · Security and tenancy</h2>
+<figure>
+<svg viewBox="0 0 900 240" role="img" aria-label="Trust boundaries: browser holds only a Supabase session; the BFF holds the internal key and backend URL; the API verifies the token, checks the users allowlist, resolves and authorises the workspace, and injects company_id into every query; the database is reached only by API and worker; the bridge authenticates with a device certificate; secrets for sources are Fernet-encrypted at rest; the model receives no credentials and no raw rows.">
+<defs><marker id="a9" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker></defs>
+<g class="t">
+<rect x="20" y="40" width="130" height="120" rx="4" class="box"/><text x="85" y="64" text-anchor="middle" class="tb">Browser</text><text x="85" y="86" text-anchor="middle" class="ts">Supabase session</text><text x="85" y="102" text-anchor="middle" class="ts">no backend URL</text><text x="85" y="118" text-anchor="middle" class="ts">no internal key</text><text x="85" y="134" text-anchor="middle" class="ts">no ERP creds</text>
+<rect x="180" y="40" width="140" height="120" rx="4" class="box"/><text x="250" y="64" text-anchor="middle" class="tb">BFF</text><text x="250" y="86" text-anchor="middle" class="ts">INTERNAL_API_KEY</text><text x="250" y="102" text-anchor="middle" class="ts">FASTAPI_INTERNAL_URL</text><text x="250" y="118" text-anchor="middle" class="ts">forwards Bearer</text><text x="250" y="134" text-anchor="middle" class="ts">forwards workspace</text>
+<rect x="350" y="40" width="250" height="120" rx="4" class="hi"/><text x="475" y="64" text-anchor="middle" class="tb">API</text><text x="475" y="84" text-anchor="middle" class="ts">1 require_internal_key</text><text x="475" y="100" text-anchor="middle" class="ts">2 verify token (HS256 / JWKS)</text><text x="475" y="116" text-anchor="middle" class="ts">3 users allowlist → role, permissions</text><text x="475" y="132" text-anchor="middle" class="ts">4 require_workspace → company_id</text><text x="475" y="148" text-anchor="middle" class="ts">5 inject company_id into every query</text>
+<rect x="630" y="40" width="130" height="120" rx="4" class="box"/><text x="695" y="64" text-anchor="middle" class="tb">Postgres</text><text x="695" y="86" text-anchor="middle" class="ts">ERP creds: Fernet</text><text x="695" y="102" text-anchor="middle" class="ts">pay data: encrypted</text><text x="695" y="118" text-anchor="middle" class="ts">reached only by</text><text x="695" y="134" text-anchor="middle" class="ts">API + worker</text>
+<rect x="780" y="40" width="110" height="52" rx="4" class="ext"/><text x="835" y="60" text-anchor="middle" class="tb">Model</text><text x="835" y="78" text-anchor="middle" class="ts">schemas · evidence</text>
+<rect x="780" y="108" width="110" height="52" rx="4" class="box"/><text x="835" y="128" text-anchor="middle" class="tb">Bridge</text><text x="835" y="146" text-anchor="middle" class="ts">device cert · scoped</text>
+</g>
+<line x1="150" y1="100" x2="180" y2="100" class="arrow" marker-end="url(#a9)"/>
+<line x1="320" y1="100" x2="350" y2="100" class="arrow" marker-end="url(#a9)"/>
+<line x1="600" y1="100" x2="630" y2="100" class="arrow" marker-end="url(#a9)"/>
+<path d="M600,60 C680,20 740,20 780,55" class="arrow-dash" marker-end="url(#a9)"/><text x="690" y="26" text-anchor="middle" class="ts">tools-only; never credentials or raw rows</text>
+<path d="M780,150 C740,190 620,190 600,150" class="arrow" marker-end="url(#a9)"/><text x="690" y="195" text-anchor="middle" class="ts">POST /ingest/tally (mTLS)</text>
+<line x1="20" y1="215" x2="890" y2="215" class="lane"/>
+<text x="20" y="232" class="ts">Trust decreases left to right until the API; the API is the only place that decides who may see or approve what.</text>
+</svg>
+<figcaption>Five checks in the API, in order, on every business request. Nothing downstream of the API re-derives tenancy; nothing upstream holds a secret it does not need.</figcaption>
+</figure>
+<ul class="plain">
+<li><strong>Authentication.</strong> Supabase Auth issues sessions; the API verifies access tokens (HS256 secret or JWKS) and treats the <code>users</code> table as an allowlist — a valid account with no row is denied.</li>
+<li><strong>Authorisation.</strong> Role (owner / finance / accountant / sales / viewer) plus two explicit permissions: <em>may approve outbound messages</em>, <em>may approve money</em>. The Inbox and the decide endpoint check them. Group membership grants read across member workspaces only.</li>
+<li><strong>Tenancy.</strong> <code>company_id</code> is a parameter of every query function and is supplied by <code>require_workspace</code>, never by the model or the browser. Group reads iterate the caller's authorised member set.</li>
+<li><strong>Secrets.</strong> ERP credentials Fernet-encrypted in <code>tool_connections</code>, decrypted only in memory at sync time; platform secrets in environment; bridge devices hold a certificate scoped to one workspace and a named Tally company.</li>
+<li><strong>Model boundary.</strong> The model receives the system prompt, tool schemas and capped tool results. It never receives credentials, raw rows, or another tenant's data, and it cannot choose a tenant.</li>
+<li><strong>Action safety.</strong> Side-effect classes are declared in code, not inferred; the gate is deterministic; every send is idempotent and rate-capped; money and regulator actions have no auto path.</li>
+</ul>
+
+<h2 id="deploy">9 · Deployment and scaling</h2>
+<div class="table-wrap"><table>
+<thead><tr><th>Component</th><th>Today</th><th>Next</th><th>Trigger to move</th></tr></thead>
+<tbody>
+<tr><td>Web + BFF</td><td>Vercel, one project</td><td>Same</td><td>—</td></tr>
+<tr><td>API</td><td>Railway, one container, APScheduler in-process</td><td>Railway API + separate worker service; Celery + Redis</td><td>Sync or watcher runtime visibly competes with request latency, or a second replica is needed</td></tr>
+<tr><td>Database</td><td>Supabase direct connection</td><td>Supavisor pooled connections (H1); read replica (H5)</td><td>Connection exhaustion under concurrent panels; heavy detectors</td></tr>
+<tr><td>Cache</td><td>None (pre-aggregation)</td><td>Redis for KPI and Pulse endpoints (H2), invalidated on rebuild</td><td>Repeated identical panel reads dominate DB load</td></tr>
+<tr><td>Model path</td><td>Inline calls</td><td>Per-tenant rate limits, queue for background passes, streaming for Ask (H6)</td><td>Cost or latency spikes</td></tr>
+<tr><td>Bridge</td><td>—</td><td>Signed installer; auto-update channel; per-site health</td><td>First Tally company</td></tr>
+<tr><td>Vector store</td><td>—</td><td>pgvector in the same database</td><td>First document-driven workflow (Support, Legal)</td></tr>
+</tbody></table></div>
+<p>Vinayak's nine companies fit comfortably in the "today" column: syncs are rate-limited by the sources, not by us; detectors are SQL over tens of thousands of rows; the model is called only on detection or on demand. The first thing to break at outside-customer scale is Postgres connections, then in-process sync — both have named fixes above.</p>
+
+<h2 id="xcut">10 · Cross-cutting concerns</h2>
+<div class="table-wrap"><table>
+<thead><tr><th>Concern</th><th>Design</th></tr></thead>
+<tbody>
+<tr><td>Observability</td><td>Structured logs with request id and company id; <code>tz_sync_runs</code> per pipeline; <code>brain_runs</code> per pass with tools, latency, tokens, cost; connector health and bridge heartbeats on the Sync page; alerts as <code>data.stale</code> events</td></tr>
+<tr><td>Release gate</td><td>CI runs unit tests and the eval harness on every push; citation compliance must be 100%; action cases must pass; a watcher cannot be enabled for a workspace without its golden set</td></tr>
+<tr><td>Freshness</td><td>Every envelope carries <code>last_synced_at</code> and <code>stale</code>; every card shows it; tools carry <code>data_fresh</code> for the gate; hourly API pulls, 15-minute bridge pulls, daily snapshots</td></tr>
+<tr><td>Idempotency</td><td>Raw rows by content hash; canonical by <code>(company_id, source, source_ref)</code>; events by key; actions by <code>(tool, entity, rung)</code> in a window; sends by action id; write-backs by sync ledger</td></tr>
+<tr><td>Cost control</td><td>Deterministic detectors before any model call; capped tool payloads; two tiers; cached prefix; per-call cost logged; per-tenant budget with throttling</td></tr>
+<tr><td>Degradation</td><td>Source down → last data stands, marked stale · Model down → deterministic engine answers, watchers pause composing · Channel down → action stays approved, retry from Inbox · Bridge offline → queue grows, heartbeat alert · DB down → 503, nothing partial written</td></tr>
+<tr><td>Data quality</td><td><code>ingest_issues</code> surfaced on the Sync page and to the CA before sign-off; recurring patterns become deterministic mappers</td></tr>
+<tr><td>Backups</td><td>Supabase point-in-time recovery; raw tables make canonical rebuildable; bridge queue is durable on disk</td></tr>
+</tbody></table></div>
+
+<h2 id="decisions">11 · Key design decisions</h2>
+<div class="table-wrap"><table>
+<thead><tr><th>Decision</th><th>Alternatives considered</th><th>Why this one</th></tr></thead>
+<tbody>
+<tr><td>Numbers only from deterministic queries; model may phrase, never compute</td><td>Let the model read tables; let it do arithmetic over tool results</td><td>Honesty must be structural. A guard can verify a figure exists; it cannot verify arithmetic the model did.</td></tr>
+<tr><td>Owned thin tool-use loop behind an <code>AgentRunner</code> port</td><td>Adopt ADK / LangGraph now</td><td>The loop is where the gate lives; it is tiny; the port keeps frameworks adoptable later for multi-agent handoffs without touching tools, evidence or safety.</td></tr>
+<tr><td>Deterministic detectors emit events; model only composes</td><td>Let the model scan data on a schedule and decide what matters</td><td>Free, reproducible, testable; the expensive part runs only when something happened.</td></tr>
+<tr><td>Gate = side effect × quality × history, with money/regulator always human</td><td>Model self-reported confidence; global on/off autonomy</td><td>Autonomy is earned per watcher from real approvals and can be lost; the one unbreakable rule stays unbreakable.</td></tr>
+<tr><td>One Postgres for everything (events table, pgvector, snapshots)</td><td>Kafka, a dedicated vector DB, Redis-first</td><td>At this volume a second datastore is a second failure mode; each can be added when a named load demands it.</td></tr>
+<tr><td>Raw kept forever; canonical rebuilt from raw</td><td>Map in flight and discard raw</td><td>Re-map without re-fetching; prove what the source said; sources have no reliable date filters.</td></tr>
+<tr><td>Canonical envelope with <code>(company_id, source, source_ref)</code> and <code>type:code</code> references</td><td>Per-source schemas; surrogate keys only</td><td>Multiple sources for one company and one customer across a group become joins, not projects.</td></tr>
+<tr><td>BFF with internal key; API enforces tenancy</td><td>Browser → API directly with Supabase RLS</td><td>No secrets in the browser; one place decides authorisation; RLS remains a possible second layer.</td></tr>
+<tr><td>On-premises bridge for Tally with a durable local queue</td><td>Ask customers to expose port 9000; cloud-hosted Tally only</td><td>Tally cannot call out and the PC is often offline; a buffered relay is the only design that survives real accounts rooms.</td></tr>
+<tr><td>Become the ERP by posting to the statutory ledger (Option A) before replacing it</td><td>Build a full accounting package first</td><td>The CA and the audit already trust Tally; BIDE owns the work upstream and proves value; full replacement is a later product.</td></tr>
+<tr><td>Role seeds layout; permissions gate actions; one card catalogue</td><td>Separate dashboards per role</td><td>Same tools, same numbers, different first screen; nothing forks.</td></tr>
+<tr><td>Eval harness as the release gate</td><td>Manual QA; monitoring only</td><td>An LLM feature has no compiler; the scoreboard is what makes "better" measurable and "worse" unshippable.</td></tr>
+</tbody></table></div>
+
+<h2 id="risks">12 · Risks</h2>
+<div class="table-wrap"><table>
+<thead><tr><th>Risk</th><th>Likelihood</th><th>Mitigation in the design</th></tr></thead>
+<tbody>
+<tr><td>Confident-wrong output destroys trust in one session</td><td>Medium</td><td>Numeric guard, confidence labels on cards, refusal as a designed mode, eval ship-gate</td></tr>
+<tr><td>Source API changes silently (TranzAct re-keyed reports in Aug 2026)</td><td>High</td><td>Catalogue-resolved identifiers; raw kept; sync health alerts; mapper tests per source</td></tr>
+<tr><td>Tally site variability (versions, LAN, PC off)</td><td>High</td><td>Bridge heartbeat and plain-language alerts; tolerant XML decoding; file-drop fallback</td></tr>
+<tr><td>Per-company customisation turns product into consulting</td><td>Medium</td><td>One codebase, differences as settings and workflow rows; days-per-onboarding tracked</td></tr>
+<tr><td>Cost surprise from model calls</td><td>Medium</td><td>Detectors before model; capped payloads; tiers; budgets; cost per pass logged</td></tr>
+<tr><td>Entity resolution errors merge the wrong customers</td><td>Medium</td><td>Exact matches auto, fuzzy matches confirm; aliases carry confidence and confirmer; merges reversible</td></tr>
+<tr><td>Outbound message sent twice or to the wrong contact</td><td>Low</td><td>Idempotent actions; per-customer send caps; contact shown at approval; delivery receipts</td></tr>
+<tr><td>Single in-process scheduler stalls the API</td><td>Medium</td><td>Split worker at the named trigger; jobs bounded by time and pages</td></tr>
+</tbody></table></div>
+
+<div class="footnote">Diagrams are schematic: box contents name responsibilities, arrows name the data or command that moves. Mechanism detail for each field, the Tally bridge, and the ERP migration is in the BIDE Build Reference; current status and gaps are in the BIDE Stage Review.</div>
+</main>
+</div>
+</body></html>

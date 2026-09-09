@@ -30,6 +30,11 @@ cd apps/web && pnpm typecheck                               # frontend types
 
 ## Where to read next
 
+**Primary reference (start here):** `docs/reference/` — the high-level design
+(`BIDE_HLD.md`, diagrams in `BIDE_HLD.html`), the build reference
+(`BIDE_BUILD_REFERENCE.md`), the stage review (`BIDE_STAGE_REVIEW.md`), and the
+milestone tracker (`MILESTONES.md`). Everything below is cited by those.
+
 - `docs/ARCHITECTURE.md` — how the system runs: module map, call-flows, where to change what.
 - `docs/vinayak/The_Business_IDE_BIDE.docx` — the product & architecture reference (Part 1A = the finalized architecture).
 - `implementation.md` — the development plan and current status, layer by layer.
