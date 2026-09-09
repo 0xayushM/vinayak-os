@@ -26,10 +26,10 @@ work ahead. Layer status, read directly from `vinayak/` and `apps/web/`:
 | **3 · Canonical** | 🟢 MOSTLY DONE | `canon_*` tables + `ingest_issues`; **all business-data panels now read `canon_*_flat`** — sales, AR, inventory, purchases (010), purchase orders (011), sales orders (012), quotes (013), GRN (014), production + routing (015). Only `tz_sync_runs` (sync audit) stays raw. | `zoho_canonical.py` (Zoho → canon); GLEntry object; entity resolution across sources |
 | **4 · Read & present** | ✅ BUILT | 55 functions in `schema/queries.py`, 45 dashboard endpoints (`routes/dashboard.py`), Next.js dashboard (`apps/web`, SWR, freshness per panel) | Pulse landing page, Approval Inbox, notifications feed, brain-graph view |
 | **5 · Memory** | 🟢 MOSTLY DONE | `memory/store.py` (profile, facts, supersede, **decay**), chat threads + history; **multi-turn is live** (`answer(history_turns=…)` + `rewrite_followup`, `/ask` passes recent turns); **`entity_summary` synthesis** (migration 016 + `memory/entity_summary.py`, refreshed after every canonical rebuild, with a payment-terms contradiction check) | Episodic log from the `actions` ledger; vector store (knowledge plane, Phase 7) |
-| **6 · Reasoning base** | ✅ BUILT | `reasoning/engine.py` — deterministic retrieve→reason→validate, numeric guard, three gates; `POST /dashboard/ask` is **live**; optional Claude phrasing (`reasoning/llm.py`); eval harness with **`citation_compliance` metric** + `ship_blocked` gate (`eval/harness.py`, `eval/cases.py`), CI ship-block wired (`.github/workflows/ci.yml`), gate logic unit-tested (`test_eval_metrics.py`) | Expand the golden set toward 50 hand-verified questions; record the raw-dump baseline to beat |
-| **7 · Tools** | 🟢 READ TOOLS DONE | `tools/contract.py` + registry + executor; **17 read tools registered** (`tools/read_tools.py`: finance/revenue/AR/inventory/purchases) wrapping the proven query fns, each returning Evidence + quality; catalog at `GET /dashboard/tools` | Action tools (draft_chase, etc.) — Phase 4; MCP server exposure — Phase 7 |
+| **6 · Reasoning base** | ✅ BUILT | `reasoning/engine/` — deterministic retrieve→reason→validate, numeric guard, three gates; `POST /dashboard/ask` is **live**; optional Claude phrasing (`reasoning/llm.py`); eval harness with **`citation_compliance` metric** + `ship_blocked` gate (`eval/harness.py`, `eval/cases.py`), CI ship-block wired (`.github/workflows/ci.yml`), gate logic unit-tested (`test_eval_metrics.py`) | Expand the golden set toward 50 hand-verified questions; record the raw-dump baseline to beat |
+| **7 · Tools** | 🟢 READ TOOLS DONE | `tools/contract.py` + registry + executor; **38 read tools registered** (`tools/read_tools.py`: finance/revenue/AR/inventory/purchases/orders/production/quotes/GRN/meta) wrapping the proven query fns, each returning Evidence + quality; catalog at `GET /dashboard/tools` | Action tools (draft_chase, etc.) — Phase 4; MCP server exposure — Phase 7 |
 | **8 · Agent core** | 🟢 FIRST CUT | `reasoning/agent.py` — raw-SDK tool-use loop, grounding gate (money figures must trace to tool evidence), confidence derivation, engine fallback; wired into `/ask` behind `AGENT_MODE` (shadow) | Shadow-run vs keyword at scale, then flip; model tiering per-question; the deterministic action authorizer (with Phase 4) |
-| **9 · Action spine** | 🟢 FIRST ACTION LIVE | `actions` ledger + executor propose path (idempotency-guarded); **first action tool `collections.draft_chase`** (proposes a grounded payment reminder, never sends); **Approval Inbox** UI + API (`/dashboard/actions`, `/actions/{id}/decide`); "Draft reminder" button on Collections | The actual send after approval (email provider + `customer_contacts`); role-gated approval; WhatsApp; escalation routing; more action tools |
+| **9 · Action spine** | 🟢 FIRST ACTION LIVE | `actions` ledger + executor propose path (idempotency-guarded); **first action tool `collections.draft_chase`** (proposes a grounded payment reminder, never sends); **Approval Inbox** UI + API (`/dashboard/actions`, `/actions/{id}/decide`); "Draft reminder" button on Collections; approve → send via Resend/SMTP (`notify.py`) using `customer_contacts`, with an **"Awaiting delivery" retry** for approved-but-unsent messages | Role-gated approval; WhatsApp; escalation routing; more action tools |
 | **10 · Workflows & synapses** | 🟠 SEEDED | `events` table exists | No event emission/consumption, no declarative workflow config, no synapse wired |
 | **11 · Scale-out** | 🔴 TO BUILD | Adapter architecture leaves a slot for source #3 | More adapters (Tally/Busy), multi-company, knowledge plane (RAG+KG), infra hardening, MCP |
 
@@ -329,17 +329,17 @@ grade any engine with the scoreboard.
 | Contract (Part 1A) | Where it lives |
 |---|---|
 | Canonical model | `vinayak/canonical/`, `schema/migrations/002,010–016` |
-| Evidence contract | `reasoning/engine.py` (`Evidence`, `_num_tokens`, `_norm_num`) |
+| Evidence contract | `domain/models.py` (`Evidence`, `Claim`, `Answer`) · `domain/money.py` (`num_tokens`, `norm_num`) |
 | Tool contract | `tools/contract.py` (`Tool`, `ToolResult`, `side_effect`) |
 | **Safety spine** | `reasoning/safety.py` (`grounded`, `confidence`, `safe_summary`) |
-| **AgentRunner port** | `reasoning/runner.py` (`AgentRunner`, `NativeAgentRunner`, `get_runner`) |
+| **AgentRunner port** | `agents/runner.py` (`AgentRunner`, `get_runner`) · `agents/native.py` · `agents/adk.py` |
 | Memory schema | `memory/store.py`, `memory/entity_summary.py`, migrations `003,016,017` |
 | Event contract | `schema/migrations/008_v0_foundation.sql` (`events`) |
 | Tenancy / provenance | `api/routes/workspaces.py` (`require_workspace`), every query scoped by `company_id` |
 
 Pluggable edges: source adapters (`adapters/`, `pipelines/`), tools
 (`tools/read_tools.py`, `tools/action_tools.py`), the orchestration engine
-(`reasoning/runner.py` + adapters), the model (`reasoning/llm.py`), workflows
+(`agents/` runners), the model (`model/port.py` → `model/anthropic.py`, prompts in `reasoning/llm.py`), workflows
 (declarative, on the `events` bus), and MCP exposure (future transport over the
 same registry).
 
@@ -385,7 +385,7 @@ export ANTHROPIC_API_KEY=...                      # already set
 #   export ADK_MODEL="gemini-2.0-flash" && export GOOGLE_API_KEY=...
 ```
 
-`reasoning/adk_runner.py` already wires the tool bridge (registry → ADK
+`agents/adk.py` already wires the tool bridge (registry → ADK
 FunctionTools, each recording Evidence, `company_id` bound by the layer) and the
 safety finalisation. The one piece to complete against a live install is the
 session loop in `_invoke()` (marked `TODO(adk)` — drive

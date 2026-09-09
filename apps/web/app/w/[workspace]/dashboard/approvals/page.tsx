@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { PageHeader } from "@/components/dashboard/PageHeader";
 import { apiFetch } from "@/lib/api";
 import { formatCurrency } from "@/lib/utils/cn";
-import { CheckCircle, XCircle, Loader2, Inbox, ShieldCheck } from "lucide-react";
+import { CheckCircle, XCircle, Loader2, Inbox, ShieldCheck, Send, AlertTriangle } from "lucide-react";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Payload = Record<string, any>;
@@ -16,32 +16,59 @@ interface Action {
   status: string;
   proposed_by: string;
   created_at: string | null;
+  decided_at: string | null;
+  result: Payload | null;
+  recipient_email: string | null;
+}
+
+/** Approved by a human, but delivery did not happen (no email on file, provider
+ *  unconfigured, or a transport error). These can be retried. */
+function isStuck(a: Action): boolean {
+  return a.status === "approved" && !(a.result?.sent);
 }
 
 export default function ApprovalsPage() {
   const [items, setItems] = useState<Action[] | null>(null);
+  const [stuck, setStuck] = useState<Action[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
+  const [emails, setEmails] = useState<Record<string, string>>({});
+  const [notice, setNotice] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
-      const res = await apiFetch("/api/be/dashboard/actions?status=proposed", { credentials: "include" });
-      const d = await res.json();
-      setItems(d.actions ?? []);
+      const [p, a] = await Promise.all([
+        apiFetch("/api/be/dashboard/actions?status=proposed", { credentials: "include" }).then((r) => r.json()),
+        apiFetch("/api/be/dashboard/actions?status=approved", { credentials: "include" }).then((r) => r.json()),
+      ]);
+      setItems(p.actions ?? []);
+      setStuck(((a.actions ?? []) as Action[]).filter(isStuck));
     } catch {
       setItems([]);
+      setStuck([]);
     }
   }, []);
 
   useEffect(() => { load(); }, [load]);
 
-  const decide = async (id: string, decision: "approve" | "reject") => {
+  const decide = async (id: string, decision: "approve" | "reject", email?: string) => {
     setBusy(id);
+    setNotice(null);
     try {
-      await apiFetch(`/api/be/dashboard/actions/${id}/decide`, {
+      const res = await apiFetch(`/api/be/dashboard/actions/${id}/decide`, {
         method: "POST", credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ decision }),
+        body: JSON.stringify(email ? { decision, email } : { decision }),
       });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setNotice(d.detail ?? "Could not record the decision.");
+      } else if (decision === "approve" && !d.sent) {
+        setNotice(
+          d.need === "email"
+            ? "Approved, but no email is on file for this customer — add one below to send."
+            : `Approved, but not delivered: ${d.detail?.error ?? "delivery failed"}. You can retry from "Awaiting delivery".`,
+        );
+      }
       await load();
     } finally {
       setBusy(null);
@@ -56,6 +83,13 @@ export default function ApprovalsPage() {
         <ShieldCheck className="w-4 h-4 shrink-0 mt-0.5" />
         <span>Every message the system drafts waits here for your review. Approve to send, reject to discard — money and outbound messages never go automatically.</span>
       </div>
+
+      {notice && (
+        <div className="rounded-xl border border-amber-400/25 bg-amber-400/[0.07] px-4 py-3 flex items-start gap-3 text-sm text-amber-200">
+          <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+          <span>{notice}</span>
+        </div>
+      )}
 
       {items === null && (
         <div className="flex items-center gap-2 text-zinc-500 text-sm">
@@ -119,6 +153,51 @@ export default function ApprovalsPage() {
           </div>
         );
       })}
+
+      {stuck.length > 0 && (
+        <section className="space-y-3 pt-4">
+          <div>
+            <h2 className="text-sm font-semibold text-[#F2DEC8]">Awaiting delivery</h2>
+            <p className="text-xs text-zinc-500 mt-0.5">
+              You approved these, but they could not be sent. Add or fix the recipient and retry.
+            </p>
+          </div>
+          {stuck.map((a) => {
+            const p = a.payload ?? {};
+            const reason = a.result?.reason === "no_contact_email"
+              ? "no email on file"
+              : (a.result?.error ?? "delivery failed");
+            const draft = emails[a.id] ?? a.recipient_email ?? "";
+            return (
+              <div key={a.id} className="surface-card p-4 space-y-3 border-amber-400/15">
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-[#F2DEC8] truncate">{p.summary ?? a.tool_name}</p>
+                  <p className="text-[11px] text-zinc-500 mt-0.5">
+                    {a.entity_ref ?? "—"} · approved {a.decided_at ? new Date(a.decided_at).toLocaleString() : ""} · <span className="text-amber-300">{reason}</span>
+                  </p>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <input
+                    type="email"
+                    value={draft}
+                    onChange={(e) => setEmails((m) => ({ ...m, [a.id]: e.target.value }))}
+                    placeholder="recipient@customer.com"
+                    className="flex-1 min-w-[220px] rounded-lg bg-black/25 border border-white/10 px-3 py-1.5 text-xs text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-[#C08457]/60"
+                  />
+                  <button
+                    disabled={busy === a.id || !draft.trim()}
+                    onClick={() => decide(a.id, "approve", draft.trim())}
+                    className="flex items-center gap-1.5 rounded-lg bg-[#C08457] text-black text-xs font-medium px-3 py-1.5 disabled:opacity-40"
+                  >
+                    {busy === a.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
+                    Send now
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </section>
+      )}
     </div>
   );
 }

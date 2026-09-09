@@ -18,7 +18,7 @@ import logging
 import os
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
@@ -43,7 +43,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Vinayak Brain OS",
-    description="TranzAct dashboard API — KBrushes",
+    description="BIDE backend — ingestion, canonical model, grounded reasoning, action spine",
     version="1.0.0",
     lifespan=lifespan,
 )
@@ -78,19 +78,27 @@ async def _unhandled(request: Request, exc: Exception):
 
 
 # ── Register routers ──────────────────────────────────────────────────────────
-from vinayak.api.routes import auth, connections, dashboard, ai_tool, workspaces, zoho  # noqa: E402
+from vinayak.api.routes import auth, connections, dashboard, workspaces, zoho  # noqa: E402
+from vinayak.api.routes.auth import require_internal_key  # noqa: E402
 
-app.include_router(auth.router,        prefix="/auth",        tags=["Auth"])
-app.include_router(workspaces.router,  prefix="/workspaces",   tags=["Workspaces"])
+# The BFF boundary. Every business route requires the shared X-Internal-Key the
+# Next.js route handlers attach — so FastAPI, even if its URL is discovered,
+# only serves requests that came through the BFF (on top of the per-user JWT
+# check each route already does). Only "/" and "/health" stay open, for the
+# platform health probe. In dev mode with no INTERNAL_API_KEY the check is a
+# no-op (see require_internal_key).
+_BFF_ONLY = [Depends(require_internal_key)]
+
+app.include_router(auth.router,        prefix="/auth",        tags=["Auth"],        dependencies=_BFF_ONLY)
+app.include_router(workspaces.router,  prefix="/workspaces",   tags=["Workspaces"],  dependencies=_BFF_ONLY)
 # Source namespaces: each data source lives under its own prefix.
 #   /tranzact/*  — TranzAct connection + sync (also mounted at the legacy
 #                  /connections/* path so the existing frontend keeps working)
 #   /zoho/*      — Zoho Books connection + sync
-app.include_router(connections.router, prefix="/connections",  tags=["TranzAct (legacy path)"])
-app.include_router(connections.router, prefix="/tranzact",     tags=["TranzAct"])
-app.include_router(zoho.router,        prefix="/zoho",         tags=["Zoho Books"])
-app.include_router(dashboard.router,   prefix="/dashboard",    tags=["Dashboard"])
-app.include_router(ai_tool.router,     prefix="/ai",           tags=["AI"])
+app.include_router(connections.router, prefix="/connections",  tags=["TranzAct (legacy path)"], dependencies=_BFF_ONLY)
+app.include_router(connections.router, prefix="/tranzact",     tags=["TranzAct"],    dependencies=_BFF_ONLY)
+app.include_router(zoho.router,        prefix="/zoho",         tags=["Zoho Books"],  dependencies=_BFF_ONLY)
+app.include_router(dashboard.router,   prefix="/dashboard",    tags=["Dashboard"],   dependencies=_BFF_ONLY)
 
 # Register the Layer-7 read tools so the agent + MCP can call the business as a
 # tool. Idempotent; read-only wrappers over the proven query functions.

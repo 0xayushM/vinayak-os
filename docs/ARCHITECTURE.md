@@ -67,7 +67,7 @@ eval/              harness.py · cases.py
 | Orchestration | `AgentRunner` → `NativeAgentRunner` / `AdkAgentRunner` | `agents/` |
 | Sources | `TokenCacheRegistry`, adapters | `adapters/` |
 | Canonical | `distinct_company_ids`, builders | `canonical/` |
-| Tenancy | `require_workspace`, `get_current_user` | `api/deps.py` |
+| Tenancy | `require_workspace`, `get_current_user`, `require_internal_key` | `api/deps.py`, `api/routes/auth.py` |
 
 ---
 
@@ -87,7 +87,7 @@ api/main.py                       mounts dashboard.router at /dashboard
    │    └─ NativeAgentRunner.run()  (agents/native.py)
    │         └─ reasoning/agent.run_agent():
    │              ├─ _as_model(client) → model.get_model() → AnthropicModel   [ModelPort]
-   │              ├─ tools/read_tools.register_all() → tools/registry (18 read tools)
+   │              ├─ tools/read_tools.register_all() → tools/registry (38 read tools)
    │              ├─ registry.anthropic_schemas(read_only=True)
    │              ├─ LOOP: mdl.chat(system, messages, tools)
    │              │        → AnthropicModel.chat → llm._get_client().messages.create
@@ -119,6 +119,8 @@ actions_draft_chase() → registry.get("collections.draft_chase")
    → executor.execute() → action_tools.compose_chase() → INSERT actions (status=proposed)
 actions_list()   → SELECT actions WHERE status=proposed             [the approval inbox]
 actions_decide() → UPDATE actions SET status=approved|rejected      [the human gate]
+                   approve → notify.send_email → status=executed (sent) | approved (undelivered)
+                   re-approve an `approved`-but-unsent action → retries delivery
 ```
 Money/regulator actions are proposed only — never executed without a person.
 
@@ -136,7 +138,10 @@ scheduler → Pipeline.run_chunk()
 ### 4.5 Auth / tenancy  ·  every request
 ```
 /auth/login → bcrypt verify → JWT → httpOnly cookie
-get_current_user() → decode JWT → TokenPayload
+require_internal_key() → X-Internal-Key must match INTERNAL_API_KEY  [BFF boundary,
+                          mounted on every router in api/main.py; only / and /health are open]
+get_current_user() → verify Supabase access token (or legacy cookie JWT) → TokenPayload
+                     → email must exist in `users` (the allowlist) → company_id
 require_workspace() → X-Workspace-Id or JWT company_id → authorise → company_id
                       (scopes every query; injected by the layer, never model-chosen)
 ```
@@ -188,7 +193,7 @@ engine (or, later, which orchestrator adapter) ran.
 
 **Restructured & green (Stages 0–6):** `domain/`, `db/`, `model/`, `query/`, `agents/`,
 `reasoning/engine/` (package + router extracted), `api/deps.py`; real duplication
-removed (money formatting, `_conn`, token-cache boilerplate, `_companies`). 155
+removed (money formatting, `_conn`, token-cache boilerplate, `_companies`). 172
 unit tests pass; the eval ship-gate is 29/29 at 100% citation compliance.
 
 **Deliberately deferred (need test scaffolding first, then safe to do):**

@@ -83,7 +83,7 @@ class BasePipeline(ABC):
           more_available (bool), reached_end (bool), truncated (bool)
         """
         conn = psycopg2.connect(DATABASE_URL)
-        run_id = self._start_run(conn, is_backfill=False)
+        run_id = self._start_run(conn, company_id, is_backfill=False)
         try:
             stats: dict = {}
             raw_rows = fetch_report(
@@ -167,15 +167,21 @@ class BasePipeline(ABC):
             )
         return list(seen.values()) + passthrough
 
-    def _start_run(self, conn, is_backfill: bool) -> int:
-        """Insert a 'running' row into tz_sync_runs. Returns the run ID."""
+    def _start_run(self, conn, company_id: str, is_backfill: bool) -> int:
+        """Insert a 'running' row into tz_sync_runs, tagged with the brand it
+        belongs to. Returns the run ID.
+
+        company_id MUST be written explicitly: sync health, panel freshness and
+        the stale badges all read tz_sync_runs filtered by company_id, so a run
+        logged without it (or under a column default) is invisible to — or
+        wrongly attributed to — the workspace it actually synced."""
         with conn.cursor() as cur:
             cur.execute(
                 """INSERT INTO tz_sync_runs
-                       (pipeline_name, report_id, status, is_backfill)
-                   VALUES (%s, %s, 'running', %s)
+                       (company_id, pipeline_name, report_id, status, is_backfill)
+                   VALUES (%s, %s, %s, 'running', %s)
                    RETURNING id""",
-                (self.PIPELINE_NAME, int(self.REPORT_ID), is_backfill),
+                (company_id, self.PIPELINE_NAME, int(self.REPORT_ID), is_backfill),
             )
             run_id = cur.fetchone()[0]
         conn.commit()

@@ -599,7 +599,12 @@ def actions_decide(action_id: str, body: DecideIn,
     """Approve or reject a proposed action. Reject discards it. Approve records the
     decision and — for a message action — attempts delivery to the customer's
     contact email. Nothing is ever sent without this human approval; if no email
-    is on file (or no provider is configured) the approval is recorded but not sent."""
+    is on file (or no provider is configured) the approval is recorded but not sent.
+
+    Re-approving an action that is already `approved` but was NOT delivered
+    (no contact email, provider unconfigured, or a transport error) retries the
+    send — that is the retry path for a stuck approval. An `executed` or
+    `rejected` action is final and cannot be re-decided."""
     import json as _json
     from vinayak import notify
 
@@ -611,14 +616,22 @@ def actions_decide(action_id: str, body: DecideIn,
     try:
         with conn.cursor() as cur:
             cur.execute(
-                """SELECT payload, entity_ref FROM actions
-                   WHERE id = %s AND company_id = %s AND status = 'proposed'""",
+                """SELECT payload, entity_ref, status, result FROM actions
+                   WHERE id = %s AND company_id = %s""",
                 (action_id, company_id),
             )
             row = cur.fetchone()
             if not row:
-                raise HTTPException(status_code=404, detail="Action not found or already decided")
-            payload, entity_ref = (row[0] or {}), row[1]
+                raise HTTPException(status_code=404, detail="Action not found")
+            payload, entity_ref, cur_status, prev_result = (row[0] or {}), row[1], row[2], (row[3] or {})
+            already_sent = bool(prev_result.get("sent")) if isinstance(prev_result, dict) else False
+            if cur_status == "proposed":
+                pass
+            elif cur_status == "approved" and decision == "approve" and not already_sent:
+                pass   # retry delivery of an approved-but-unsent message
+            else:
+                raise HTTPException(status_code=409,
+                                    detail=f"Action is already {cur_status}; nothing to do")
 
             if decision == "reject":
                 cur.execute(
@@ -1056,76 +1069,3 @@ def chat_thread_delete(thread_id: str, company_id: str = Depends(require_workspa
         return {"ok": True}
     finally:
         conn.close()
-
-
-@router.post("/sync/trigger/{pipeline_name}")
-def trigger_sync(
-    pipeline_name: str,
-    company_id: str = Depends(require_workspace),
-):
-    """
-    Manually trigger a pipeline run (cache invalidation) for this workspace,
-    using the workspace's own stored TranzAct credentials.
-    Runs synchronously — response returns after the sync completes.
-    Only available for the 5 hourly pipelines (to avoid triggering heavy daily syncs).
-    """
-    from vinayak.pipelines import (
-        ar_aging as ar_mod,
-        sales_orders as so_mod,
-        purchase_orders as po_mod,
-        inventory_valuation as inv_mod,
-        process_details as pd_mod,
-    )
-
-    # TranzAct has no server-side date filter — a manual trigger is simply a
-    # newest-pages refresh of the report (same as the hourly sync).
-    ALLOWED = {
-        "ar_aging":             ar_mod.ARAgingPipeline,
-        "sales_orders":         so_mod.SalesOrdersPipeline,
-        "purchase_orders":      po_mod.PurchaseOrdersPipeline,
-        "inventory_valuation":  inv_mod.InventoryValuationPipeline,
-        "process_details":      pd_mod.ProcessDetailsPipeline,
-    }
-
-    if pipeline_name not in ALLOWED:
-        raise HTTPException(
-            400,
-            detail=f"Manual trigger only available for: {list(ALLOWED.keys())}"
-        )
-
-    PipelineClass = ALLOWED[pipeline_name]
-
-    # Load this workspace's TranzAct credentials so the run authenticates as —
-    # and tags data for — the right brand.
-    from vinayak.config import TRANZACT_BASE_URL
-    from vinayak.adapters.tranzact.client import TranzactCreds
-    from vinayak.api.routes.connections import _decrypt
-
-    conn = _conn()
-    try:
-        with conn.cursor() as cur:
-            cur.execute(
-                """SELECT encrypted_credentials FROM tool_connections
-                   WHERE company_id = %s AND tool_name = 'tranzact' AND is_active = TRUE""",
-                (company_id,),
-            )
-            row = cur.fetchone()
-    finally:
-        conn.close()
-
-    if not row:
-        raise HTTPException(404, detail="No TranzAct credentials for this workspace.")
-
-    cred = _decrypt(row[0])
-    creds = TranzactCreds(email=cred["email"], password=cred["password"], base_url=TRANZACT_BASE_URL)
-
-    try:
-        # Newest-pages refresh (4 pages), same shape as the hourly sync.
-        res = PipelineClass().run_chunk(
-            company_id=company_id, creds=creds, start_page=1, max_pages=4,
-        )
-    except Exception as exc:
-        raise HTTPException(500, detail=f"Pipeline failed: {exc}")
-
-    return {"status": "ok", "pipeline": pipeline_name,
-            "rows_fetched": res["rows_fetched"], "rows_upserted": res["rows_upserted"]}

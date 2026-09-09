@@ -13,9 +13,9 @@ The honesty guarantees stay STRUCTURAL, not prompted:
   • Read tools execute inline; anything else only ever proposes (Layer 9).
 
 Fallback: with no ANTHROPIC_API_KEY the deterministic keyword engine answers, so
-the product works with or without a model. The agent is opt-in via AGENT_MODE=1
-(or by calling run_agent directly) so it can be shadow-run before it replaces the
-keyword path.
+the product works with or without a model. The agent is the DEFAULT answer path
+whenever a model is configured (see should_use); set AGENT_MODE=0 to force the
+keyword engine, e.g. to compare the two on the golden set.
 """
 from __future__ import annotations
 

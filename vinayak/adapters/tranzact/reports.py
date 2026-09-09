@@ -2,7 +2,7 @@
 adapters/tranzact/reports.py
 ─────────────────────────────
 Canonical map of TranzAct report IDs → human names.
-Used by every pipeline, sync logging, and the Phase 2 AI whitelist.
+Used by every pipeline and by sync logging.
 
 ⚠️  Do not change report IDs after the schema lock (end of Week 1).
     These IDs are the foreign key between TranzAct and our Postgres tables.
@@ -52,25 +52,6 @@ REPORT_FUNCTIONS: dict[str, str] = {
 # legacy numeric id → function_name (what the client uses to resolve a live UUID)
 LEGACY_ID_TO_FUNCTION: dict[str, str] = {
     REPORT_IDS[name]: fn for name, fn in REPORT_FUNCTIONS.items()
-}
-
-# ── AI tool whitelist ────────────────────────────────────────────────────────
-# Phase 2: the AI endpoint may only call these report IDs.
-# Report "5" is the stock ledger — added for ad-hoc AI queries.
-AI_WHITELIST: set[str] = set(REPORT_IDS.values()) | {"5"}
-
-# ── Sync cadence metadata ────────────────────────────────────────────────────
-PIPELINE_CADENCE: dict[str, str] = {
-    "sales_invoices":       "daily",
-    "ar_aging":             "hourly",
-    "sales_orders":         "hourly",
-    "purchase_invoices":    "daily",
-    "purchase_orders":      "hourly",
-    "grn_qir":              "daily",
-    "sales_quotations":     "daily",
-    "inventory_valuation":  "hourly",
-    "process_routing":      "daily",
-    "process_details":      "hourly",
 }
 
 # NOTE: TranzAct's /generate_report has no usable server-side date filter — every
