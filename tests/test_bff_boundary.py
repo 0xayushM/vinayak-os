@@ -35,3 +35,10 @@ def test_correct_internal_key_passes_the_boundary():
     # (401: no user token) instead of being stopped at the boundary (403).
     r = client.get("/auth/me", headers={"X-Internal-Key": INTERNAL_KEY})
     assert r.status_code == 401
+
+
+def test_milestone_routes_are_behind_the_boundary_and_auth():
+    for path in ("/dashboard/milestones", "/dashboard/experiments", "/dashboard/usage/me",
+                 "/dashboard/incidents", "/workspaces/users"):
+        assert client.get(path).status_code == 403                                        # no key
+        assert client.get(path, headers={"X-Internal-Key": INTERNAL_KEY}).status_code == 401  # key, no user

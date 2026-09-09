@@ -320,9 +320,61 @@ def logout(response: Response):
     return {"status": "ok"}
 
 
-@router.get("/me", summary="Return current user info from JWT")
+ROLES = ("owner", "finance", "accountant", "sales", "viewer", "admin")
+
+
+class MeIn(BaseModel):
+    role: Optional[str] = None
+    display_name: Optional[str] = None
+    pinned_cards: Optional[list] = None
+
+
+@router.get("/me", summary="Current user: identity, role, approval permissions, layout")
 def me(user: TokenPayload = __import__("fastapi").Depends(get_current_user)):
+    from vinayak.api.routes.milestones import user_record
+    from vinayak.db.session import db
+    conn = db.connect()
+    try:
+        rec = user_record(conn, user.sub)
+    finally:
+        conn.close()
     return {
         "email":      user.sub,
         "company_id": user.company_id,
+        # 'admin' is the legacy default and means "not chosen yet" to the UI.
+        "role":       rec.get("role"),
+        "role_chosen": rec.get("role") not in (None, "", "admin"),
+        "may_approve_messages": rec.get("may_approve_messages", False),
+        "may_approve_money":    rec.get("may_approve_money", False),
+        "pinned_cards": rec.get("pinned_cards"),
+        "display_name": rec.get("display_name"),
     }
+
+
+@router.put("/me", summary="Set my role, display name and pinned cards")
+def me_put(body: MeIn, user: TokenPayload = __import__("fastapi").Depends(get_current_user)):
+    """A user may choose their own role (it only seeds the dashboard layout).
+    Approval permissions are NOT settable here — an owner/admin grants them
+    through /workspaces/users."""
+    import json as _json
+    from vinayak.db.session import db
+    sets, params = [], []
+    if body.role is not None:
+        if body.role not in ROLES or body.role == "admin":
+            raise HTTPException(status_code=400, detail=f"role must be one of {[r for r in ROLES if r != 'admin']}")
+        sets.append("role = %s"); params.append(body.role)
+    if body.display_name is not None:
+        sets.append("display_name = %s"); params.append(body.display_name.strip()[:80])
+    if body.pinned_cards is not None:
+        sets.append("pinned_cards = %s"); params.append(_json.dumps(body.pinned_cards)[:4000])
+    if not sets:
+        return me(user)
+    conn = db.connect()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(f"UPDATE users SET {', '.join(sets)} WHERE LOWER(email) = LOWER(%s)",
+                        (*params, user.sub))
+        conn.commit()
+    finally:
+        conn.close()
+    return me(user)

@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Sidebar } from "@/components/dashboard/Sidebar";
 import OnboardingGate from "@/components/dashboard/OnboardingGate";
+import RoleGate from "@/components/dashboard/RoleGate";
 import { SyncProgressBanner } from "@/components/dashboard/SyncProgressBanner";
 import { NotificationsProvider } from "@/components/notifications/NotificationsProvider";
 import { NotificationBell } from "@/components/notifications/NotificationBell";
@@ -26,7 +27,7 @@ export default function DashboardLayout({
           <Sidebar />
           <main className="flex-1 overflow-auto flex flex-col relative z-10 pt-12 lg:pt-0">
             <SyncProgressBanner />
-            <OnboardingGate>{children}</OnboardingGate>
+            <OnboardingGate><RoleGate>{children}</RoleGate></OnboardingGate>
           </main>
         </div>
         {/* Global notification surfaces + the watcher that feeds them. */}

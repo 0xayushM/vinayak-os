@@ -1,0 +1,12 @@
+# Decisions
+
+Newest first. One line each: date · decision · why. Longer rationale lives in
+`docs/reference/` (HLD §11 has the architectural ones).
+
+- 2026-09-09 · Milestone evidence lives in the product (usage_events, experiments, incidents, eval_runs, Milestone board) · so the month-6 review is a screen, not an argument.
+- 2026-09-09 · Roles seed the dashboard layout only; two explicit permissions (approve messages, approve money) gate the Inbox · same tools, same numbers, different first screen; money never approved by someone not granted it.
+- 2026-09-09 · Every business route requires the BFF's internal key · the backend URL was discoverable and the documented boundary was not enforced.
+- 2026-09-09 · Google ADK stays an inert adapter behind the runner port · orchestration is not where learning lives; adopt when synapses need multi-agent handoffs.
+- 2026-09-09 · Busy integration dropped from Milestone 1 by agreement.
+- 2026-09-09 · BIDE becomes the ERP by owning the work upstream and posting balanced vouchers to the statutory ledger (Option A) before any full replacement.
+- 2026-09-07 · TranzAct report ids resolved through the get_reports catalogue by function name · TranzAct re-keyed reports to per-company UUIDs in Aug 2026.

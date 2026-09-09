@@ -7,7 +7,7 @@ import { usePathname } from "next/navigation";
 import {
   BarChart3, TrendingUp, Users, Package, ShoppingCart,
   CreditCard, Truck, Wrench, Activity, Settings, Zap, LogOut,
-  Menu, X, ChevronsUpDown, Plus, ExternalLink, Check, Loader2, Brain, Sparkles, ShieldCheck,
+  Menu, X, ChevronsUpDown, Plus, ExternalLink, Check, Loader2, Brain, Sparkles, ShieldCheck, FlaskConical, Flag,
 } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
 import { useSyncHealth } from "@/hooks/useDashboard";
@@ -55,6 +55,7 @@ const NAV = [
     items: [
       { label: "Ask",                   href: "/dashboard/ask",        icon: Sparkles   },
       { label: "Business Brain",        href: "/dashboard/brain",      icon: Brain      },
+      { label: "Experiments",           href: "/dashboard/experiments", icon: FlaskConical },
       // { label: "Answer Quality",        href: "/dashboard/eval",       icon: ShieldCheck },
     ],
   },
@@ -288,6 +289,14 @@ function RailContent({ onNavigate }: { onNavigate?: () => void }) {
 
       {/* Settings + Logout */}
       <div className="px-4 py-3 border-t border-white/[0.05] space-y-2">
+        <Link
+          href={link("/dashboard/milestones")}
+          onClick={onNavigate}
+          className="flex items-center gap-2 text-[11px] text-zinc-500 hover:text-[#F2DEC8]/75 transition-colors"
+        >
+          <Flag className="w-3.5 h-3.5" />
+          Milestone board
+        </Link>
         <Link
           href={link("/dashboard/settings")}
           onClick={onNavigate}

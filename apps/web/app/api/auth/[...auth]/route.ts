@@ -52,3 +52,10 @@ export async function POST(
 ) {
   return proxy(req, (await params).auth);
 }
+
+export async function PUT(
+  req: NextRequest,
+  { params }: { params: Promise<{ auth: string[] }> },
+) {
+  return proxy(req, (await params).auth);
+}

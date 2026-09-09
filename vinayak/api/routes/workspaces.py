@@ -77,6 +77,11 @@ def require_workspace(
                 (ws, *params),
             )
             ok = cur.fetchone()
+        if ok:
+            # Usage evidence (Milestone 1): one row per user per workspace per
+            # day. Best-effort and cached in-process; never blocks a request.
+            from vinayak import usage as _usage
+            _usage.record(conn, ws, user.sub)
     finally:
         conn.close()
 
@@ -86,6 +91,71 @@ def require_workspace(
             detail=f"No access to workspace '{ws}'",
         )
     return ws
+
+
+# ── Users of a workspace (roles + approval permissions) ───────────────────────
+class UserPermIn(BaseModel):
+    email: str
+    role: str | None = None
+    may_approve_messages: bool | None = None
+    may_approve_money: bool | None = None
+
+
+def _require_manager(conn, user: TokenPayload) -> None:
+    with conn.cursor() as cur:
+        cur.execute("SELECT role FROM users WHERE LOWER(email) = LOWER(%s)", (user.sub,))
+        r = cur.fetchone()
+    if not r or r[0] not in ("owner", "admin"):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Owner or admin role required")
+
+
+@router.get("/users", summary="Users who can open this workspace, with roles and permissions")
+def list_users(company_id: str = Depends(require_workspace),
+               user: TokenPayload = Depends(get_current_user)):
+    conn = _conn()
+    try:
+        _require_manager(conn, user)
+        with conn.cursor() as cur:
+            cur.execute(
+                """SELECT email, role, may_approve_messages, may_approve_money, display_name, company_id
+                   FROM users WHERE company_id = %s OR company_id IS NULL ORDER BY email""",
+                (company_id,))
+            rows = cur.fetchall()
+    finally:
+        conn.close()
+    return {"users": [{"email": r[0], "role": r[1], "may_approve_messages": bool(r[2]),
+                       "may_approve_money": bool(r[3]), "display_name": r[4],
+                       "global_admin": r[5] is None} for r in rows]}
+
+
+@router.put("/users", summary="Set a user's role and approval permissions (owner/admin)")
+def put_user(body: UserPermIn, company_id: str = Depends(require_workspace),
+             user: TokenPayload = Depends(get_current_user)):
+    from vinayak.api.routes.auth import ROLES
+    sets, params = [], []
+    if body.role is not None:
+        if body.role not in ROLES:
+            raise HTTPException(status_code=400, detail=f"role must be one of {ROLES}")
+        sets.append("role = %s"); params.append(body.role)
+    if body.may_approve_messages is not None:
+        sets.append("may_approve_messages = %s"); params.append(body.may_approve_messages)
+    if body.may_approve_money is not None:
+        sets.append("may_approve_money = %s"); params.append(body.may_approve_money)
+    if not sets:
+        return {"ok": True}
+    conn = _conn()
+    try:
+        _require_manager(conn, user)
+        with conn.cursor() as cur:
+            cur.execute(f"UPDATE users SET {', '.join(sets)} WHERE LOWER(email) = LOWER(%s) AND (company_id = %s OR company_id IS NULL)",
+                        (*params, body.email, company_id))
+            n = cur.rowcount
+        conn.commit()
+    finally:
+        conn.close()
+    if not n:
+        raise HTTPException(status_code=404, detail="No such user in this workspace")
+    return {"ok": True}
 
 
 # ── Schemas ───────────────────────────────────────────────────────────────────

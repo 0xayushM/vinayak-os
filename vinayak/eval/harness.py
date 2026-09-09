@@ -169,10 +169,26 @@ if __name__ == "__main__":
         i = argv.index("--runner")
         runner_name = argv[i + 1]
         del argv[i:i + 2]
+    record = "--record" in argv
+    if record:
+        argv.remove("--record")
     cid = argv[0] if argv else None
 
     conn = psycopg2.connect(os.environ["DATABASE_URL"])
     report = run_eval(conn, cid, runner_name=runner_name)
+    if record:
+        # Milestone evidence: persist this run so the board shows the latest score.
+        m_ = report["metrics"]
+        with conn.cursor() as cur:
+            cur.execute(
+                """INSERT INTO eval_runs (runner, company_id, cases_run, passed, citation_compliance,
+                                          factual_accuracy, ship_blocked, metrics)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s)""",
+                (runner_name or "engine", cid, m_["cases_run"], m_["passed"],
+                 m_["citation_compliance"], m_.get("factual_accuracy"), m_["ship_blocked"],
+                 json.dumps(m_)),
+            )
+        conn.commit()
     if runner_name:
         print(f"(grading via the '{runner_name}' runner)")
     m = report["metrics"]

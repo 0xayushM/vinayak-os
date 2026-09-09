@@ -5,6 +5,7 @@ import { Unplug, Plus, ArrowLeft } from "lucide-react";
 import ConnectTranzact from "@/components/dashboard/ConnectTranzact";
 import ConnectZoho from "@/components/dashboard/ConnectZoho";
 import { ApiSyncPanel } from "@/components/dashboard/ApiSyncPanel";
+import { PeoplePanel } from "@/components/dashboard/PeoplePanel";
 
 type AddableId = "zoho";
 const ADDABLE: { id: AddableId; label: string; blurb: string }[] = [
@@ -80,9 +81,10 @@ export default function SettingsPage() {
           </div>
         </div>
 
-        {/* Data sync — the per-report list */}
-        <div className="lg:col-span-3">
+        {/* Data sync — the per-report list, then who may approve what */}
+        <div className="lg:col-span-3 space-y-5">
           <ApiSyncPanel />
+          <PeoplePanel />
         </div>
       </div>
     </div>

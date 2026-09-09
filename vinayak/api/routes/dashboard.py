@@ -614,6 +614,20 @@ def actions_decide(action_id: str, body: DecideIn,
 
     conn = _conn()
     try:
+        # Who may approve: an outbound message needs may_approve_messages; a
+        # money-gated action needs may_approve_money. Rejecting needs neither.
+        if decision == "approve":
+            from vinayak.api.routes.milestones import user_record
+            rec = user_record(conn, user.sub)
+            with conn.cursor() as cur:
+                cur.execute("SELECT gate FROM actions WHERE id = %s AND company_id = %s",
+                            (action_id, company_id))
+                g = cur.fetchone()
+            gate = g[0] if g else "confirm"
+            needed = "may_approve_money" if gate == "human" else "may_approve_messages"
+            if not rec.get(needed):
+                raise HTTPException(status_code=403,
+                                    detail=f"Your account cannot approve this ({needed.replace('_', ' ')} not granted)")
         with conn.cursor() as cur:
             cur.execute(
                 """SELECT payload, entity_ref, status, result FROM actions
