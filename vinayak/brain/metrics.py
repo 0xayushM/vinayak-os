@@ -88,6 +88,29 @@ def _top1_share(conn, company_id, _entity=None) -> float | None:
     return get_concentration_trend(conn, company_id).get("top1_pct")
 
 
+def _vendor_item_price(conn, company_id, entity_ref) -> float | None:
+    """The latest unit price this vendor charged for this item.
+
+    entity_ref is 'vendoritem:<vendor>|<item code>' — a compound reference,
+    because the fact being measured is a price, and a price belongs to a pair.
+    """
+    if not entity_ref or not entity_ref.startswith("vendoritem:"):
+        return None
+    body = entity_ref.split(":", 1)[1]
+    if "|" not in body:
+        return None
+    vendor, item_code = body.split("|", 1)
+    with conn.cursor() as cur:
+        cur.execute("""SELECT po_value / NULLIF(ordered_qty,0)
+                         FROM canon_purchase_order_flat
+                        WHERE company_id=%s AND vendor_name=%s AND item_code=%s
+                          AND COALESCE(ordered_qty,0) > 0 AND COALESCE(po_value,0) > 0
+                        ORDER BY po_date DESC LIMIT 1""",
+                    (company_id, vendor, item_code))
+        row = cur.fetchone()
+    return float(row[0]) if row and row[0] is not None else None
+
+
 def _name_from(entity_ref: str | None) -> str | None:
     if not entity_ref:
         return None
@@ -104,6 +127,8 @@ METRICS: dict[str, Metric] = {m.key: m for m in [
            _customer_days_quiet),
     Metric("inventory.dead_stock_value", "Capital in stock nobody has bought", "inr", True,
            _dead_stock_value),
+    Metric("purchase.unit_price", "Unit price from this vendor", "inr", True,
+           _vendor_item_price),
     Metric("revenue.top1_share", "Share of revenue from the largest customer", "pct", True,
            _top1_share),
 ]}

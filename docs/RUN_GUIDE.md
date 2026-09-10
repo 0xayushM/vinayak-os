@@ -151,6 +151,13 @@ Checklist:
 ## 5. Deploy
 
 - **Backend** → Railway from `Dockerfile` (`railway.json`: health check on `/health`).
+- **Worker** → a SECOND Railway service from the same repo and image, with the
+  start command overridden to `python -m vinayak.worker`. It shares the API's
+  variables. It runs the ten sync pipelines, the 06:00 morning brief, and the
+  brain tick (every 10 minutes by default; `BRAIN_TICK_MINUTES` to change it).
+  The API must NOT set `RUN_SCHEDULER` — the API is horizontally scaled, so a
+  scheduler inside it would run every job once per replica. Locally there is no
+  second process: `./dev.sh` sets `RUN_SCHEDULER=1` and the API runs everything.
   Set every backend env var above; `.env.railway` is the gitignored paste-ready set.
 - **Frontend** → Vercel (`vercel.json` builds `@vinayak/web`). Set the `apps/web`
   vars, with `FASTAPI_INTERNAL_URL` pointing at the private Railway URL.

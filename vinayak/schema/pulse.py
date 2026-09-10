@@ -598,17 +598,20 @@ def get_anomalies(conn, company_id: str, cap: int = 6) -> dict:
                 FROM canon_purchase_order_flat
                 WHERE company_id=%s AND COALESCE(ordered_qty,0) > 0 AND COALESCE(po_value,0) > 0
             )
-            SELECT a.vendor_name, a.item_name, a.unit_price, b.unit_price, a.po_date
+            SELECT a.vendor_name, a.item_code, a.item_name, a.unit_price, b.unit_price, a.po_date
             FROM prices a JOIN prices b
               ON a.vendor_name=b.vendor_name AND a.item_code=b.item_code AND a.rn=1 AND b.rn=2
             WHERE a.unit_price > b.unit_price * 1.25 AND a.po_date >= CURRENT_DATE - 60
             ORDER BY (a.unit_price - b.unit_price) DESC LIMIT 3
         """, (company_id,))
-        for vendor, item, new_p, old_p, po_d in cur.fetchall():
+        for vendor, item_code, item, new_p, old_p, po_d in cur.fetchall():
             pct = round((float(new_p) / float(old_p) - 1) * 100)
             out.append({"kind": "vendor_price_jump", "severity": 45,
                         "text": f"{vendor} raised {item} by {pct}% — {_inr(float(old_p))} to {_inr(float(new_p))} per unit.",
-                        "entity_ref": f"vendor:{vendor}", "value": float(new_p)})
+                        "entity_ref": f"vendor:{vendor}", "value": float(new_p),
+                        # carried so an experiment on this rise has something to measure
+                        "vendor_name": vendor, "item_code": item_code, "item_name": item,
+                        "previous_unit_price": float(old_p)})
 
     # stale feeds — the trust flag every card already shows, summarised once
     from vinayak.schema.queries import get_sync_health

@@ -56,7 +56,18 @@ Two-week sprints. Each sprint names what ships to production, which milestone cr
 | `/pulse` becomes the landing page; role-ordered cards; existing pages move under Explore                                                                                                                  | M1-2        | Every card: figure · vs usual · why · action · freshness · confidence                             |
 | Daily brief by email at 06:00 IST: the Pulse phrased under the numeric guard, each line deep-linked                                                                                                       | M1-2        | WhatsApp follows when DLT clears                                                                  |
 
-### Sprint 2 · Weeks 5–6 (29 Sep–10 Oct) — the brain runs on its own; experiments begin
+### Sprint 2 · Weeks 5–6 (29 Sep–10 Oct) — the brain runs on its own; experiments begin — **SHIPPED 10 Sep**
+
+Shipped ahead of the window. `vinayak/brain/` holds the runtime: `bus.py`
+(the events table with a dedupe key), `detectors.py` (the three watchers),
+`consumer.py` (events → proposals in the Inbox), `strategy.py` (the weekly
+suggestions), `metrics.py` + `outcomes.py` (how an experiment is judged and
+closed), `runner.py` (every pass inside a `brain_runs` episode). The worker is
+a separate process (`python -m vinayak.worker`). Migration 021 adds `workflows`,
+`brain_runs`, the event dedupe index and the experiment window fields. Verified
+end to end against a seeded Postgres: six watchers run, five rungs detected, four
+chases proposed, six experiments suggested, a second pass emits nothing, and an
+experiment accepted, started and closed with a computed outcome.
 
 | Ship                                                                                                                                                                                                                                                                                              | Serves       | Notes                                                                                       |
 |---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|--------------|---------------------------------------------------------------------------------------------|

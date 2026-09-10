@@ -108,16 +108,24 @@ def build_suggestions(pulse: dict, today: date) -> list[dict]:
     # ── 3. Regulars who have gone quiet ──────────────────────────────────
     reorder = pulse.get("reorder") or {}
     quiet = reorder.get("items", [])[:5]
-    if len(quiet) >= 2:
+    if quiet:
         names = ", ".join(q["customer_name"] for q in quiet[:3])
         more = f" and {len(quiet) - 3} more" if len(quiet) > 3 else ""
+        one = len(quiet) == 1
         out.append({
-            "title": f"Call {len(quiet)} regulars who are past their usual reorder gap",
+            "title": (f"Call {quiet[0]['customer_name']} — {quiet[0]['days_since_last']} days "
+                      f"since their last order" if one else
+                      f"Call {len(quiet)} regulars who are past their usual reorder gap"),
             "hypothesis": (
-                f"{names}{more} each buy on a settled rhythm and are now past 1.5 times "
-                f"their own median gap — {_inr(reorder.get('value_at_stake', 0))} of typical "
-                f"order value between them. A single call each, this week, should bring at "
-                f"least half of them back within three weeks."),
+                (f"{names} buys about every {quiet[0]['median_gap_days']} days and has been "
+                 f"quiet for {quiet[0]['days_since_last']} — {_inr(quiet[0]['avg_order_value'])} "
+                 f"of typical order value. One call this week should tell us whether it is "
+                 f"timing or a lost account.")
+                if one else
+                (f"{names}{more} each buy on a settled rhythm and are now past 1.5 times "
+                 f"their own median gap — {_inr(reorder.get('value_at_stake', 0))} of typical "
+                 f"order value between them. A single call each, this week, should bring at "
+                 f"least half of them back within three weeks.")),
             "metric_key": "customer.days_quiet",
             "entity_ref": f"customer:{quiet[0]['customer_name']}",
             "window_days": 21,
@@ -166,17 +174,22 @@ def build_suggestions(pulse: dict, today: date) -> list[dict]:
     for a in (pulse.get("anomalies") or {}).get("items", []):
         if a.get("kind") != "vendor_price_jump":
             continue
-        vendor = (a.get("entity_ref") or "").split(":", 1)[-1]
+        vendor = a.get("vendor_name") or (a.get("entity_ref") or "").split(":", 1)[-1]
+        item_code = a.get("item_code")
+        if not item_code:
+            continue
         out.append({
-            "title": f"Requote against {vendor}'s price rise",
+            "title": f"Requote {a.get('item_name') or item_code} against {vendor}'s price rise",
             "hypothesis": (
                 f"{a['text']} Asking two alternate suppliers to quote the same item, and "
-                f"showing the incumbent the result, usually recovers most of a rise like this."),
-            "metric_key": "ar.overdue_total",   # placeholder: no purchase metric yet
-            "entity_ref": a.get("entity_ref"),
-            "window_days": 30,
-            "dedupe_key": f"requote:{vendor}",
-            "no_auto_close": True,   # judged by a person; the metric is not the right one
+                f"showing the incumbent the result, usually recovers most of a rise like this. "
+                f"The next purchase order for this item is the answer."),
+            # The measured fact is the price on the NEXT order for this exact
+            # vendor and item — which is why the reference carries both.
+            "metric_key": "purchase.unit_price",
+            "entity_ref": f"vendoritem:{vendor}|{item_code}",
+            "window_days": 45,
+            "dedupe_key": f"requote:{vendor}:{item_code}",
             "evidence": a,
         })
         break
@@ -246,9 +259,15 @@ def suggest(conn, company_id: str, *, config: dict | None = None) -> dict:
         filed += 1
         titles.append(s["title"])
 
+    if filed:
+        summary = f"{filed} experiment{'s' if filed != 1 else ''} suggested."
+    elif skipped:
+        summary = (f"Nothing new — {skipped} earlier suggestion"
+                   f"{'s are' if skipped > 1 else ' is'} still open.")
+    else:
+        summary = "Nothing worth suggesting this week."
     return {"suggested": filed, "already_open": skipped, "titles": titles,
-            "summary": (f"{filed} experiment{'s' if filed != 1 else ''} suggested."
-                        if filed else "Nothing new worth suggesting this week.")}
+            "summary": summary}
 
 
 def _stamp(conn, experiment_id: str, s: dict, *, auto_close: bool) -> None:

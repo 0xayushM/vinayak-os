@@ -61,7 +61,8 @@ def verdict(baseline: float | None, result: float | None, *,
         return "positive", f"Moved {improvement_pct:.0f}% in the right direction."
     if improvement_pct <= -NOISE_FLOOR_PCT:
         return "negative", f"Moved {abs(improvement_pct):.0f}% the wrong way."
-    return "inconclusive", f"Moved {improvement_pct:+.0f}% — inside the noise."
+    # + 0.0 so a tiny negative does not print as the nonsense "-0%".
+    return "inconclusive", f"Moved {improvement_pct + 0.0:+.0f}%".replace("-0%", "0%") + " — inside the noise."
 
 
 def close_due(conn, company_id: str) -> dict:

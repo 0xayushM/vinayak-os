@@ -7,6 +7,13 @@ import {
   type BusinessProfile, type MemoryFact,
 } from "@/hooks/useDashboard";
 import { cn } from "@/lib/utils/cn";
+import { Tabs } from "@/components/dashboard/StageFlow";
+import { BrainActivity } from "@/components/dashboard/BrainActivity";
+
+const TABS = [
+  { key: "activity", label: "What it did" },
+  { key: "memory", label: "What it knows" },
+];
 
 const VERTICALS = ["manufacturing", "trading", "retail", "services"];
 
@@ -250,19 +257,28 @@ function MemorySection() {
 }
 
 export default function BrainPage() {
+  const [tab, setTab] = useState("activity");
   return (
-    <div className="p-4 sm:p-6 lg:p-8 space-y-6 max-w-4xl mx-auto w-full animate-rise">
+    <div className="p-4 sm:p-6 lg:p-8 space-y-5 max-w-5xl mx-auto w-full animate-rise">
       <div className="flex items-center gap-2">
         <Brain className="w-5 h-5 text-[#C08457]" />
         <div>
           <h1 className="text-xl sm:text-2xl font-semibold tracking-tight text-zinc-50">Business Brain</h1>
           <p className="text-[12.5px] text-zinc-500 mt-0.5">
-            The context and memory the AI reasons from — the moat beneath the dashboard.
+            What it watched while you were away, and the context it reasons from.
           </p>
         </div>
       </div>
-      <ProfileForm />
-      <MemorySection />
+
+      <Tabs tabs={TABS} active={tab} onChange={setTab} />
+
+      {tab === "activity" && <BrainActivity />}
+      {tab === "memory" && (
+        <div className="space-y-6">
+          <ProfileForm />
+          <MemorySection />
+        </div>
+      )}
     </div>
   );
 }
