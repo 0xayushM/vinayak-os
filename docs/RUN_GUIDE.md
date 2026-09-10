@@ -148,6 +148,27 @@ Checklist:
 
 ---
 
+## 4b. Migrations
+
+```bash
+python -m vinayak.scripts.migrate --status   # what is applied, pending, or changed
+python -m vinayak.scripts.migrate            # apply everything pending, in order
+python -m vinayak.scripts.migrate --baseline # first run on a hand-migrated DB
+```
+
+Applied migrations are recorded in `schema_migrations`, and the API and worker
+log a warning at startup when any are pending. Before that ledger existed,
+"run the migrations" was something a person remembered to do, and a database
+one migration behind did not report itself — it showed a blank Today page and
+an empty Approvals inbox, because a query against a missing table raises and
+the code above it turned the failure into nothing at all.
+
+Run `--baseline` **once**, against a database you know is current. Every
+migration in the repo is idempotent, so re-running one is safe; the ledger is
+about knowing, not protection.
+
+---
+
 ## 5. Deploy
 
 - **Backend** → Railway from `Dockerfile` (`railway.json`: health check on `/health`).

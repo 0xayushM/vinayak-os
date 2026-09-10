@@ -105,3 +105,22 @@ partial answer.
 removed the morning scan — the screen you read to confirm everything is roughly
 where you left it. That is a different job from "where is money stuck in this
 loop", and the repetition it involves is the feature, not the bug.
+
+## 2026-09-10 — Migrations are tracked, and an error is never rendered as emptiness
+
+**Decision.** `schema_migrations` plus `python -m vinayak.scripts.migrate`. The
+API and worker log a warning at startup when anything is pending.
+
+**Why.** Twice in one day a live database was a migration behind, and neither
+time did it look like that. Migration 020 missing gave a 500 on Today; migration
+017 missing gave an *empty Approvals inbox* — the query joined a table that did
+not exist, the page caught broadly, and rendered "nothing waiting". A missing
+migration never announces itself, so something has to announce it.
+
+**Decision.** A failed load and an empty result must never render the same.
+
+**Why.** This is the deeper fault, and it appeared three times today: Today's
+blank page, the Approvals inbox, and the chase button reporting the idempotency
+guard as "nothing to draft". Each was working code describing a failure as an
+absence, which is the hardest kind of bug to report and the easiest to
+misdiagnose. Empty states now say "nothing here"; failures say what broke.

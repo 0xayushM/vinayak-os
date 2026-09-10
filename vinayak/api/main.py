@@ -39,9 +39,34 @@ logger = logging.getLogger(__name__)
 RUN_SCHEDULER = os.getenv("RUN_SCHEDULER", "").strip().lower() in ("1", "true", "yes")
 
 
+def _warn_if_migrations_pending() -> None:
+    """Say so, loudly, at startup.
+
+    A missing migration never announces itself: the query raises, something
+    catches broadly, and the user sees an empty page. One line in the log at
+    boot turns a day of confusion into a one-command fix.
+    """
+    try:
+        import psycopg2
+        from vinayak.config import DATABASE_URL
+        from vinayak.scripts.migrate import pending
+        conn = psycopg2.connect(DATABASE_URL)
+        try:
+            todo = pending(conn)
+        finally:
+            conn.close()
+        if todo:
+            logger.warning(
+                "%d MIGRATION(S) NOT APPLIED: %s — run `python -m vinayak.scripts.migrate`",
+                len(todo), ", ".join(p.name for p in todo))
+    except Exception as exc:  # noqa: BLE001 — a check must never block startup
+        logger.warning("Could not check migrations: %s", exc)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Start the in-process scheduler only when this instance owns it."""
+    _warn_if_migrations_pending()
     if RUN_SCHEDULER:
         logger.info("RUN_SCHEDULER is set — starting APScheduler in the API process")
         from vinayak.worker import build_scheduler   # adds the brain tick

@@ -33,18 +33,29 @@ export default function ApprovalsPage() {
   const [busy, setBusy] = useState<string | null>(null);
   const [emails, setEmails] = useState<Record<string, string>>({});
   const [notice, setNotice] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
+    // An empty inbox and a failed request used to look identical here: the
+    // catch set items to [] and the page said "nothing waiting". They are not
+    // the same thing, and confusing them cost a day — the request was failing
+    // because a table one migration behind did not exist.
+    async function get(status: string): Promise<Action[]> {
+      const res = await apiFetch(`/api/be/dashboard/actions?status=${status}`,
+                                 { credentials: "include" });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.detail ?? `HTTP ${res.status}`);
+      return (body.actions ?? []) as Action[];
+    }
     try {
-      const [p, a] = await Promise.all([
-        apiFetch("/api/be/dashboard/actions?status=proposed", { credentials: "include" }).then((r) => r.json()),
-        apiFetch("/api/be/dashboard/actions?status=approved", { credentials: "include" }).then((r) => r.json()),
-      ]);
-      setItems(p.actions ?? []);
-      setStuck(((a.actions ?? []) as Action[]).filter(isStuck));
-    } catch {
-      setItems([]);
+      const [p, a] = await Promise.all([get("proposed"), get("approved")]);
+      setItems(p);
+      setStuck(a.filter(isStuck));
+      setLoadError(null);
+    } catch (e) {
+      setItems(null);
       setStuck([]);
+      setLoadError((e as Error).message);
     }
   }, []);
 
@@ -78,6 +89,16 @@ export default function ApprovalsPage() {
   return (
     <div className="p-4 sm:p-6 lg:p-8 max-w-3xl mx-auto w-full animate-rise space-y-5">
       <PageHeader title="Approvals" subtitle="Nothing is sent until you approve it here" />
+
+      {loadError && (
+        <div className="rounded-xl border border-red-400/25 bg-red-400/[0.06] px-4 py-3 flex items-start gap-3 text-sm text-red-200">
+          <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+          <div>
+            <p>Could not load the inbox — this is not the same as having nothing to approve.</p>
+            <p className="text-[12px] text-red-300/70 mt-0.5">{loadError}</p>
+          </div>
+        </div>
+      )}
 
       <div className="rounded-xl border border-[#C08457]/20 bg-[#C08457]/[0.06] px-4 py-3 flex items-start gap-3 text-sm text-[#d4a070]">
         <ShieldCheck className="w-4 h-4 shrink-0 mt-0.5" />
