@@ -35,17 +35,41 @@ MANAGER_ROLES = ("owner", "admin")
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────
+_BLANK_USER = {"role": None, "may_approve_messages": False, "may_approve_money": False,
+               "pinned_cards": None, "display_name": None}
+
+
 def user_record(conn, email: str) -> dict:
-    """The users row as the app sees it (role + permissions + layout)."""
-    with conn.cursor() as cur:
-        cur.execute(
-            """SELECT email, company_id, role, may_approve_messages, may_approve_money,
-                      pinned_cards, display_name
-               FROM users WHERE LOWER(email) = LOWER(%s)""", (email,))
-        r = cur.fetchone()
+    """The users row as the app sees it (role + permissions + layout).
+
+    The permission and layout columns arrived in migration 020. On a database
+    where that migration has not been run yet this must degrade to "no role
+    chosen" rather than throwing — a failed SELECT aborts the transaction, and
+    a caller that catches the error still inherits a dead connection. That is
+    exactly how a missing migration used to turn into a blank Today page.
+    """
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """SELECT email, company_id, role, may_approve_messages, may_approve_money,
+                          pinned_cards, display_name
+                   FROM users WHERE LOWER(email) = LOWER(%s)""", (email,))
+            r = cur.fetchone()
+    except Exception as exc:  # noqa: BLE001 — most likely migration 020 is not applied
+        conn.rollback()
+        logger.warning("user_record: falling back for %s (%s)", email, exc)
+        try:
+            with conn.cursor() as cur:
+                cur.execute("SELECT email, company_id, role FROM users "
+                            "WHERE LOWER(email) = LOWER(%s)", (email,))
+                r2 = cur.fetchone()
+            if r2:
+                return {**_BLANK_USER, "email": r2[0], "company_id": r2[1], "role": r2[2]}
+        except Exception:  # noqa: BLE001
+            conn.rollback()
+        return {**_BLANK_USER, "email": email}
     if not r:
-        return {"email": email, "role": None, "may_approve_messages": False,
-                "may_approve_money": False, "pinned_cards": None, "display_name": None}
+        return {**_BLANK_USER, "email": email}
     return {"email": r[0], "company_id": r[1], "role": r[2],
             "may_approve_messages": bool(r[3]), "may_approve_money": bool(r[4]),
             "pinned_cards": r[5], "display_name": r[6]}

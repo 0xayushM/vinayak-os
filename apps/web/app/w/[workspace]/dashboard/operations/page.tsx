@@ -85,7 +85,7 @@ export default function OperationsPage() {
         question="How much is being made, and how much is being scrapped?"
         note="A reject rate that drifts up is the earliest warning a process has slipped."
       />
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
         <ProductionPanel range={range} />
         <BomCoveragePanel />
       </div>

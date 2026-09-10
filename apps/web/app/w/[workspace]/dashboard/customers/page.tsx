@@ -99,7 +99,7 @@ export default function CustomersPage({ params }: { params: Promise<{ workspace:
         question="Who matters, and who is a risk?"
         note="Share of revenue on the left; who is over-exposed or stretching terms on the right."
       />
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
         <CustomerConcentrationPanel range={range} />
         <CreditRiskPanel />
       </div>

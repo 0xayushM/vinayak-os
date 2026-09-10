@@ -81,7 +81,7 @@ export default function MoneyOutPage() {
         question="Is more going out than coming in?"
         note="Money in against money out, month by month — the only place these two loops meet."
       />
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
         <CashMovementPanel />
         <GrnPanel range={range} />
       </div>

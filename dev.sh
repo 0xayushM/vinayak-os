@@ -36,8 +36,11 @@ cleanup() {
 trap cleanup INT TERM EXIT
 
 # ── Backend ──────────────────────────────────────────────────────────────────
-echo "▶ backend  → uvicorn on :${BACKEND_PORT}"
-uvicorn vinayak.api.main:app --reload --port "$BACKEND_PORT" &
+echo "▶ backend  → uvicorn on :${BACKEND_PORT} (scheduler in-process for dev)"
+# One process locally: RUN_SCHEDULER=1 puts the syncs, the brief and the
+# brain tick back inside the API, so `./dev.sh` is still all you need.
+# Production runs them in the separate worker service instead (Procfile).
+RUN_SCHEDULER=1 uvicorn vinayak.api.main:app --reload --port "$BACKEND_PORT" &
 BACKEND_PID=$!
 
 # wait for /health (up to ~30s)

@@ -592,6 +592,100 @@ class DecideIn(BaseModel):
     email: str | None = None  # optional recipient override (saved to contacts)
 
 
+class RunAsExperimentIn(BaseModel):
+    """Turn an approval into a logged experiment with a metric and a window."""
+    metric_key: str
+    window_days: int = 30
+    title: str | None = None
+    hypothesis: str | None = None
+
+
+@router.post("/actions/{action_id}/experiment")
+def action_as_experiment(action_id: str, body: RunAsExperimentIn,
+                         company_id: str = Depends(require_workspace),
+                         user: TokenPayload = Depends(get_current_user)):
+    """Tag an approval as an experiment.
+
+    The whole difficulty with "run 30 experiments" is remembering to call
+    something an experiment while you are doing it. Most of what the owner
+    approves in the Inbox — a chase, a nudge, a hold — already is one: a
+    deliberate intervention with a plausible effect on a number we track. So
+    this endpoint takes the action he was going to approve anyway, captures
+    the metric's value right now as the baseline, sets a window, and files it.
+    Six weeks later brain/outcomes.py reads the metric again and closes it.
+
+    The result is that an ordinary working morning produces logged experiments
+    with real outcomes, rather than a separate exercise nobody has time for.
+    """
+    from vinayak import experiments as X
+    from vinayak.brain import metrics
+
+    m = metrics.METRICS.get(body.metric_key)
+    if m is None:
+        raise HTTPException(status_code=400,
+                            detail=f"unknown metric: {body.metric_key}")
+    if not 1 <= body.window_days <= 365:
+        raise HTTPException(status_code=400, detail="window_days must be 1–365")
+
+    conn = _conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """SELECT tool_name, entity_ref, payload, experiment_id
+                     FROM actions WHERE id = %s AND company_id = %s""",
+                (action_id, company_id))
+            row = cur.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Action not found")
+        tool_name, entity_ref, payload, existing = row
+        if existing:
+            raise HTTPException(status_code=409,
+                                detail="This action is already part of an experiment")
+
+        baseline = metrics.read(conn, company_id, body.metric_key, entity_ref)
+        subject = (payload or {}).get("summary") or tool_name
+        title = body.title or f"{subject} — does it move {m.label.lower()}?"
+        hypothesis = body.hypothesis or (
+            f"Approving this ({subject}) should improve {m.label.lower()} within "
+            f"{body.window_days} days. Baseline recorded at approval.")
+
+        exp = X.create(
+            conn, company_id, title=title, hypothesis=hypothesis, source="manual",
+            metric=m.label, baseline=baseline, proposed_by=user.sub,
+            action_refs=[action_id], status="accepted",
+            evidence={"action_id": action_id, "tool_name": tool_name,
+                      "entity_ref": entity_ref},
+        )
+        with conn.cursor() as cur:
+            cur.execute(
+                """UPDATE experiments
+                      SET metric_key = %s, window_days = %s, entity_ref = %s,
+                          auto_close = TRUE
+                    WHERE id = %s""",
+                (body.metric_key, body.window_days, entity_ref, exp["id"]))
+            cur.execute("UPDATE actions SET experiment_id = %s WHERE id = %s",
+                        (exp["id"], action_id))
+        conn.commit()
+
+        # 'accepted' becomes 'running' with a fresh baseline and window on the
+        # next brain tick — one code path starts every experiment, whether it
+        # came from here or from the weekly suggestions.
+        return {"experiment": {**exp, "metric_key": body.metric_key,
+                               "window_days": body.window_days}}
+    finally:
+        conn.close()
+
+
+@router.get("/experiment-metrics")
+def experiment_metrics():
+    """The metrics an experiment can be judged on, for the picker."""
+    from vinayak.brain import metrics
+    return {"metrics": [
+        {"key": m.key, "label": m.label, "unit": m.unit,
+         "lower_is_better": m.lower_is_better}
+        for m in metrics.METRICS.values()]}
+
+
 @router.post("/actions/{action_id}/decide")
 def actions_decide(action_id: str, body: DecideIn,
                    company_id: str = Depends(require_workspace),

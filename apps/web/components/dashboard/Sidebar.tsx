@@ -7,7 +7,7 @@ import { usePathname } from "next/navigation";
 import {
   TrendingUp, Users, Package, Truck, Settings, LogOut,
   Menu, X, ChevronsUpDown, Plus, ExternalLink, Check, Loader2, Brain, Sparkles,
-  ShieldCheck, FlaskConical, Flag, Sun,
+  ShieldCheck, FlaskConical, Flag, Sun, LayoutGrid,
 } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
 import { useSyncHealth } from "@/hooks/useDashboard";
@@ -29,6 +29,7 @@ const NAV = [
     // ERP report the data came from. Each figure has exactly one home.
     section: "The business",
     items: [
+      { label: "Daily overview",     href: "/dashboard/overview",    icon: LayoutGrid   },
       { label: "Money in",           href: "/dashboard/money-in",    icon: TrendingUp   },
       { label: "Money out",          href: "/dashboard/money-out",   icon: Truck        },
       { label: "Stock & making",     href: "/dashboard/operations",  icon: Package      },

@@ -36,6 +36,14 @@ def _reader(conn, user: TokenPayload) -> tuple[str | None, list[str] | None]:
         pinned = rec.get("pinned_cards")
         return role, (pinned if isinstance(pinned, list) and pinned else None)
     except Exception as exc:  # noqa: BLE001 — layout is a preference, never a gate
+        # Roll the connection back before returning. A failed SELECT leaves the
+        # transaction aborted, and every later query on this connection then
+        # fails too — which is how a preference lookup used to take the whole
+        # page down with it.
+        try:
+            conn.rollback()
+        except Exception:  # noqa: BLE001
+            pass
         logger.warning("pulse: could not read role for %s: %s", user.sub, exc)
         return "owner", None
 
@@ -44,10 +52,29 @@ def _reader(conn, user: TokenPayload) -> tuple[str | None, list[str] | None]:
 def pulse(sort: str = Query(default="role", pattern="^(role|severity)$"),
           company_id: str = Depends(require_workspace),
           user: TokenPayload = Depends(get_current_user)):
+    """The Today page.
+
+    This endpoint never returns an error. Today is the page the owner opens
+    first, and a blank one with 'Internal server error' on it is worse than
+    any partial answer — it tells him nothing and gives him nowhere to go. So
+    a failure here becomes a card that says what broke, with the traceback in
+    the server log where it belongs.
+    """
     conn = _conn()
     try:
         role, pinned = _reader(conn, user)
         return C.build_cards(conn, company_id, role=role, pinned=pinned, sort=sort)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("pulse failed for %s", company_id)
+        return {"cards": [C._card(
+                    "pulse_unavailable", "Today could not be built", 0, display="—",
+                    why=("Something went wrong assembling your cards. The rest of the "
+                         "dashboard is unaffected — the detail is in the server log."),
+                    action={"label": "Open Money in", "kind": "open",
+                            "params": {"path": "/dashboard/money-in"}},
+                    confidence=P.UNCERTAIN, severity=0)],
+                "role": None, "failed": ["all"], "needs_attention": 0,
+                "no_data": False, "error": str(exc)[:300]}
     finally:
         conn.close()
 

@@ -7,7 +7,7 @@ import { StageFlow, Tabs, SectionHead, type Stage } from "@/components/dashboard
 import {
   QuotePipelinePanel, OpenOrdersTablePanel, SalesInvoicesTablePanel,
   ArInvoicesTablePanel, ArAgingPanel, CollectionsPriorityPanel,
-  RevenueTrendPanel, TopSkusTablePanel,
+  RevenueTrendPanel, TopSkusTablePanel, RevenueKpiPanel, RevenueDailyPanel,
 } from "@/components/dashboard/panels";
 import {
   useQuoteSummary, useOpenOrders, useRevenueSummary, useArSummary,
@@ -24,6 +24,7 @@ import { formatCurrency } from "@/lib/utils/cn";
  * is sitting; the tabs below open the detail for one stage at a time.
  */
 const TABS = [
+  { key: "revenue", label: "Revenue" },
   { key: "quotes", label: "Quotes" },
   { key: "orders", label: "Orders" },
   { key: "invoices", label: "Invoices" },
@@ -103,7 +104,7 @@ export default function MoneyInPage() {
         question="What is holding up the money you are owed?"
         note="The chase list is ranked by recovery impact — amount weighted by how late it is."
       />
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
         <ArAgingPanel />
         <CollectionsPriorityPanel />
       </div>
@@ -111,14 +112,18 @@ export default function MoneyInPage() {
       <SectionHead question="The detail, one stage at a time" />
       <Tabs tabs={TABS} active={tab} onChange={setTab} />
 
-      {tab === "quotes" && <QuotePipelinePanel range={range} />}
-      {tab === "orders" && <OpenOrdersTablePanel />}
-      {tab === "invoices" && (
+      {tab === "revenue" && (
         <div className="space-y-4">
-          <RevenueTrendPanel range={range} />
-          <SalesInvoicesTablePanel range={range} />
+          <RevenueDailyPanel range={range} />
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
+            <RevenueKpiPanel range={range} />
+            <RevenueTrendPanel range={range} />
+          </div>
         </div>
       )}
+      {tab === "quotes" && <QuotePipelinePanel range={range} />}
+      {tab === "orders" && <OpenOrdersTablePanel />}
+      {tab === "invoices" && <SalesInvoicesTablePanel range={range} />}
       {tab === "receivables" && <ArInvoicesTablePanel />}
       {tab === "products" && <TopSkusTablePanel range={range} />}
     </div>

@@ -31,14 +31,28 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+# Background work belongs to the worker process (`python -m vinayak.worker`),
+# not to the API. Set RUN_SCHEDULER=1 to put it back in here — which is what
+# local development wants, and what production must not do: the API is
+# horizontally scaled, so a scheduler inside it runs every job once per
+# replica. Default off, so adding a second replica is a boring thing to do.
+RUN_SCHEDULER = os.getenv("RUN_SCHEDULER", "").strip().lower() in ("1", "true", "yes")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Start scheduler on startup; stop cleanly on shutdown."""
-    logger.info("Starting APScheduler...")
-    start_scheduler()
+    """Start the in-process scheduler only when this instance owns it."""
+    if RUN_SCHEDULER:
+        logger.info("RUN_SCHEDULER is set — starting APScheduler in the API process")
+        from vinayak.worker import build_scheduler   # adds the brain tick
+        build_scheduler()
+        start_scheduler()
+    else:
+        logger.info("Scheduler not started here; background jobs run in the worker")
     yield
-    logger.info("Stopping APScheduler...")
-    stop_scheduler()
+    if RUN_SCHEDULER:
+        logger.info("Stopping APScheduler...")
+        stop_scheduler()
 
 
 app = FastAPI(
@@ -78,7 +92,7 @@ async def _unhandled(request: Request, exc: Exception):
 
 
 # ── Register routers ──────────────────────────────────────────────────────────
-from vinayak.api.routes import auth, connections, dashboard, workspaces, zoho, milestones, pulse  # noqa: E402
+from vinayak.api.routes import auth, connections, dashboard, workspaces, zoho, milestones, pulse, brain  # noqa: E402
 from vinayak.api.routes.auth import require_internal_key  # noqa: E402
 
 # The BFF boundary. Every business route requires the shared X-Internal-Key the
@@ -103,6 +117,8 @@ app.include_router(dashboard.router,   prefix="/dashboard",    tags=["Dashboard"
 app.include_router(milestones.router,  prefix="/dashboard",    tags=["Milestones"],  dependencies=_BFF_ONLY)
 # The Pulse: the landing cards and the payload the morning brief is written from.
 app.include_router(pulse.router,       prefix="/dashboard",    tags=["Pulse"],       dependencies=_BFF_ONLY)
+# Layer 10 — what the brain did on its own, and the switches for it.
+app.include_router(brain.router,       prefix="/dashboard",    tags=["Brain"],       dependencies=_BFF_ONLY)
 
 # Register the Layer-7 read tools so the agent + MCP can call the business as a
 # tool. Idempotent; read-only wrappers over the proven query functions.
