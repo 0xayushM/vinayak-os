@@ -10,11 +10,18 @@ The evidence surface for the contractual milestones (docs/reference/MILESTONES.m
   GET  /dashboard/experiments/counts      — the Milestone-1 numbers
   PATCH/dashboard/experiments/{id}        — update fields / transition status
   GET  /dashboard/incidents · POST · PATCH
-  GET  /dashboard/milestones              — the board: every M1 criterion with live numbers
-  GET/PUT /dashboard/milestones/settings  — start date, the tracked user
 
-Everything is scoped to the workspace like every other route. The board and
-the users list are limited to owner/admin roles.
+Everything is scoped to the workspace like every other route; the users list
+is limited to owner/admin roles.
+
+The milestone BOARD used to live here as a screen. It does not any more: the
+tracker is docs/reference/MILESTONES.md, because a milestone review is a
+conversation with Shourya and Sandeep and a document can hold what a table
+cannot — what was agreed, what changed, and why a criterion is judged the way
+it is. The countable half is computed by vinayak/milestones.py and printed by
+`python -m vinayak.scripts.milestone_status` for pasting into that document.
+The evidence tables underneath (usage_events, experiments, incidents,
+eval_runs) are unchanged and still recorded automatically.
 """
 from __future__ import annotations
 
@@ -80,22 +87,6 @@ def _require_manager(conn, user: TokenPayload) -> dict:
     if rec.get("role") not in MANAGER_ROLES:
         raise HTTPException(status_code=403, detail="Owner or admin role required")
     return rec
-
-
-def _setting(conn, key: str, default: str = "") -> str:
-    with conn.cursor() as cur:
-        cur.execute("SELECT value FROM platform_settings WHERE key = %s", (key,))
-        r = cur.fetchone()
-    return r[0] if r else default
-
-
-def _set_setting(conn, key: str, value: str) -> None:
-    with conn.cursor() as cur:
-        cur.execute(
-            """INSERT INTO platform_settings (key, value) VALUES (%s, %s)
-               ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()""",
-            (key, value))
-    conn.commit()
 
 
 # ── usage ─────────────────────────────────────────────────────────────────────
@@ -288,133 +279,6 @@ def incidents_update(incident_id: str, body: IncidentPatch,
         conn.commit()
         if not n:
             raise HTTPException(status_code=404, detail="Incident not found")
-        return {"ok": True}
-    finally:
-        conn.close()
-
-
-# ── the board ─────────────────────────────────────────────────────────────────
-def _month_end(start: date, months: int) -> date:
-    y, m = start.year, start.month + months
-    y += (m - 1) // 12
-    m = (m - 1) % 12 + 1
-    return date(y, m, min(start.day, 28))
-
-
-@router.get("/milestones")
-def milestone_board(company_id: str = Depends(require_workspace),
-                    user: TokenPayload = Depends(get_current_user)):
-    """Every Milestone-1 criterion with the live number behind it."""
-    conn = _conn()
-    try:
-        _require_manager(conn, user)
-        today = date.today()
-        start_s = _setting(conn, "milestone_start_date", "2026-09-01")
-        try:
-            start = date.fromisoformat(start_s)
-        except ValueError:
-            start = date(2026, 9, 1)
-        tracked = _setting(conn, "milestone_user_email", "") or ""
-        dates = {
-            "start": start.isoformat(),
-            "month_3_demo": _month_end(start, 3).isoformat(),
-            "month_6_review": _month_end(start, 6).isoformat(),
-            "month_8_latest": _month_end(start, 8).isoformat(),
-            "month_12_review": _month_end(start, 12).isoformat(),
-            "month_24_review": _month_end(start, 24).isoformat(),
-            "days_to_month_6": (_month_end(start, 6) - today).days,
-        }
-
-        # 1 · production — asserted from config; the UI shows the URLs
-        # 2 · usage
-        usage = U.stats(conn, tracked, window_days=200) if tracked else None
-        # 3 · eval — latest recorded runs per runner
-        with conn.cursor() as cur:
-            cur.execute(
-                """SELECT DISTINCT ON (runner) runner, ran_at, cases_run, passed,
-                          citation_compliance, factual_accuracy, ship_blocked
-                   FROM eval_runs ORDER BY runner, ran_at DESC""")
-            evals = [{"runner": r[0], "ran_at": r[1].isoformat(), "cases_run": r[2], "passed": r[3],
-                      "citation_compliance": float(r[4]),
-                      "factual_accuracy": float(r[5]) if r[5] is not None else None,
-                      "ship_blocked": bool(r[6])} for r in cur.fetchall()]
-        # 4 · experiments
-        xc = X.counts(conn, company_id)
-        # 5 · incidents — critical in the last 60 days
-        with conn.cursor() as cur:
-            cur.execute(
-                """SELECT COUNT(*), MAX(started_at) FROM incidents
-                   WHERE severity = 'critical' AND started_at >= NOW() - INTERVAL '60 days'
-                     AND (company_id = %s OR company_id IS NULL)""", (company_id,))
-            crit, last_crit = cur.fetchone()
-        since_crit = None
-        if last_crit:
-            since_crit = (datetime.now(timezone.utc) - last_crit).days
-
-        criteria = [
-            {"key": "production", "title": "Dashboard live in production",
-             "status": "met", "detail": "Vercel + Railway + Supabase; CI on every push",
-             "value": None, "target": None},
-            {"key": "usage", "title": "Owner active ≥ 4 days/week for 60 consecutive days",
-             "status": ("met" if usage and usage["meets_60_days"] else
-                        "in_progress" if usage and usage["active_days_in_window"] else "not_started"),
-             "detail": (f"Tracking {tracked}" if tracked else "No tracked user set — choose one in settings"),
-             "value": usage["best_run_days"] if usage else 0, "target": 60,
-             "extra": usage},
-            {"key": "eval", "title": "50-question set: ≥ 80% factual, 100% citation compliance",
-             "status": ("met" if any(e["runner"] == "native" and e["cases_run"] >= 50
-                                    and e["citation_compliance"] >= 1.0
-                                    and (e["factual_accuracy"] or 0) >= 0.8 for e in evals)
-                        else "in_progress" if evals else "not_started"),
-             "detail": "Latest recorded harness runs per runner",
-             "value": max((e["cases_run"] for e in evals), default=0), "target": 50,
-             "extra": evals},
-            {"key": "experiments", "title": "≥ 30 logged experiments with outcomes",
-             "status": "met" if xc["with_outcomes"] >= 30 else ("in_progress" if xc["logged"] else "not_started"),
-             "detail": f"{xc['logged']} logged · {xc['with_outcomes']} with outcomes · {xc['ai_suggested']} AI-suggested",
-             "value": xc["with_outcomes"], "target": 30, "extra": xc},
-            {"key": "demos", "title": "Month-3 demo passed; month-6 demo criteria met",
-             "status": "not_started",
-             "detail": f"Month-3 demo {dates['month_3_demo']} · Month-6 review {dates['month_6_review']} (see docs/reference/PLAN.md)",
-             "value": None, "target": None},
-            {"key": "incidents", "title": "No critical incident in the last 60 days",
-             "status": "met" if not crit else "at_risk",
-             "detail": (f"{crit} critical in 60 days" if crit else "None recorded"),
-             "value": since_crit, "target": 60},
-        ]
-        return {"dates": dates, "tracked_user": tracked, "criteria": criteria}
-    finally:
-        conn.close()
-
-
-class SettingsIn(BaseModel):
-    milestone_start_date: str | None = None
-    milestone_user_email: str | None = None
-
-
-@router.get("/milestones/settings")
-def milestone_settings(company_id: str = Depends(require_workspace),
-                       user: TokenPayload = Depends(get_current_user)):
-    conn = _conn()
-    try:
-        _require_manager(conn, user)
-        return {"milestone_start_date": _setting(conn, "milestone_start_date", "2026-09-01"),
-                "milestone_user_email": _setting(conn, "milestone_user_email", "")}
-    finally:
-        conn.close()
-
-
-@router.put("/milestones/settings")
-def milestone_settings_put(body: SettingsIn, company_id: str = Depends(require_workspace),
-                           user: TokenPayload = Depends(get_current_user)):
-    conn = _conn()
-    try:
-        _require_manager(conn, user)
-        if body.milestone_start_date:
-            date.fromisoformat(body.milestone_start_date)  # validate
-            _set_setting(conn, "milestone_start_date", body.milestone_start_date)
-        if body.milestone_user_email is not None:
-            _set_setting(conn, "milestone_user_email", body.milestone_user_email.strip().lower())
         return {"ok": True}
     finally:
         conn.close()

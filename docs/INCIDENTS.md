@@ -1,7 +1,7 @@
 # Incidents
 
 The record behind "no critical production incidents in the prior 60 days".
-Incidents are logged in the product (Milestone board → Incidents) so the count
+Incidents are logged at the bottom of this file, and in the `incidents` table, so the count
 is computed, not asserted; this file holds the definitions and the write-ups.
 
 ## What counts as critical
@@ -27,9 +27,20 @@ the deterministic engine is not an incident.
 
 ## How to log one
 
-Milestone board → Incidents → Log. Severity, one-line title, detail. Mark
+Add an entry to the log at the bottom of this file, and insert the row in `incidents`. Severity, one-line title, detail. Mark
 resolved when it is. For anything critical, add a write-up below within a
 week: what happened, impact, root cause, what changed so it cannot recur.
+
+## Log
+
+One row per incident, newest last. The `incidents` table carries the same
+entries and is what `python -m vinayak.scripts.milestone_status` counts for the
+"no critical incident in the last 60 days" criterion — so write both, or the
+number and the story disagree.
+
+| Started | Severity | Title | Resolved | Notes |
+|---|---|---|---|---|
+| — | — | _None yet._ | — | |
 
 ## Write-ups
 

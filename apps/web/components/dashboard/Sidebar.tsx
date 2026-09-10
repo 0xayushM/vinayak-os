@@ -7,7 +7,7 @@ import { usePathname } from "next/navigation";
 import {
   TrendingUp, Users, Package, Truck, Settings, LogOut,
   Menu, X, ChevronsUpDown, Plus, ExternalLink, Check, Loader2, Brain, Sparkles,
-  ShieldCheck, FlaskConical, Flag, Sun, LayoutGrid,
+  ShieldCheck, FlaskConical, Sun, LayoutGrid,
 } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
 import { useSyncHealth } from "@/hooks/useDashboard";
@@ -274,14 +274,6 @@ function RailContent({ onNavigate }: { onNavigate?: () => void }) {
 
       {/* Settings + Logout */}
       <div className="px-4 py-3 border-t border-white/[0.05] space-y-2">
-        <Link
-          href={link("/dashboard/milestones")}
-          onClick={onNavigate}
-          className="flex items-center gap-2 text-[11px] text-zinc-500 hover:text-[#F2DEC8]/75 transition-colors"
-        >
-          <Flag className="w-3.5 h-3.5" />
-          Milestone board
-        </Link>
         <Link
           href={link("/dashboard/settings")}
           onClick={onNavigate}

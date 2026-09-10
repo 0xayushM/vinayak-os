@@ -3,7 +3,8 @@
 Newest first. One line each: date · decision · why. Longer rationale lives in
 `docs/reference/` (HLD §11 has the architectural ones).
 
-- 2026-09-09 · Milestone evidence lives in the product (usage_events, experiments, incidents, eval_runs, Milestone board) · so the month-6 review is a screen, not an argument.
+- 2026-09-09 · Milestone evidence lives in the product (usage_events, experiments, incidents, eval_runs) · so the month-6 review is evidence, not an argument.
+- 2026-09-10 · The milestone *tracker* is a document (`docs/reference/MILESTONES.md`), not a screen · a review is a conversation about what was agreed and why a criterion is judged as it is, which a table cannot hold; `python -m vinayak.scripts.milestone_status` prints the countable half. The board page was built in Sprint 0 and removed.
 - 2026-09-09 · Roles seed the dashboard layout only; two explicit permissions (approve messages, approve money) gate the Inbox · same tools, same numbers, different first screen; money never approved by someone not granted it.
 - 2026-09-09 · Every business route requires the BFF's internal key · the backend URL was discoverable and the documented boundary was not enforced.
 - 2026-09-09 · Google ADK stays an inert adapter behind the runner port · orchestration is not where learning lives; adopt when synapses need multi-agent handoffs.

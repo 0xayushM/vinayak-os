@@ -1,9 +1,14 @@
 /**
  * hooks/useMilestones.ts
  * ──────────────────────
- * Hooks for the milestone-evidence surface: who I am (role, permissions),
- * usage, experiments, incidents, the Milestone board, and workspace users.
- * All calls go through the generic BFF (/api/be/*) or /api/auth/*.
+ * Who I am (role, permissions), my usage, the experiments log, and the
+ * workspace's users. All calls go through the generic BFF (/api/be/*) or
+ * /api/auth/*.
+ *
+ * There is no milestone board here any more. The tracker is a document —
+ * docs/reference/MILESTONES.md — and the countable half of it is printed by
+ * `python -m vinayak.scripts.milestone_status`. The evidence tables behind it
+ * are still written automatically on every request.
  */
 import useSWR from "swr";
 import { apiFetch } from "@/lib/api";
@@ -94,38 +99,6 @@ export function createExperiment(body: Partial<Experiment> & { title: string }) 
 }
 export function patchExperiment(id: string, body: Partial<Experiment>) {
   return send<{ experiment: Experiment }>(`/api/be/dashboard/experiments/${id}`, "PATCH", body);
-}
-
-// ── incidents ─────────────────────────────────────────────────────────────────
-export interface Incident {
-  id: string; severity: "critical" | "major" | "minor"; title: string; detail: string | null;
-  started_at: string | null; resolved_at: string | null; reported_by: string | null;
-}
-export function useIncidents() {
-  return useSWR<{ incidents: Incident[] }>("/api/be/dashboard/incidents", fetcher, { revalidateOnFocus: false });
-}
-export function createIncident(body: { severity: Incident["severity"]; title: string; detail?: string }) {
-  return send<{ id: string }>("/api/be/dashboard/incidents", "POST", body);
-}
-export function patchIncident(id: string, body: { resolved?: boolean; detail?: string; severity?: Incident["severity"] }) {
-  return send<{ ok: boolean }>(`/api/be/dashboard/incidents/${id}`, "PATCH", body);
-}
-
-// ── the board ─────────────────────────────────────────────────────────────────
-export interface Criterion {
-  key: string; title: string; status: "met" | "in_progress" | "not_started" | "at_risk";
-  detail: string; value: number | null; target: number | null; extra?: unknown;
-}
-export interface Board {
-  dates: { start: string; month_3_demo: string; month_6_review: string; month_8_latest: string;
-           month_12_review: string; month_24_review: string; days_to_month_6: number };
-  tracked_user: string; criteria: Criterion[];
-}
-export function useMilestoneBoard() {
-  return useSWR<Board>("/api/be/dashboard/milestones", fetcher, { revalidateOnFocus: false });
-}
-export function saveMilestoneSettings(body: { milestone_start_date?: string; milestone_user_email?: string }) {
-  return send<{ ok: boolean }>("/api/be/dashboard/milestones/settings", "PUT", body);
 }
 
 // ── workspace users (owner/admin) ─────────────────────────────────────────────
