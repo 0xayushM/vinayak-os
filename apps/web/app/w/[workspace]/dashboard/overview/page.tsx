@@ -1,91 +1,19 @@
 "use client";
 
-import { use, useState } from "react";
-import { PanelWrapper } from "@/components/dashboard/PanelWrapper";
-import { DateRangePicker, DateRange } from "@/components/dashboard/DateRangePicker";
-import {
-  RevenueKpiPanel, RevenueTrendPanel, RevenueDailyPanel, CustomerConcentrationPanel, TopSkusPanel,
-  QuotePipelinePanel, PurchaseSummaryPanel, BomCoveragePanel,
-  ArAgingPanel, OpenOrdersPanel, OpenPosPanel, InventoryPanel, GrnPanel, ProductionPanel,
-} from "@/components/dashboard/panels";
-import { useRevenueSummary } from "@/hooks/useDashboard";
+import { use, useEffect } from "react";
+import { useRouter } from "next/navigation";
+import { workspacePath } from "@/lib/api";
 
-// ════════════════════════════════════════════════════════════════════════════
-// Explore → Overview — every panel at a glance.
-// This is the DETAIL view: the landing page is Today (the Pulse), which says
-// what changed and why; these panels are where you go to look closer.
-// ════════════════════════════════════════════════════════════════════════════
-export default function ExploreOverviewPage({ params }: { params: Promise<{ workspace: string }> }) {
+/** Moved: Business Overview is now split by where money is: Money in, Money out, Stock & making. */
+export default function MovedPage({ params }: { params: Promise<{ workspace: string }> }) {
   const { workspace } = use(params);
-  const brandName = decodeURIComponent(workspace);
-  const [range, setRange] = useState<DateRange>({});
-
-  // Pull data coverage bounds to show in the date picker label
-  const { data: revData } = useRevenueSummary(
-    range.start || range.end ? { start: range.start, end: range.end } : {}
-  );
-  const cov = revData?.data;
-
+  const router = useRouter();
+  useEffect(() => {
+    router.replace(workspacePath(workspace, "/dashboard/money-in"));
+  }, [router, workspace]);
   return (
-    <div className="p-4 sm:p-6 lg:p-8 space-y-8 max-w-[1600px] mx-auto w-full animate-rise">
-      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
-        <div>
-          <h1 className="text-xl sm:text-2xl font-semibold tracking-tight text-zinc-50">
-            Business Overview
-          </h1>
-          <p className="text-[12.5px] text-zinc-500 mt-1">
-            {brandName} · every panel, in detail · start from Today for what changed
-          </p>
-        </div>
-        <DateRangePicker
-          value={range}
-          onChange={setRange}
-          dataFrom={cov?.data_from}
-          dataTo={cov?.data_to}
-          className="sm:pt-1 shrink-0"
-        />
-      </div>
-
-      {/* Strategic panels — daily cache */}
-      <section>
-        <h2 className="text-[11px] font-semibold text-zinc-600 uppercase tracking-[0.1em] mb-3">
-          Strategic — Daily Refresh
-        </h2>
-        <div className="mb-4">
-          <RevenueDailyPanel range={range} />
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
-          <RevenueKpiPanel range={range} />
-          <RevenueTrendPanel range={range} />
-          <CustomerConcentrationPanel range={range} />
-          <TopSkusPanel range={range} />
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mt-4">
-          <QuotePipelinePanel range={range} />
-          <PurchaseSummaryPanel range={range} />
-          <BomCoveragePanel />
-          <PanelWrapper title="Top Vendors" subtitle="See Purchases page for full breakdown">
-            <p className="text-xs text-zinc-600 pt-3">
-              Vendor-level analysis is available on the Purchases page.
-            </p>
-          </PanelWrapper>
-        </div>
-      </section>
-
-      {/* Operational panels — hourly cache */}
-      <section>
-        <h2 className="text-[11px] font-semibold text-zinc-600 uppercase tracking-[0.1em] mb-3">
-          Operational — Hourly Refresh
-        </h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-          <ArAgingPanel />
-          <OpenOrdersPanel />
-          <OpenPosPanel />
-          <InventoryPanel />
-          <GrnPanel range={range} />
-          <ProductionPanel range={range} />
-        </div>
-      </section>
+    <div className="p-8 text-sm text-zinc-500">
+      Taking you to Money in…
     </div>
   );
 }

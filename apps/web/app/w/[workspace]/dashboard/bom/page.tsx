@@ -1,15 +1,19 @@
 "use client";
 
-import { PageHeader } from "@/components/dashboard/PageHeader";
-import { BomCoveragePanel } from "@/components/dashboard/panels";
+import { use, useEffect } from "react";
+import { useRouter } from "next/navigation";
+import { workspacePath } from "@/lib/api";
 
-export default function BomPage() {
+/** Moved: BOM Coverage is the 'costable' stage of Stock & making. */
+export default function MovedPage({ params }: { params: Promise<{ workspace: string }> }) {
+  const { workspace } = use(params);
+  const router = useRouter();
+  useEffect(() => {
+    router.replace(workspacePath(workspace, "/dashboard/operations"));
+  }, [router, workspace]);
   return (
-    <div className="p-4 sm:p-6 lg:p-8 space-y-6 max-w-[1600px] mx-auto w-full animate-rise">
-      <PageHeader title="BOM Coverage" subtitle="Items with process routing defined" />
-      <div className="max-w-md">
-        <BomCoveragePanel />
-      </div>
+    <div className="p-8 text-sm text-zinc-500">
+      Taking you to Stock & making…
     </div>
   );
 }

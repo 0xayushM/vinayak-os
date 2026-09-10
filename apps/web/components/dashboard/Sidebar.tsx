@@ -5,9 +5,9 @@ import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
 import {
-  BarChart3, TrendingUp, Users, Package, ShoppingCart,
-  CreditCard, Truck, Wrench, Activity, Settings, Zap, LogOut,
-  Menu, X, ChevronsUpDown, Plus, ExternalLink, Check, Loader2, Brain, Sparkles, ShieldCheck, FlaskConical, Flag, Sun,
+  TrendingUp, Users, Package, Truck, Settings, LogOut,
+  Menu, X, ChevronsUpDown, Plus, ExternalLink, Check, Loader2, Brain, Sparkles,
+  ShieldCheck, FlaskConical, Flag, Sun,
 } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
 import { useSyncHealth } from "@/hooks/useDashboard";
@@ -17,52 +17,30 @@ import { useChatDock } from "@/components/dashboard/ChatDock";
 
 const NAV = [
   {
+    // What needs you today, and what is waiting on your decision.
     section: "Today",
     items: [
-      { label: "Today",                 href: "/dashboard",            icon: Sun        },
-      { label: "Approvals",             href: "/dashboard/approvals",  icon: ShieldCheck },
+      { label: "Today",              href: "/dashboard",             icon: Sun         },
+      { label: "Approvals",          href: "/dashboard/approvals",   icon: ShieldCheck },
     ],
   },
   {
-    section: "Explore",
+    // The business, organised by where money is in its journey — not by which
+    // ERP report the data came from. Each figure has exactly one home.
+    section: "The business",
     items: [
-      { label: "Business Overview",     href: "/dashboard/overview",   icon: TrendingUp },
-      { label: "Customer Insights",     href: "/dashboard/customers",  icon: Users      },
-      { label: "Top SKUs",              href: "/dashboard/skus",       icon: Package    },
-      { label: "Quotes & Pipeline",     href: "/dashboard/quotes",     icon: Zap        },
-    ],
-  },
-  {
-    section: "Finance",
-    items: [
-      { label: "Finance",               href: "/dashboard/finance",    icon: CreditCard },
-      { label: "AR Aging",              href: "/dashboard/ar",         icon: CreditCard },
-      { label: "Open Sales Orders",     href: "/dashboard/orders",     icon: ShoppingCart },
-    ],
-  },
-  {
-    section: "Procurement",
-    items: [
-      { label: "Purchases",             href: "/dashboard/purchases",  icon: Truck      },
-      { label: "Open POs",              href: "/dashboard/pos",        icon: ShoppingCart },
-      { label: "GRN / Goods Received",  href: "/dashboard/grn",        icon: Truck      },
-    ],
-  },
-  {
-    section: "Operations",
-    items: [
-      { label: "Inventory",             href: "/dashboard/inventory",  icon: BarChart3  },
-      { label: "Production",            href: "/dashboard/production", icon: Wrench     },
-      { label: "BOM Coverage",          href: "/dashboard/bom",        icon: Activity   },
+      { label: "Money in",           href: "/dashboard/money-in",    icon: TrendingUp   },
+      { label: "Money out",          href: "/dashboard/money-out",   icon: Truck        },
+      { label: "Stock & making",     href: "/dashboard/operations",  icon: Package      },
+      { label: "Customers",          href: "/dashboard/customers",   icon: Users        },
     ],
   },
   {
     section: "Intelligence",
     items: [
-      { label: "Ask",                   href: "/dashboard/ask",        icon: Sparkles   },
-      { label: "Business Brain",        href: "/dashboard/brain",      icon: Brain      },
-      { label: "Experiments",           href: "/dashboard/experiments", icon: FlaskConical },
-      // { label: "Answer Quality",        href: "/dashboard/eval",       icon: ShieldCheck },
+      { label: "Ask",                href: "/dashboard/ask",         icon: Sparkles     },
+      { label: "Experiments",        href: "/dashboard/experiments", icon: FlaskConical },
+      { label: "Business Brain",     href: "/dashboard/brain",       icon: Brain        },
     ],
   },
 ];

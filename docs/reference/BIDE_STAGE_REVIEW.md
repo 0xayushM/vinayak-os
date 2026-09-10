@@ -43,7 +43,13 @@ Commercially the plan is narrower than the vision, on purpose: sell "see every r
 
 ## 3 · What is lacking
 
-### The surface answers "what", never "so what"
+### The surface answers "what", never "so what" — FIXED 2026-09-10
+
+> Resolved in Sprint 1: Today (the Pulse) is the landing page and the business
+> pages are now organised by where money is in its journey — Money in, Money out,
+> Stock & making, Customers — each opening with a stage flow that shows what is
+> stuck. Fourteen repetitive pages became four, with one home per fact.
+
 
 Twenty pages and 38 panels, every one a faithful chart of a report. A revenue trend, an aging donut, a top-customers table. None of them carries a delta against the business's own normal, an attribution of what moved it, or a next step. An owner already knows roughly what he sold; what he opens the app for is *what changed, why, and what do I do about it before lunch*. The Analytical Handlers Catalog lists `why_changed`, `anomaly_scan`, `period_compare`, `business_pulse` as built handlers in the Ask engine — they exist as chat intents but never made it onto a screen.
 

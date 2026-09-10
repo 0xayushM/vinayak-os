@@ -1,25 +1,19 @@
 "use client";
 
-import { useState } from "react";
-import { PageHeader } from "@/components/dashboard/PageHeader";
-import { DateRangePicker, DateRange } from "@/components/dashboard/DateRangePicker";
-import { ProductionPanel, ProductionTablePanel } from "@/components/dashboard/panels";
-import { useProductionList } from "@/hooks/useDashboard";
+import { use, useEffect } from "react";
+import { useRouter } from "next/navigation";
+import { workspacePath } from "@/lib/api";
 
-export default function ProductionPage() {
-  const [range, setRange] = useState<DateRange>({});
-  const { data } = useProductionList(range.start || range.end ? { start: range.start, end: range.end } : {});
-  const cov = data?.data;
-
+/** Moved: Production is now part of Stock & making. */
+export default function MovedPage({ params }: { params: Promise<{ workspace: string }> }) {
+  const { workspace } = use(params);
+  const router = useRouter();
+  useEffect(() => {
+    router.replace(workspacePath(workspace, "/dashboard/operations"));
+  }, [router, workspace]);
   return (
-    <div className="p-4 sm:p-6 lg:p-8 space-y-6 max-w-[1600px] mx-auto w-full animate-rise">
-      <PageHeader title="Production" subtitle="WIP, completed jobs and cycle time">
-        <DateRangePicker value={range} onChange={setRange} dataFrom={cov?.data_from} dataTo={cov?.data_to} />
-      </PageHeader>
-      <div className="max-w-xl">
-        <ProductionPanel range={range} />
-      </div>
-      <ProductionTablePanel range={range} />
+    <div className="p-8 text-sm text-zinc-500">
+      Taking you to Stock & making…
     </div>
   );
 }

@@ -250,6 +250,9 @@ export function useCashMovement(months = 12) {
 // ── Open orders panel ─────────────────────────────────────────────────────────
 export interface OpenOrderSummary {
   open_count: number; open_value: number; oldest_order_days: number;
+  /** Share of the order book already dispatched, and how many are past their
+   *  delivery date — the two figures that say whether the book is moving. */
+  dispatched_pct: number; overdue_count: number;
   by_status: { status: string; count: number; value: number }[];
 }
 

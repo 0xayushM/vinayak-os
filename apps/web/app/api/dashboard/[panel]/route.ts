@@ -224,6 +224,8 @@ const ROUTES: Record<string, RouteConfig> = {
       data: {
         open_count: body.data?.open_order_count ?? 0,
         open_value: body.data?.open_order_value ?? 0,
+        dispatched_pct: body.data?.dispatched_pct ?? 0,
+        overdue_count: body.data?.overdue_count ?? 0,
         oldest_order_days: 0,
         by_status: [],
       },
