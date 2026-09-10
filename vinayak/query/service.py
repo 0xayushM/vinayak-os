@@ -13,6 +13,7 @@ domain repositories, these dynamic forwards become explicit, typed methods.
 """
 from __future__ import annotations
 
+from vinayak.schema import pulse as _pulse_repository
 from vinayak.schema import queries as _repository
 
 
@@ -23,9 +24,13 @@ class QueryService:
         self._repository = repository
 
     def __getattr__(self, name: str):
-        """Forward any read call to the underlying repository. Raises the usual
-        AttributeError for genuinely unknown names."""
-        return getattr(self._repository, name)
+        """Forward any read call to the underlying repository, then to the Pulse
+        repository (schema/pulse.py — the derived-insight reads). Raises the
+        usual AttributeError for genuinely unknown names."""
+        try:
+            return getattr(self._repository, name)
+        except AttributeError:
+            return getattr(_pulse_repository, name)
 
 
 # The shared read door.

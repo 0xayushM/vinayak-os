@@ -78,7 +78,7 @@ async def _unhandled(request: Request, exc: Exception):
 
 
 # ── Register routers ──────────────────────────────────────────────────────────
-from vinayak.api.routes import auth, connections, dashboard, workspaces, zoho, milestones  # noqa: E402
+from vinayak.api.routes import auth, connections, dashboard, workspaces, zoho, milestones, pulse  # noqa: E402
 from vinayak.api.routes.auth import require_internal_key  # noqa: E402
 
 # The BFF boundary. Every business route requires the shared X-Internal-Key the
@@ -101,6 +101,8 @@ app.include_router(zoho.router,        prefix="/zoho",         tags=["Zoho Books
 app.include_router(dashboard.router,   prefix="/dashboard",    tags=["Dashboard"],   dependencies=_BFF_ONLY)
 # Milestone evidence: usage, experiments, incidents, the board (same prefix, own module).
 app.include_router(milestones.router,  prefix="/dashboard",    tags=["Milestones"],  dependencies=_BFF_ONLY)
+# The Pulse: the landing cards and the payload the morning brief is written from.
+app.include_router(pulse.router,       prefix="/dashboard",    tags=["Pulse"],       dependencies=_BFF_ONLY)
 
 # Register the Layer-7 read tools so the agent + MCP can call the business as a
 # tool. Idempotent; read-only wrappers over the proven query functions.

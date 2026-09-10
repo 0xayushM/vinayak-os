@@ -224,6 +224,19 @@ def _run_zoho_all() -> None:
                          company_id, exc)
 
 
+# ── The morning brief (06:00 IST) ─────────────────────────────────────────────
+def _send_morning_briefs() -> None:
+    """The Pulse, delivered. Runs after the night's syncs so the figures are
+    fresh, and before the working day so it is the first thing read."""
+    from vinayak.brief import send_all_briefs
+    try:
+        res = send_all_briefs()
+        logger.info("Morning brief: %s/%s workspaces delivered",
+                    res["delivered"], res["companies"])
+    except Exception as exc:  # noqa: BLE001 — a brief must never break the scheduler
+        logger.exception("Morning brief failed: %s", exc)
+
+
 # ── Scheduler instance ────────────────────────────────────────────────────────
 
 scheduler = AsyncIOScheduler(timezone=_IST)
@@ -331,6 +344,16 @@ scheduler.add_job(
     name="Zoho Books — all pipelines (hourly, :12)",
     replace_existing=True,
     misfire_grace_time=300,
+)
+
+
+scheduler.add_job(
+    _send_morning_briefs,
+    trigger=CronTrigger(hour=6, minute=0, timezone=_IST),
+    id="morning_brief",
+    name="Morning brief (daily, 06:00 IST)",
+    replace_existing=True,
+    misfire_grace_time=3600,
 )
 
 

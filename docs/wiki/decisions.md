@@ -10,3 +10,7 @@ Newest first. One line each: date · decision · why. Longer rationale lives in
 - 2026-09-09 · Busy integration dropped from Milestone 1 by agreement.
 - 2026-09-09 · BIDE becomes the ERP by owning the work upstream and posting balanced vouchers to the statutory ledger (Option A) before any full replacement.
 - 2026-09-07 · TranzAct report ids resolved through the get_reports catalogue by function name · TranzAct re-keyed reports to per-company UUIDs in Aug 2026.
+- 2026-09-10 · The Pulse is the landing page; a card earns its place only by naming a delta, a cause or a decision · the old overview answered "what" but never "so what", which is why it was not opened daily.
+- 2026-09-10 · The morning brief is composed from card sentences with no model in the path · the cards are already built from query results, so the brief is grounded by construction rather than by a guard.
+- 2026-09-10 · Comparisons are always against the business's own history (own median gap, own trailing 8 weeks, own aging history) · an SMB owner distrusts external benchmarks and trusts his own past.
+- 2026-09-10 · Cards built on a proxy (payment behaviour before receipt dates, the 50% overdue-collection assumption) report PROBABLE and say what would make them certain · flagged is better than wrong.

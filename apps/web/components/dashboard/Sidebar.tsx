@@ -7,7 +7,7 @@ import { usePathname } from "next/navigation";
 import {
   BarChart3, TrendingUp, Users, Package, ShoppingCart,
   CreditCard, Truck, Wrench, Activity, Settings, Zap, LogOut,
-  Menu, X, ChevronsUpDown, Plus, ExternalLink, Check, Loader2, Brain, Sparkles, ShieldCheck, FlaskConical, Flag,
+  Menu, X, ChevronsUpDown, Plus, ExternalLink, Check, Loader2, Brain, Sparkles, ShieldCheck, FlaskConical, Flag, Sun,
 } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
 import { useSyncHealth } from "@/hooks/useDashboard";
@@ -17,9 +17,16 @@ import { useChatDock } from "@/components/dashboard/ChatDock";
 
 const NAV = [
   {
-    section: "Revenue",
+    section: "Today",
     items: [
-      { label: "Revenue Overview",      href: "/dashboard",            icon: TrendingUp },
+      { label: "Today",                 href: "/dashboard",            icon: Sun        },
+      { label: "Approvals",             href: "/dashboard/approvals",  icon: ShieldCheck },
+    ],
+  },
+  {
+    section: "Explore",
+    items: [
+      { label: "Business Overview",     href: "/dashboard/overview",   icon: TrendingUp },
       { label: "Customer Insights",     href: "/dashboard/customers",  icon: Users      },
       { label: "Top SKUs",              href: "/dashboard/skus",       icon: Package    },
       { label: "Quotes & Pipeline",     href: "/dashboard/quotes",     icon: Zap        },
@@ -29,7 +36,6 @@ const NAV = [
     section: "Finance",
     items: [
       { label: "Finance",               href: "/dashboard/finance",    icon: CreditCard },
-      { label: "Approvals",             href: "/dashboard/approvals",  icon: ShieldCheck },
       { label: "AR Aging",              href: "/dashboard/ar",         icon: CreditCard },
       { label: "Open Sales Orders",     href: "/dashboard/orders",     icon: ShoppingCart },
     ],

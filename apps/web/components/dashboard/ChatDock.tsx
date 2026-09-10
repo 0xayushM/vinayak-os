@@ -14,11 +14,17 @@ import { AnswerCard } from "@/components/dashboard/ChatMessage";
 import { cn } from "@/lib/utils/cn";
 
 // ── Provider (toggle from anywhere) ───────────────────────────────────────────
-interface DockCtx { open: boolean; setOpen: (v: boolean) => void; toggle: () => void; }
+interface DockCtx {
+  open: boolean; setOpen: (v: boolean) => void; toggle: () => void;
+  /** Open the dock and ask this question — used by "Ask about this" on a Pulse card. */
+  ask: (question: string) => void;
+  pending: string | null; clearPending: () => void;
+}
 const Ctx = createContext<DockCtx | null>(null);
 export function useChatDock() {
   const c = useContext(Ctx);
-  return c ?? { open: false, setOpen: () => {}, toggle: () => {} };
+  return c ?? { open: false, setOpen: () => {}, toggle: () => {},
+                ask: () => {}, pending: null, clearPending: () => {} };
 }
 
 const SUGGESTIONS = [
@@ -38,7 +44,12 @@ const LS = () => `chatdock_${ws()}`;
 
 export function ChatDockProvider({ children }: { children: React.ReactNode }) {
   const [open, setOpen] = useState(false);
-  const value: DockCtx = { open, setOpen, toggle: () => setOpen((v) => !v) };
+  const [pending, setPending] = useState<string | null>(null);
+  const value: DockCtx = {
+    open, setOpen, toggle: () => setOpen((v) => !v),
+    ask: (q: string) => { setPending(q); setOpen(true); },
+    pending, clearPending: () => setPending(null),
+  };
   return (
     <Ctx.Provider value={value}>
       {children}
@@ -49,7 +60,7 @@ export function ChatDockProvider({ children }: { children: React.ReactNode }) {
 
 // ── The dock ──────────────────────────────────────────────────────────────────
 function ChatDock() {
-  const { open, setOpen } = useChatDock();
+  const { open, setOpen, pending, clearPending } = useChatDock();
   const { data: threadsData, mutate: mutateThreads } = useThreads();
   const threads: ChatThreadMeta[] = threadsData?.threads ?? [];
 
@@ -138,6 +149,16 @@ function ChatDock() {
     setTabs((ts) => ts.filter((t) => t.threadId !== id));
     mutateThreads();
   }
+
+  // A question handed in from elsewhere (a Pulse card's "Ask about this").
+  // Waits until a tab exists so the turn lands in a real thread.
+  useEffect(() => {
+    if (!pending || !active || loading) return;
+    const q = pending;
+    clearPending();
+    send(q);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pending, active, loading]);
 
   async function send(text: string) {
     const q = text.trim();
