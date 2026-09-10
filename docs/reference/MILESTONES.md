@@ -43,8 +43,24 @@ whole sequencing of `PLAN.md`:
 
 ## Where the numbers stand
 
-_Not yet recorded — run `python -m vinayak.scripts.milestone_status` and paste the
-block here. First reading due once Sandeep's workspace is live (Sprint 2 close)._
+_Read on 2026-09-10 from workspace `kbrushes`._
+
+| Criterion | Where it stands |
+|---|---|
+| Owner active ≥ 4 days/week for 60 consecutive days | no tracked user set (`milestone_user_email` in `platform_settings`) |
+| 50-question eval: ≥ 80% factual, 100% citation | no harness run recorded yet (`python -m vinayak.eval.harness --record`) |
+| ≥ 30 logged experiments with outcomes | 0 with outcomes of 1 logged · 0 AI-suggested, 0 acted on |
+| No critical incident in the last 60 days | none recorded in the last 60 days |
+
+Month-3 demo **2026-12-01** · month-6 review **2027-03-01** (172 days away) · latest acceptable **2027-05-01**.
+
+**What this reading says.** Every clock is at zero, and none of the four open
+criteria is blocked on engineering any more. Sprints 0–2 are shipped — three
+weeks ahead of the plan — but nothing is deployed, no tracked user is set, the
+harness has never been run with `--record`, and the brain has never run against
+this database (0 rows in `brain_runs`), which is why no experiment has been
+suggested. Deploying the worker is what turns criterion 4 from a supply problem
+into an acceptance one.
 
 ---
 
