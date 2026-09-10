@@ -81,6 +81,8 @@ export async function draftChase(customerRef: string, tone?: "gentle" | "firm") 
 export async function createExperiment(body: {
   title: string; hypothesis?: string; metric?: string;
   source?: "manual" | "ai_suggested"; status?: string;
+  /** Naming a metric makes the experiment close itself when its window ends. */
+  metric_key?: string; window_days?: number; entity_ref?: string;
 }) {
   const res = await apiFetch("/api/be/dashboard/experiments", {
     method: "POST",

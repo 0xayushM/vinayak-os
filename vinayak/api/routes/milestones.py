@@ -126,6 +126,12 @@ class ExperimentIn(BaseModel):
     started_at: str | None = None
     ends_at: str | None = None
     status: str = "proposed"
+    # The machine-readable half. With these set, brain/outcomes.py reads the
+    # metric again when the window ends and records the outcome — which is what
+    # makes an experiment logged from a Pulse card count toward "with outcomes".
+    metric_key: str | None = None
+    window_days: int | None = None
+    entity_ref: str | None = None
 
 
 class ExperimentPatch(BaseModel):
@@ -169,11 +175,30 @@ def experiments_create(body: ExperimentIn, company_id: str = Depends(require_wor
                        user: TokenPayload = Depends(get_current_user)):
     conn = _conn()
     try:
+        fields = body.model_dump(exclude_none=True)
+        metric_key = fields.pop("metric_key", None)
+        window_days = fields.pop("window_days", None)
+        entity_ref = fields.pop("entity_ref", None)
         try:
-            exp = X.create(conn, company_id, proposed_by=user.sub,
-                           **body.model_dump(exclude_none=True))
+            exp = X.create(conn, company_id, proposed_by=user.sub, **fields)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc))
+        if metric_key:
+            from vinayak.brain import metrics
+            if metric_key not in metrics.METRICS:
+                raise HTTPException(status_code=400, detail=f"unknown metric: {metric_key}")
+            baseline = metrics.read(conn, company_id, metric_key, entity_ref)
+            with conn.cursor() as cur:
+                cur.execute(
+                    """UPDATE experiments
+                          SET metric_key = %s, window_days = %s, entity_ref = %s,
+                              auto_close = TRUE, baseline = COALESCE(baseline, %s),
+                              metric = COALESCE(metric, %s)
+                        WHERE id = %s""",
+                    (metric_key, window_days or 30, entity_ref, baseline,
+                     metrics.METRICS[metric_key].label, exp["id"]))
+            conn.commit()
+            exp = X.get(conn, company_id, exp["id"]) or exp
         return {"experiment": exp}
     finally:
         conn.close()

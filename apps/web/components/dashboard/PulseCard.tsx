@@ -1,9 +1,10 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils/cn";
-import { workspacePath } from "@/lib/api";
+import { getWorkspace, workspacePath } from "@/lib/api";
 import { useChatDock } from "@/components/dashboard/ChatDock";
 import { draftChase, createExperiment, type PulseCard as Card } from "@/hooks/usePulse";
 import {
@@ -64,6 +65,7 @@ export function PulseCardView({ card, onChanged }: { card: Card; onChanged?: () 
   const dock = useChatDock();
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState<string | null>(null);
+  const [doneHref, setDoneHref] = useState("/dashboard/approvals");
   const [err, setErr] = useState<string | null>(null);
 
   const dir = card.change?.direction;
@@ -75,7 +77,10 @@ export function PulseCardView({ card, onChanged }: { card: Card; onChanged?: () 
     setErr(null);
     try {
       if (a.kind === "open") {
-        router.push(workspacePath(null, "") + (a.params.path as string));
+        // workspacePath(null, …) drops the /w/{workspace} prefix entirely, so
+        // this used to push a path outside the workspace and land wherever the
+        // router could resolve it. Read the slug from the URL instead.
+        router.push(workspacePath(getWorkspace(), a.params.path as string));
         return;
       }
       if (a.kind === "ask") {
@@ -87,9 +92,28 @@ export function PulseCardView({ card, onChanged }: { card: Card; onChanged?: () 
         const customers = (a.params.customers as string[]) ?? [];
         const results = await Promise.allSettled(customers.map((c) => draftChase(c)));
         const ok = results.filter((r) => r.status === "fulfilled").length;
-        const failed = results.length - ok;
-        setDone(ok ? `${ok} draft${ok > 1 ? "s" : ""} waiting in Approvals` : null);
-        if (!ok && failed) setErr("Nothing to draft — those balances may already be settled.");
+        // The commonest reason a draft is refused is that one is already
+        // waiting — the idempotency guard doing its job, not a failure. Saying
+        // "nothing to draft" there was wrong and made the button look broken
+        // when it had actually worked the first time.
+        const queued = results.filter(
+          (r) => r.status === "rejected" &&
+            /already exists|idempotency/i.test(String((r.reason as Error)?.message)),
+        ).length;
+        const other = results.length - ok - queued;
+        if (ok) {
+          setDone(`${ok} draft${ok > 1 ? "s" : ""} waiting in Approvals`);
+        } else if (queued) {
+          setDone(`Already waiting in Approvals`);
+        }
+        if (other) {
+          const first = results.find(
+            (r) => r.status === "rejected" &&
+              !/already exists|idempotency/i.test(String((r.reason as Error)?.message)),
+          );
+          setErr(String((first as PromiseRejectedResult | undefined)?.reason?.message
+                        ?? "Could not draft those reminders."));
+        }
       } else if (a.kind === "draft_nudge") {
         // The reorder engine ships with the marketing wave; until then, logging
         // it as an experiment is what makes the nudge measurable rather than
@@ -98,17 +122,23 @@ export function PulseCardView({ card, onChanged }: { card: Card; onChanged?: () 
         await createExperiment({
           title: `Nudge ${customers.length} regulars who are overdue to order`,
           hypothesis: `Reaching out to ${customers.slice(0, 3).join(", ")}${customers.length > 3 ? " and others" : ""} recovers orders that would otherwise be skipped.`,
-          metric: "Orders recovered from nudged customers within 30 days",
           source: "manual", status: "accepted",
+          metric_key: a.params.metric_key as string | undefined,
+          entity_ref: a.params.entity_ref as string | undefined,
+          window_days: a.params.window_days as number | undefined,
         });
         setDone("Logged as an experiment");
+        setDoneHref("/dashboard/experiments");
       } else if (a.kind === "experiment") {
         await createExperiment({
           title: (a.params.title as string) ?? card.title,
-          metric: (a.params.metric as string) ?? undefined,
           hypothesis: card.why, source: "manual", status: "accepted",
+          metric_key: a.params.metric_key as string | undefined,
+          entity_ref: a.params.entity_ref as string | undefined,
+          window_days: a.params.window_days as number | undefined,
         });
         setDone("Logged as an experiment");
+        setDoneHref("/dashboard/experiments");
       }
       onChanged?.();
     } catch (e) {
@@ -176,9 +206,16 @@ export function PulseCardView({ card, onChanged }: { card: Card; onChanged?: () 
         <Trust card={card} />
         {card.action && (
           done ? (
-            <span className="flex items-center gap-1 text-[11.5px] text-emerald-300 shrink-0">
+            // Whatever the button did, it happened somewhere else — so say where
+            // and take them there. A confirmation with no way through is why the
+            // first click felt like nothing had happened.
+            <Link
+              href={workspacePath(getWorkspace(), doneHref)}
+              className="flex items-center gap-1 text-[11.5px] text-emerald-300 shrink-0 hover:underline"
+            >
               <Check className="w-3.5 h-3.5" /> {done}
-            </span>
+              <ChevronRight className="w-3.5 h-3.5" />
+            </Link>
           ) : (
             <button
               onClick={runAction}

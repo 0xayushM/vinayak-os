@@ -30,6 +30,9 @@ from vinayak.schema import pulse as P
 
 logger = logging.getLogger(__name__)
 
+# How many chases one card's button may queue in a single press.
+MAX_CHASES_PER_CARD = 3
+
 # Which cards each role leads with. Same catalogue, different first screen —
 # a user can pin their own order, which overrides this.
 ROLE_ORDER: dict[str, list[str]] = {
@@ -103,8 +106,13 @@ def card_aging_drift(d: dict) -> dict:
                  why=why,
                  items=[{"label": m["customer_name"], "value": Money.compact(m["delta"]),
                          "entity_ref": f"customer:{m['customer_name']}"} for m in movers[:3]],
-                 action=({"label": f"Draft chases ({len(movers)})", "kind": "draft_chase",
-                          "params": {"customers": [m["customer_name"] for m in movers[:3]]}}
+                 # The label counts what the action will actually do. It used to
+                 # say len(movers) while sending only three, which is the kind of
+                 # small lie that stops a person trusting the button.
+                 action=({"label": f"Draft chases ({len(movers[:MAX_CHASES_PER_CARD])})",
+                          "kind": "draft_chase",
+                          "params": {"customers": [m["customer_name"]
+                                                   for m in movers[:MAX_CHASES_PER_CARD]]}}
                          if movers else None),
                  confidence=P.CERTAIN, severity=sev, data=d)
 
@@ -139,7 +147,7 @@ def card_payment_behaviour(d: dict) -> dict:
                  items=[{"label": r["customer_name"],
                          "value": (f"+{r['days_slower']}d" if v2 else Money.compact(r["overdue"])),
                          "entity_ref": f"customer:{r['customer_name']}"} for r in rows[:3]],
-                 action={"label": "Review credit", "kind": "open", "params": {"path": "/dashboard/finance"}},
+                 action={"label": "Review credit", "kind": "open", "params": {"path": "/dashboard/customers"}},
                  confidence=conf, severity=45 if v2 else 35, data=d)
 
 
@@ -158,7 +166,7 @@ def card_cash_30d(d: dict) -> dict:
                         {"label": "Expected from overdue", "value": Money.compact(d["inflow_expected_from_overdue"])},
                         {"label": "Committed out", "value": Money.compact(-d["outflow"])}],
                  action=({"label": "Chase what's overdue", "kind": "open",
-                          "params": {"path": "/dashboard/finance"}} if d["overdue_total"] > 0 else None),
+                          "params": {"path": "/dashboard/money-in"}} if d["overdue_total"] > 0 else None),
                  # The overdue-collection half is an assumption, not a computed figure.
                  confidence=P.PROBABLE, severity=(75 if net < 0 else 25), data=d)
 
@@ -209,8 +217,13 @@ def card_reorder_radar(d: dict) -> dict:
                  items=[{"label": i["customer_name"],
                          "value": f"{i['days_since_last']}d / {i['median_gap_days']}d",
                          "entity_ref": f"customer:{i['customer_name']}"} for i in items[:3]],
-                 action={"label": f"Draft nudges ({len(items)})", "kind": "draft_nudge",
-                         "params": {"customers": [i["customer_name"] for i in items[:5]]}},
+                 action={"label": f"Draft nudges ({len(items[:5])})", "kind": "draft_nudge",
+                         "params": {"customers": [i["customer_name"] for i in items[:5]],
+                                    # Named here so the experiment this logs can
+                                    # be closed automatically three weeks later.
+                                    "metric_key": "customer.days_quiet",
+                                    "entity_ref": f"customer:{items[0]['customer_name']}",
+                                    "window_days": 21}},
                  confidence=P.CERTAIN, severity=40 + min(30, len(items) * 3), data=d)
 
 
@@ -249,7 +262,8 @@ def card_trapped_capital(d: dict) -> dict:
                  items=[{"label": "Dead SKUs", "value": str(d["dead_count"])}],
                  action=({"label": "Plan a clearance", "kind": "experiment",
                           "params": {"title": "Clear dead stock to past buyers of these categories",
-                                     "metric": "₹ dead-stock value cleared"}}
+                                     "metric_key": "inventory.dead_stock_value",
+                                     "window_days": 42}}
                          if d["dead_value"] > 0 else None),
                  confidence=P.CERTAIN, severity=(35 if delta > 0 else 15), data=d)
 
@@ -267,8 +281,23 @@ def card_anomalies(d: dict) -> dict:
              "value": _anomaly_measure(i)} for i in items[1:]]
     return _card("anomalies", "Anomalies", len(items), display=str(len(items)),
                  why=items[0]["text"], items=rest,
-                 action={"label": "Investigate", "kind": "open", "params": {"path": "/dashboard/sync"}},
+                 action={"label": "Investigate", "kind": "open",
+                         "params": {"path": _anomaly_path(items[0])}},
                  confidence=P.CERTAIN, severity=max(i["severity"] for i in items))
+
+
+# Where "Investigate" goes depends on what was found — a stale feed is a Sync
+# problem, negative stock is a Stock problem, a price rise is a Money-out one.
+_ANOMALY_PATH = {
+    "data_stale": "/dashboard/sync",
+    "negative_stock": "/dashboard/operations",
+    "vendor_price_jump": "/dashboard/money-out",
+    "outsized_invoice": "/dashboard/money-in",
+}
+
+
+def _anomaly_path(i: dict) -> str:
+    return _ANOMALY_PATH.get(i.get("kind", ""), "/dashboard/sync")
 
 
 def _anomaly_measure(i: dict) -> str:
