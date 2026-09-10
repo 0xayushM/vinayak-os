@@ -260,11 +260,25 @@ def card_anomalies(d: dict) -> dict:
         return _card("anomalies", "Anomalies", 0, display="0",
                      why="Nothing out of the ordinary in the data today.",
                      confidence=P.CERTAIN, severity=0)
+    # The card says the worst one in full; the rest are listed by name with a
+    # figure. Repeating a whole sentence in the item list is what made this
+    # card spill over the one next to it.
+    rest = [{"label": i["kind"].replace("_", " ").capitalize(),
+             "value": _anomaly_measure(i)} for i in items[1:]]
     return _card("anomalies", "Anomalies", len(items), display=str(len(items)),
-                 why=items[0]["text"],
-                 items=[{"label": i["kind"].replace("_", " "), "value": i["text"]} for i in items],
+                 why=items[0]["text"], items=rest,
                  action={"label": "Investigate", "kind": "open", "params": {"path": "/dashboard/sync"}},
                  confidence=P.CERTAIN, severity=max(i["severity"] for i in items))
+
+
+def _anomaly_measure(i: dict) -> str:
+    """One short figure per anomaly — never the sentence again."""
+    if i.get("count"):
+        n = int(i["count"])
+        return f"{n} item{'s' if n > 1 else ''}"
+    if i.get("value"):
+        return Money.compact(float(i["value"]))
+    return "flagged"
 
 
 def card_working_capital(d: dict) -> dict:

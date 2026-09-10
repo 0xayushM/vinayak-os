@@ -7,13 +7,16 @@ import { formatCurrency } from "@/lib/utils/cn";
 import { useCollectionsPriority } from "@/hooks/useDashboard";
 import { DraftChaseButton, Pager, PER_PAGE } from "./_shared";
 
-export function CollectionsPriorityPanel() {
+/** `rows` lets a caller shorten the table when the panel shares a row with a
+ *  compact chart — a ten-row table beside a four-bar chart is what leaves half
+ *  a card empty. */
+export function CollectionsPriorityPanel({ rows: perPage = PER_PAGE }: { rows?: number } = {}) {
   const { data, error, isLoading } = useCollectionsPriority();
   const d = data?.data;
   const items = d?.items ?? [];
   const [page, setPage] = useState(0);
-  const pageCount = Math.max(1, Math.ceil(items.length / PER_PAGE));
-  const rows = items.slice(page * PER_PAGE, page * PER_PAGE + PER_PAGE);
+  const pageCount = Math.max(1, Math.ceil(items.length / perPage));
+  const rows = items.slice(page * perPage, page * perPage + perPage);
   return (
     <PanelWrapper title="Collections Priority" subtitle="Overdue receivables ranked by recovery impact"
       meta={data?.meta} loading={isLoading} error={error}>

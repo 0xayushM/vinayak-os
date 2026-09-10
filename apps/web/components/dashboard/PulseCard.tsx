@@ -123,7 +123,7 @@ export function PulseCardView({ card, onChanged }: { card: Card; onChanged?: () 
   return (
     <div
       className={cn(
-        "surface-card p-4 flex flex-col gap-3 h-full",
+        "surface-card p-4 flex flex-col gap-3 h-full overflow-hidden",
         urgent && "border-amber-400/25",
       )}
     >
@@ -151,13 +151,19 @@ export function PulseCardView({ card, onChanged }: { card: Card; onChanged?: () 
         )}
       </div>
 
-      <p className="text-[12.5px] text-zinc-400 leading-relaxed flex-1">{card.why}</p>
+      {/* Clamped so nine cards form even rows rather than a ragged wall. The
+          full sentence is never longer than this in practice; the clamp is
+          insurance, not truncation by design. */}
+      <p className="text-[12.5px] text-zinc-400 leading-relaxed flex-1 line-clamp-4">{card.why}</p>
 
       {card.items.length > 0 && (
         <div className="space-y-1">
           {card.items.slice(0, 3).map((it, i) => (
-            <div key={i} className="flex items-baseline justify-between gap-3 text-[11.5px]">
-              <span className="text-zinc-500 truncate">{it.label}</span>
+            <div key={i} className="flex items-baseline justify-between gap-3 text-[11.5px] overflow-hidden">
+              {/* min-w-0 is what makes truncate actually truncate: without it a
+                  long label grows the span past the card and spills over the
+                  card beside it. */}
+              <span className="text-zinc-500 truncate min-w-0">{it.label}</span>
               <span className="text-zinc-300 tabular-nums shrink-0">{it.value}</span>
             </div>
           ))}

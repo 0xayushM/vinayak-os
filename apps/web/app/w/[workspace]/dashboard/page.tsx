@@ -88,13 +88,40 @@ export default function TodayPage({ params }: { params: Promise<{ workspace: str
         </div>
       )}
 
-      {data && !data.no_data && (
+      {data && !data.no_data && (() => {
+        // Nine cards in one undifferentiated grid gives the eye nowhere to
+        // start. Split at the severity line the cards already carry: the few
+        // that need a decision today sit on their own, and the rest are the
+        // steady picture underneath — same cards, one clear entry point.
+        const urgent = data.cards.filter((c) => c.severity >= 60);
+        const rest = data.cards.filter((c) => c.severity < 60);
+        return (
         <>
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-            {data.cards.map((c) => (
-              <PulseCardView key={c.key} card={c} onChanged={() => mutate()} />
-            ))}
-          </div>
+          {urgent.length > 0 && (
+            <section className="space-y-3">
+              <h2 className="text-[13px] font-semibold text-[#F2DEC8]">
+                Needs a decision today
+              </h2>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {urgent.map((c) => (
+                  <PulseCardView key={c.key} card={c} onChanged={() => mutate()} />
+                ))}
+              </div>
+            </section>
+          )}
+
+          <section className="space-y-3">
+            {urgent.length > 0 && (
+              <h2 className="text-[13px] font-semibold text-zinc-400 pt-1">
+                The rest of the picture
+              </h2>
+            )}
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+              {rest.map((c) => (
+                <PulseCardView key={c.key} card={c} onChanged={() => mutate()} />
+              ))}
+            </div>
+          </section>
 
           <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
             <p className="text-[11.5px] text-zinc-600">
@@ -116,7 +143,8 @@ export default function TodayPage({ params }: { params: Promise<{ workspace: str
             </p>
           )}
         </>
-      )}
+        );
+      })()}
     </div>
   );
 }

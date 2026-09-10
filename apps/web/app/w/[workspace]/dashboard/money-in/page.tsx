@@ -8,6 +8,7 @@ import {
   QuotePipelinePanel, OpenOrdersTablePanel, SalesInvoicesTablePanel,
   ArInvoicesTablePanel, ArAgingPanel, CollectionsPriorityPanel,
   RevenueTrendPanel, TopSkusTablePanel, RevenueKpiPanel, RevenueDailyPanel,
+  CustomerConcentrationPanel, TopSkusPanel, MonthCompareTool,
 } from "@/components/dashboard/panels";
 import {
   useQuoteSummary, useOpenOrders, useRevenueSummary, useArSummary,
@@ -104,21 +105,31 @@ export default function MoneyInPage() {
         question="What is holding up the money you are owed?"
         note="The chase list is ranked by recovery impact — amount weighted by how late it is."
       />
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 items-start">
         <ArAgingPanel />
-        <CollectionsPriorityPanel />
+        <div className="lg:col-span-2"><CollectionsPriorityPanel rows={6} /></div>
       </div>
 
       <SectionHead question="The detail, one stage at a time" />
       <Tabs tabs={TABS} active={tab} onChange={setTab} />
 
+      {/* The revenue overview: everything about what was sold, in one tab —
+          the day-by-day series, the headline numbers, the month-on-month
+          comparison, who it came from and what they bought. Nothing here is
+          repeated on another page; this is the tab's whole job. */}
       {tab === "revenue" && (
         <div className="space-y-4">
           <RevenueDailyPanel range={range} />
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 items-start">
             <RevenueKpiPanel range={range} />
             <RevenueTrendPanel range={range} />
+            <MonthCompareTool />
           </div>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
+            <CustomerConcentrationPanel range={range} />
+            <TopSkusPanel range={range} />
+          </div>
+          <SalesInvoicesTablePanel range={range} />
         </div>
       )}
       {tab === "quotes" && <QuotePipelinePanel range={range} />}

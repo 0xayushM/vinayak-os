@@ -7,16 +7,17 @@ import { formatCurrency } from "@/lib/utils/cn";
 import { useCreditRisk, type CreditRiskItem } from "@/hooks/useDashboard";
 import { Pager, PER_PAGE, searchCls } from "./_shared";
 
-export function CreditRiskPanel() {
+/** `rows` shortens the table when this panel shares a row with a chart. */
+export function CreditRiskPanel({ rows: perPage = PER_PAGE }: { rows?: number } = {}) {
   const { data, error, isLoading } = useCreditRisk();
   const d = data?.data;
   const all: CreditRiskItem[] = d?.items ?? [];
   const [q, setQ] = useState("");
   const [page, setPage] = useState(0);
   const filtered = q ? all.filter((c) => c.customer_name.toLowerCase().includes(q.toLowerCase())) : all;
-  const pageCount = Math.max(1, Math.ceil(filtered.length / PER_PAGE));
+  const pageCount = Math.max(1, Math.ceil(filtered.length / perPage));
   const safePage = Math.min(page, pageCount - 1);
-  const rows = filtered.slice(safePage * PER_PAGE, safePage * PER_PAGE + PER_PAGE);
+  const rows = filtered.slice(safePage * perPage, safePage * perPage + perPage);
   const badge = (v: string) =>
     v === "hold"
       ? "bg-red-500/15 text-red-300 border border-red-500/30"
