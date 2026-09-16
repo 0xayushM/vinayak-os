@@ -124,3 +124,30 @@ blank page, the Approvals inbox, and the chase button reporting the idempotency
 guard as "nothing to draft". Each was working code describing a failure as an
 absence, which is the hardest kind of bug to report and the easiest to
 misdiagnose. Empty states now say "nothing here"; failures say what broke.
+
+## 2026-09-16 — The eval grades Evidence, not prose, and oracles share no code
+
+**Decision.** Factual accuracy is measured by recomputing each fact a second
+way (`eval/oracles.py`) and comparing it to the Evidence the answer carries.
+The oracles deliberately import nothing from `schema/queries.py`.
+
+**Why.** The numeric guard already forbids a rupee figure in an answer that is
+not in its Evidence, so checking the Evidence checks the answer — no regex over
+prose required. And an oracle that reuses the engine's helpers is grading the
+engine against itself; the number it produces would look like accuracy and mean
+nothing.
+
+**Decision.** Only window-free facts are graded.
+
+**Why.** "Total outstanding" is unambiguous. "Revenue in the period" is not —
+the period is the engine's own choice, and an oracle that re-derived it would
+be copying the thing it is meant to check. Grading the unambiguous facts gives
+a real number for a real subset; grading everything would give a bigger number
+that means less. The metric reports `None`, never `1.0`, when nothing is
+checkable — an ungraded metric that renders as a perfect score is worse than no
+metric, because it reads as evidence the criterion is met.
+
+**What it found on the first run.** Sales-order counts were counting lines:
+392 overdue orders reported where 22 were real. Also that a wrong *fact* is not
+a ship-blocker while a wrong *citation* is — stating an uncited number is a
+different class of fault from stating a cited number that is miscounted.

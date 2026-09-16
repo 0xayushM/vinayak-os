@@ -1093,29 +1093,59 @@ def get_bom_coverage(conn, company_id: str) -> dict:
     }
 
 
+def order_lines_carry_pending(conn, company_id: str, table: str) -> bool:
+    """Does this source actually populate pending quantities?
+
+    TranzAct fills `pending_qty` on sales orders and leaves it at zero on every
+    purchase order, so no single rule for "still open" works for both. Asking
+    the data beats assuming either way: where quantities exist they are the
+    truth about what is outstanding, and where they do not, status is all there
+    is. Established by the eval's factual grading — an oracle that required
+    pending quantity found zero open POs where the engine reported 141.
+    """
+    with conn.cursor() as cur:
+        cur.execute(f"SELECT EXISTS (SELECT 1 FROM {table} "
+                    f"WHERE company_id = %s AND COALESCE(pending_qty,0) > 0)",
+                    (company_id,))
+        return bool(cur.fetchone()[0])
+
+
+def _so_open_rule(conn, company_id: str) -> str:
+    return ("COALESCE(pending_qty,0) > 0 AND LOWER(status) <> 'cancelled'"
+            if order_lines_carry_pending(conn, company_id, "canon_sales_order_flat")
+            else "LOWER(status) NOT IN ('dispatched', 'cancelled')")
+
+
 def get_order_book_summary(conn, company_id: str) -> dict:
     """
     S12 — Sales order book KPIs.
     Returns: open_order_count, open_order_value, dispatched_pct, overdue_count
+
+    Counts are per ORDER, not per line. The flat view is line-level — 398 rows
+    for 64 orders on one live workspace — so COUNT(*) reported 392 overdue
+    orders where there were 22. Values stay summed over lines, which is right:
+    order_value is a per-line figure.
     """
+    open_rule = _so_open_rule(conn, company_id)
     with conn.cursor() as cur:
-        cur.execute("""
+        cur.execute(f"""
             SELECT
-                COUNT(*) FILTER (WHERE LOWER(status) NOT IN ('dispatched', 'cancelled')) AS open_count,
-                COALESCE(SUM(order_value) FILTER (WHERE LOWER(status) NOT IN ('dispatched','cancelled')), 0) AS open_value,
-                COUNT(*) FILTER (WHERE LOWER(status) = 'dispatched') AS dispatched_count,
-                COUNT(*) AS total_count,
-                COUNT(*) FILTER (
-                    WHERE delivery_date < CURRENT_DATE
-                    AND LOWER(status) NOT IN ('dispatched', 'cancelled')
-                ) AS overdue_count
+                COUNT(DISTINCT order_number) FILTER (WHERE {open_rule})      AS open_count,
+                COALESCE(SUM(order_value) FILTER (WHERE {open_rule}), 0)     AS open_value,
+                0                                                            AS unused,
+                COUNT(DISTINCT order_number)                                 AS total_count,
+                COUNT(DISTINCT order_number) FILTER (
+                    WHERE delivery_date < CURRENT_DATE AND {open_rule}
+                )                                                            AS overdue_count
             FROM canon_sales_order_flat
             WHERE company_id = %s
         """, (company_id,))
         row = cur.fetchone()
 
     total = int(row[3] or 0)
-    dispatched = int(row[2] or 0)
+    # An order is dispatched when nothing on it is still outstanding. A
+    # part-delivered order stays open — which is what the shop floor would say.
+    dispatched = max(0, total - int(row[0] or 0))
     dispatched_pct = round(100.0 * dispatched / total, 1) if total > 0 else 0.0
 
     ls = _last_sync(conn, "sales_orders", company_id)
@@ -1285,8 +1315,12 @@ def get_overdue_pos(conn, company_id: str) -> dict:
         """, (company_id,))
         rows = cur.fetchall()
 
+        # Distinct POs, not lines. One live workspace has one line per PO so
+        # this changes nothing there today; it stops being true the moment a
+        # multi-line PO arrives, which is not a thing to find out from a
+        # dashboard figure.
         cur.execute("""
-            SELECT COUNT(*), COALESCE(SUM(po_value), 0)
+            SELECT COUNT(DISTINCT po_number), COALESCE(SUM(po_value), 0)
             FROM canon_purchase_order_flat
             WHERE company_id = %s
               AND expected_date < CURRENT_DATE
@@ -1329,9 +1363,10 @@ def get_open_pos(conn, company_id: str) -> dict:
     with conn.cursor() as cur:
         cur.execute("""
             SELECT
-                COUNT(*)                                                       AS open_count,
+                COUNT(DISTINCT po_number)                                      AS open_count,
                 COALESCE(SUM(po_value), 0)                                     AS open_value,
-                COUNT(*) FILTER (WHERE expected_date < CURRENT_DATE)           AS overdue_count,
+                COUNT(DISTINCT po_number) FILTER (WHERE expected_date < CURRENT_DATE)
+                                                                               AS overdue_count,
                 COALESCE(SUM(po_value) FILTER (WHERE expected_date < CURRENT_DATE), 0) AS overdue_value
             FROM canon_purchase_order_flat
             WHERE company_id = %s
@@ -1428,7 +1463,11 @@ def get_overdue_orders(conn, company_id: str) -> dict:
     O5 — Overdue order confirmations (past delivery date, not dispatched).
     Returns: orders list [{order_number, customer_name, sku_name, pending_qty,
                            order_value, delivery_date, days_overdue}]
+
+    The lines are listed one per row because that is what has to be chased;
+    the totals count distinct ORDERS, because that is what is asked for.
     """
+    open_rule = _so_open_rule(conn, company_id)   # resolved before the cursor opens
     with conn.cursor() as cur:
         cur.execute(f"""
             SELECT
@@ -1448,12 +1487,13 @@ def get_overdue_orders(conn, company_id: str) -> dict:
         """, (company_id,))
         rows = cur.fetchall()
 
-        cur.execute("""
-            SELECT COUNT(*), COALESCE(SUM(order_value), 0)
+        # Distinct orders, not lines — see get_order_book_summary.
+        cur.execute(f"""
+            SELECT COUNT(DISTINCT order_number), COALESCE(SUM(order_value), 0)
             FROM canon_sales_order_flat
             WHERE company_id = %s
               AND delivery_date < CURRENT_DATE
-              AND LOWER(status) NOT IN ('dispatched', 'cancelled')
+              AND {open_rule}
         """, (company_id,))
         totals = cur.fetchone()
 

@@ -11,6 +11,8 @@ Metrics (per the product doc):
   • unsupported_claim_rate — % of computed claims not traceable to evidence (→ 0)
   • correct_refusal_rate   — of cases that SHOULD refuse, how many returned UNCERTAIN
   • intent_accuracy        — did the router pick the expected intent?
+  • factual_accuracy       — of the figures we can check independently, how
+                             many were right (see eval/oracles.py)
   • must_not_say_violations — forbidden phrases that appeared
 
 Ship-blocker: unsupported_claim_rate > 0  OR  must_not_say_violations > 0.
@@ -28,6 +30,7 @@ import sys
 from vinayak.reasoning.engine import answer as reason_answer
 from vinayak.memory import store as M
 from vinayak.eval.cases import CASES, BOTH
+from vinayak.eval import oracles
 
 
 def _seed(conn, company_id, facts) -> list[str]:
@@ -89,6 +92,32 @@ def _check_case(conn, company_id, case, runner_name: str | None = None) -> dict:
 
     must_not = [s for s in case.get("must_not_say", []) if s.lower() in text]
 
+    # ── factual accuracy ───────────────────────────────────────────────────
+    # The engine is graded on its Evidence, not on its prose: the numeric guard
+    # already forbids a rupee figure in the text that is not in the Evidence,
+    # so checking the Evidence checks the answer. An oracle that returns None
+    # (the fact cannot be computed today) ungrades its check rather than
+    # failing it — a missing yardstick is not a wrong answer.
+    by_id = {e["id"]: e for e in a.get("evidence", [])}
+    fact_checks: list[dict] = []
+    for want in case.get("expect_values", []):
+        truth = oracles.read(conn, company_id, want["oracle"])
+        if truth is None:
+            continue
+        ev = by_id.get(want["evidence"])
+        if ev is None:
+            fact_checks.append({"evidence": want["evidence"], "oracle": want["oracle"],
+                                "truth": truth, "got": None, "ok": False,
+                                "why": "the answer carried no such evidence"})
+            continue
+        got = ev.get(want.get("field", "value"))
+        ok = oracles.matches(truth, got, want.get("tolerance_pct",
+                                                  oracles.DEFAULT_TOLERANCE_PCT))
+        fact_checks.append({"evidence": want["evidence"], "oracle": want["oracle"],
+                            "truth": truth, "got": got, "ok": ok})
+    facts_graded = len(fact_checks)
+    facts_right = sum(1 for f in fact_checks if f["ok"])
+
     checks = {
         # For a runner (the model routes), intent isn't graded — routing is its job.
         "intent_ok": (runner_name is not None) or (case.get("expect_intent") is None)
@@ -97,12 +126,15 @@ def _check_case(conn, company_id, case, runner_name: str | None = None) -> dict:
         "refusal_ok": (not case.get("refusal")) or (a["confidence_level"] == "UNCERTAIN"),
         "must_not_say_ok": len(must_not) == 0,
         "no_unsupported": len(unsupported) == 0,
+        "facts_ok": facts_right == facts_graded,
     }
     return {
         "id": case["id"], "company": company_id, "question": case["q"],
         "intent": a["intent"], "confidence": a["confidence_level"],
         "computed_claims": len(computed), "unsupported": len(unsupported),
         "must_not_violations": must_not,
+        "facts_graded": facts_graded, "facts_right": facts_right,
+        "fact_checks": fact_checks,
         "is_refusal": bool(case.get("refusal")),
         "checks": checks,
         "passed": all(checks.values()),
@@ -120,6 +152,8 @@ def compute_metrics(results: list[dict]) -> dict:
     n = len(results) or 1
     refusal_cases = [r for r in results if r.get("is_refusal")]
     total_computed = sum(r["computed_claims"] for r in results)
+    facts_graded = sum(r.get("facts_graded", 0) for r in results)
+    facts_right = sum(r.get("facts_right", 0) for r in results)
     total_unsupported = sum(r["unsupported"] for r in results)
     must_not_total = sum(len(r["must_not_violations"]) for r in results)
 
@@ -133,6 +167,10 @@ def compute_metrics(results: list[dict]) -> dict:
                                  if refusal_cases else 1.0),
         "unsupported_claim_rate": unsupported_rate,
         "citation_compliance": round(1.0 - unsupported_rate, 4),   # → must be 1.0
+        # None, not 1.0, when nothing could be checked — an ungraded metric must
+        # never look like a perfect score.
+        "factual_accuracy": (round(facts_right / facts_graded, 3) if facts_graded else None),
+        "facts_graded": facts_graded,
         "must_not_say_violations": must_not_total,
     }
     # Ship-blocker: any uncited number, sub-100% citation, or forbidden phrase.
@@ -195,9 +233,17 @@ if __name__ == "__main__":
     print(json.dumps(m, indent=2))
     print(f"\n{m['passed']}/{m['cases_run']} cases passed · "
           f"citation compliance {m['citation_compliance'] * 100:.1f}% (must be 100%).")
+    fa = m.get("factual_accuracy")
+    print(f"factual accuracy {fa * 100:.1f}% over {m['facts_graded']} checked figures."
+          if fa is not None else "factual accuracy: nothing was independently checkable.")
     for r in report["results"]:
         if not r["passed"]:
             failed = [k for k, v in r["checks"].items() if not v]
             print(f"  ✗ [{r['company']}] {r['id']}: {r['confidence']}/{r['intent']} — failed {failed}")
+            for f in r.get("fact_checks", []):
+                if not f["ok"]:
+                    print(f"      fact {f['evidence']} vs {f['oracle']}: "
+                          f"expected {f['truth']}, got {f['got']}"
+                          f"{' — ' + f['why'] if f.get('why') else ''}")
     print("\nSHIP BLOCKED" if m["ship_blocked"] else "\nOK to ship (no unsupported claims, no forbidden phrases).")
     sys.exit(1 if m["ship_blocked"] else 0)

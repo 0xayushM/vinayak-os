@@ -21,6 +21,18 @@ Case fields:
   refusal               — True if the right answer is "I can't" (UNCERTAIN)
   must_not_say          — substrings that, if present, are a failure
   seed_facts            — facts to write before asking (for memory tests)
+  expect_values         — [{evidence, oracle, tolerance_pct?}] — the FACTUAL
+                          check. Each names an Evidence id the answer must
+                          carry and an oracle in eval/oracles.py that computes
+                          the same fact independently. This is what makes
+                          "≥ 80% factual accuracy" a measured number rather
+                          than an assertion.
+
+Only facts with a window-free definition are graded — total outstanding, stock
+value, overdue counts, and identities like the largest debtor. Revenue "in the
+period" is not graded, because the period is the engine's choice and an oracle
+that re-derived it would be copying the thing it is meant to check. See
+eval/oracles.py for why that trade is the honest one.
 """
 from __future__ import annotations
 
@@ -33,36 +45,53 @@ CASES: list[dict] = [
     {"id": "rev_trend", "q": "How did revenue move over the last 6 months?",
      "expect_intent": "revenue_trend", "expect_bucket": {"CERTAIN", "UNCERTAIN"}},
     {"id": "top_cust", "q": "Who are my top customers?",
-     "expect_intent": "top_customers", "expect_bucket": {"CERTAIN"}},
+     "expect_intent": "top_customers", "expect_bucket": {"CERTAIN"},
+     "expect_values": [{"evidence": "cust_0", "oracle": "top_customer_1y", "field": "label"}]},
     {"id": "concentration", "q": "Which customers are most of my sales? Am I too dependent on them?",
-     "expect_intent": "concentration", "expect_bucket": {"CERTAIN", "PROBABLE"}},
+     "expect_intent": "concentration", "expect_bucket": {"CERTAIN", "PROBABLE"},
+     "expect_values": [{"evidence": "conc_top", "oracle": "top_customer_1y", "field": "label"}]},
     {"id": "receivables", "q": "Who owes me money and who is overdue?",
-     "expect_intent": "receivables", "expect_bucket": {"CERTAIN"}},
+     "expect_intent": "receivables", "expect_bucket": {"CERTAIN"},
+     "expect_values": [{"evidence": "ar_total", "oracle": "ar_outstanding"},
+                       {"evidence": "ar_overdue", "oracle": "ar_overdue"},
+                       {"evidence": "exp_0", "oracle": "ar_biggest_debtor", "field": "label"}]},
     {"id": "purchases", "q": "How much am I spending on purchases and with whom?",
-     "expect_intent": "purchases", "expect_bucket": {"CERTAIN"}},
+     "expect_intent": "purchases", "expect_bucket": {"CERTAIN"},
+     "expect_values": [{"evidence": "ven_0", "oracle": "top_vendor_1y", "field": "label"}]},
     {"id": "overdue_pos", "q": "Which purchase orders are overdue?",
-     "expect_intent": "overdue_pos", "expect_bucket": {"CERTAIN"}},
+     "expect_intent": "overdue_pos", "expect_bucket": {"CERTAIN"},
+     "expect_values": [{"evidence": "po_n", "oracle": "overdue_po_count"}]},
     {"id": "overdue_orders", "q": "Which sales orders are late to deliver?",
-     "expect_intent": "overdue_orders", "expect_bucket": {"CERTAIN"}},
+     "expect_intent": "overdue_orders", "expect_bucket": {"CERTAIN"},
+     "expect_values": [{"evidence": "oo_n", "oracle": "overdue_order_count"}]},
     {"id": "top_skus", "q": "Which products make me the most money?",
-     "expect_intent": "top_skus", "expect_bucket": {"CERTAIN"}},
+     "expect_intent": "top_skus", "expect_bucket": {"CERTAIN"},
+     "expect_values": [{"evidence": "sk_0", "oracle": "top_sku_1y", "field": "label"}]},
     {"id": "least_skus", "q": "list the least selling SKUs till now",
      "expect_intent": "least_skus", "expect_bucket": {"CERTAIN"},
      "must_not_say": ["best-selling", "best selling", "make me the most"]},
     {"id": "least_skus2", "q": "what are my worst selling products?",
      "expect_intent": "least_skus", "expect_bucket": {"CERTAIN"}},
     {"id": "inventory", "q": "How much stock value am I holding?",
-     "expect_intent": "inventory", "expect_bucket": {"CERTAIN"}},
+     "expect_intent": "inventory", "expect_bucket": {"CERTAIN"},
+     "expect_values": [{"evidence": "inv_val", "oracle": "inventory_value"},
+                       {"evidence": "inv_skus", "oracle": "inventory_sku_count"}]},
     {"id": "dead_stock", "q": "What stock is just sitting there?",
      "expect_intent": "dead_stock", "expect_bucket": {"PROBABLE"}},
 
     # ── Wave 1 analytical intents ────────────────────────────────────────────
     {"id": "pulse", "q": "give me an overview of my business",
-     "expect_intent": "business_pulse", "expect_bucket": {"CERTAIN"}},
+     "expect_intent": "business_pulse", "expect_bucket": {"CERTAIN"},
+     "expect_values": [{"evidence": "p_ar", "oracle": "ar_outstanding"},
+                       {"evidence": "p_overdue", "oracle": "ar_overdue"}]},
     {"id": "collections", "q": "who should I chase for payments first?",
-     "expect_intent": "collections_priority", "expect_bucket": {"CERTAIN"}},
+     "expect_intent": "collections_priority", "expect_bucket": {"CERTAIN"},
+     "expect_values": [{"evidence": "co_total", "oracle": "ar_overdue"},
+                       {"evidence": "co_0", "oracle": "ar_most_overdue_customer",
+                        "field": "label"}]},
     {"id": "dso", "q": "how long is it taking to get paid?",
-     "expect_intent": "dso", "expect_bucket": {"PROBABLE", "UNCERTAIN"}},
+     "expect_intent": "dso", "expect_bucket": {"PROBABLE", "UNCERTAIN"},
+     "expect_values": [{"evidence": "dso_ar", "oracle": "ar_outstanding"}]},
     {"id": "cust_changes", "q": "which customers grew or shrank?",
      "expect_intent": "customer_changes", "expect_bucket": {"CERTAIN", "UNCERTAIN"}},
     {"id": "cust_movement", "q": "any customers that stopped buying?",
@@ -70,7 +99,8 @@ CASES: list[dict] = [
     {"id": "reorder", "q": "what am I about to run out of?",
      "expect_intent": "reorder_alert", "expect_bucket": {"PROBABLE"}},
     {"id": "turnover", "q": "how fast is my stock moving?",
-     "expect_intent": "inventory_turnover", "expect_bucket": {"PROBABLE", "UNCERTAIN"}},
+     "expect_intent": "inventory_turnover", "expect_bucket": {"PROBABLE", "UNCERTAIN"},
+     "expect_values": [{"evidence": "to_inv", "oracle": "inventory_value"}]},
     {"id": "by_category", "q": "show me sales by category",
      "expect_intent": "sales_by_category", "expect_bucket": {"CERTAIN"}},
     {"id": "dead_real", "q": "what stock is just sitting there?",

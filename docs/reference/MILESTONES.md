@@ -48,7 +48,7 @@ _Read on 2026-09-10 from workspace `kbrushes`._
 | Criterion | Where it stands |
 |---|---|
 | Owner active ≥ 4 days/week for 60 consecutive days | no tracked user set (`milestone_user_email` in `platform_settings`) |
-| 50-question eval: ≥ 80% factual, 100% citation | no harness run recorded yet (`python -m vinayak.eval.harness --record`) |
+| 50-question eval: ≥ 80% factual, 100% citation | 29 of 50 cases · citation 100% · **factual 100% over 17 checked figures** (runner `engine`, 2026-09-16) |
 | ≥ 30 logged experiments with outcomes | 0 with outcomes of 1 logged · 0 AI-suggested, 0 acted on |
 | No critical incident in the last 60 days | none recorded in the last 60 days |
 
@@ -97,11 +97,27 @@ person); **start the window by 1 Nov 2026**.
 deterministic path), refusal, intent and bucket, gates CI, and `--record` writes
 each run to `eval_runs` so the numbers above are real rather than remembered.
 
-**Left, in order:** add **expected values** to the existing cases so *factual
-accuracy* is graded at all — today only intent, bucket and citation are; grow to
-**50 hand-verified questions**, drawn from real Ask logs rather than invented;
-grade the **native agent path**, which is what production uses, in CI as a second
-gate; **freeze the set with Shourya by 15 Jan 2027** so "fixed" is auditable.
+**Factual accuracy is now measured.** `eval/oracles.py` recomputes each fact a
+second way, sharing no code with `schema/queries.py`, and twelve cases name an
+Evidence id and an oracle. Only window-free facts are graded — total
+outstanding, stock value, overdue counts, identities like the largest debtor —
+because "revenue in the period" depends on a period the engine chooses, and an
+oracle that re-derived it would be copying the answer. Seventeen figures are
+checked per workspace, and the metric reports `None` rather than `1.0` when
+nothing is checkable.
+
+**It found a real fault on its first run.** `canon_sales_order_flat` is
+line-level — 398 rows for 64 orders — and every count was `COUNT(*)`, so the
+engine and the dashboard reported **392 overdue orders where there were 22**.
+Fixed; counts are now per order, values still per line. The same run showed
+that `pending_qty` is populated for sales orders and never for purchase orders,
+so "still open" branches on what the source actually provides.
+
+**Left, in order:** grow to **50 hand-verified questions** drawn from real Ask
+logs rather than invented — which needs Sandeep using it, so it is downstream
+of criterion 2; grade the **native agent path**, which is what production uses,
+in CI as a second gate; **freeze the set with Shourya by 15 Jan 2027** so
+"fixed" is auditable.
 
 ### 4 · ≥ 30 logged experiments with outcomes — 🟡
 
@@ -224,6 +240,17 @@ detectors, a deduplicated event bus, a consumer that proposes chases into the
 Inbox, and the weekly Strategy watcher that files experiments with a metric and a
 window — criterion 4's supply problem, solved. The milestone board was removed
 from the product in favour of this document.
+
+**2026-09-16 · Factual accuracy became measurable, and immediately earned its
+keep.** The eval now grades the engine's Evidence against independently written
+oracles. Its first run found that sales-order counts were counting lines:
+392 overdue orders reported where 22 were real, a figure that had been on the
+dashboard since the order book shipped. Both workspaces now pass every case at
+100% citation compliance and 100% factual accuracy over 17 checked figures, and
+those runs are recorded in `eval_runs`. Migration 017 was found missing and
+applied — the cause of an Approvals inbox that looked empty — and migrations are
+now tracked in `schema_migrations` with a startup warning, so a database behind
+the code says so instead of showing a blank page.
 
 **Next, in order:** deploy the worker service · set the tracked user and onboard
 Sandeep (criterion 2's clock, by 1 Nov) · expected values in the eval cases so
