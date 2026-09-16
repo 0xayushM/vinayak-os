@@ -14,11 +14,17 @@ the tool looked up — not from the model.
 """
 from __future__ import annotations
 
+from vinayak import collections as C
 from vinayak.reasoning.engine import Evidence, inr
 from vinayak.tools import registry
 from vinayak.tools.contract import Tool, ToolInput, ToolResult
 
+# The ladder in vinayak/collections.py is where the wording lives now. These
+# two names are kept because older call sites speak in tones rather than
+# rungs, and they map onto rungs 1 and 2 — one set of words, not two that
+# drift apart.
 _TONES = ("gentle", "firm")
+_TONE_RUNG = {"gentle": 1, "firm": 2}
 
 
 def compose_chase(customer: str, outstanding: float, overdue: float,
@@ -26,30 +32,18 @@ def compose_chase(customer: str, outstanding: float, overdue: float,
     """Pure, deterministic reminder composer. Returns (subject, body). The amount
     shown is the overdue figure (or outstanding if nothing is past due yet)."""
     tone = tone if tone in _TONES else "gentle"
-    amt = inr(overdue if overdue > 0 else outstanding)
-    aged = f" (oldest {oldest_days} days)" if oldest_days and oldest_days > 0 else ""
-    if tone == "firm":
-        subject = f"Payment overdue: {amt} — action needed"
-        body = (
-            f"Dear {customer},\n\n"
-            f"Our records show {amt} overdue on your account{aged}. "
-            "Please arrange payment at the earliest, or reply with a date we can "
-            "expect it so we can update our records.\n\n"
-            "Regards,\nAccounts"
-        )
-    else:
-        subject = f"Gentle reminder: {amt} outstanding"
-        body = (
-            f"Dear {customer},\n\n"
-            f"A gentle reminder that {amt} is currently outstanding on your account{aged}. "
-            "If payment is already on its way, please ignore this note — otherwise we'd "
-            "appreciate a quick update on timing.\n\n"
-            "Warm regards,\nAccounts"
-        )
-    return subject, body
+    return C.compose(customer, outstanding, overdue, oldest_days, _TONE_RUNG[tone])
 
 
-def _draft_chase(ctx, customer_ref: str, tone: str = "gentle") -> ToolResult:
+def _draft_chase(ctx, customer_ref: str, tone: str = "gentle",
+                 rung: int = 0) -> ToolResult:
+    """Compose a reminder at the right rung of the ladder.
+
+    `rung` is what the brain passes; `tone` is what a person or an older call
+    site passes. When neither is given the rung is derived from how late the
+    balance actually is, so a hand-made chase to a customer who is 120 days
+    overdue is not written as a first gentle nudge.
+    """
     with ctx.conn.cursor() as cur:
         cur.execute(
             """SELECT COALESCE(SUM(outstanding_amount), 0),
@@ -66,13 +60,19 @@ def _draft_chase(ctx, customer_ref: str, tone: str = "gentle") -> ToolResult:
     if outstanding <= 0:
         return ToolResult.fail(f"{customer_ref} has nothing outstanding — no reminder needed.")
 
-    subject, body = compose_chase(customer_ref, outstanding, overdue, oldest, tone)
+    level = int(rung) if rung else _TONE_RUNG.get(tone, 0)
+    if not level:
+        level = C.rung_for(oldest) or 1
+    r = C.rung(level)
+    subject, body = C.compose(customer_ref, outstanding, overdue, oldest, level)
     return ToolResult(
         data={
-            "customer": customer_ref, "channel": "email", "tone": tone,
+            "customer": customer_ref, "channel": "email", "tone": r.tone,
+            "rung": level, "rung_label": r.label,
             "outstanding": outstanding, "overdue": overdue, "oldest_days": oldest,
             "subject": subject, "body": body,
-            "summary": f"Payment reminder to {customer_ref} — {inr(overdue if overdue > 0 else outstanding)}",
+            "summary": (f"{r.label} to {customer_ref} — "
+                        f"{inr(overdue if overdue > 0 else outstanding)}"),
         },
         evidence=[
             Evidence("chase:overdue", "Overdue", overdue, inr(overdue)),
@@ -89,7 +89,9 @@ _ACTION_TOOLS: list[Tool] = [
                      "Proposes only — a human approves in the inbox before anything is sent."),
         inputs={
             "customer_ref": ToolInput(str, "Customer name to remind", required=True),
-            "tone": ToolInput(str, "gentle | firm", required=False),
+            "tone": ToolInput(str, "gentle | firm (legacy; prefer rung)", required=False),
+            "rung": ToolInput(int, "Ladder rung 1-4; 0 or absent derives it from lateness",
+                              required=False),
         },
         side_effect="writes",   # → executor proposes to the ledger; gate = 'confirm'
         fn=_draft_chase,

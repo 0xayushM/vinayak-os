@@ -117,7 +117,7 @@ async def _unhandled(request: Request, exc: Exception):
 
 
 # ── Register routers ──────────────────────────────────────────────────────────
-from vinayak.api.routes import auth, connections, dashboard, workspaces, zoho, milestones, pulse, brain  # noqa: E402
+from vinayak.api.routes import auth, connections, dashboard, workspaces, zoho, milestones, pulse, brain, collections  # noqa: E402
 from vinayak.api.routes.auth import require_internal_key  # noqa: E402
 
 # The BFF boundary. Every business route requires the shared X-Internal-Key the
@@ -144,6 +144,8 @@ app.include_router(milestones.router,  prefix="/dashboard",    tags=["Milestones
 app.include_router(pulse.router,       prefix="/dashboard",    tags=["Pulse"],       dependencies=_BFF_ONLY)
 # Layer 10 — what the brain did on its own, and the switches for it.
 app.include_router(brain.router,       prefix="/dashboard",    tags=["Brain"],       dependencies=_BFF_ONLY)
+# The collections ladder: chase list, recovery proof, promises, disputes.
+app.include_router(collections.router, prefix="/dashboard",    tags=["Collections"], dependencies=_BFF_ONLY)
 
 # Register the Layer-7 read tools so the agent + MCP can call the business as a
 # tool. Idempotent; read-only wrappers over the proven query functions.

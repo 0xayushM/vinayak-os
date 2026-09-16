@@ -37,10 +37,17 @@ def test_gentle_tone_wording_and_amount():
 
 
 def test_firm_tone_is_firmer():
+    """Firmer means it asks for something specific and says which reminder it
+    is — not that it contains a particular sentence. The wording moved to the
+    ladder in vinayak/collections.py; the property is what matters."""
+    gentle_s, gentle_b = compose_chase("Acme", outstanding=500000, overdue=500000,
+                                       oldest_days=120, tone="gentle")
     subject, body = compose_chase("Acme", outstanding=500000, overdue=500000,
                                   oldest_days=120, tone="firm")
     assert "overdue" in subject.lower()
-    assert "at the earliest" in body
+    assert "second reminder" in body.lower()
+    assert body != gentle_b
+    assert "gentle" not in body.lower()
 
 
 def test_uses_outstanding_when_nothing_overdue_yet():

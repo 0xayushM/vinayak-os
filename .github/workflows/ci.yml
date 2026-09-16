@@ -48,13 +48,37 @@ jobs:
         if: env.EVAL_DATABASE_URL != ''
         run: pip install -r vinayak/requirements.txt
 
-      - name: Run eval harness
+      - name: Run eval harness (deterministic engine)
         if: env.EVAL_DATABASE_URL != ''
         env:
           DATABASE_URL: ${{ secrets.EVAL_DATABASE_URL }}
           JWT_SECRET: ci-only-not-used
           INTERNAL_API_KEY: ci-only-not-used
         run: python -m vinayak.eval.harness
+
+      # The second gate — the path production actually answers with. Grading
+      # only the deterministic engine leaves the agent path ungated, and that
+      # is what users hit.
+      #
+      # REPORTS, does not block, and the reason is not timidity. The agent
+      # path goes through a model, so its wording differs run to run: the same
+      # GST question refused impeccably on one run and tripped a forbidden
+      # phrase on the next. A gate that fails on green code teaches everyone
+      # to ignore it. What is structurally enforced there — grounding and the
+      # numeric guard — is already blocking via the deterministic run above,
+      # because the safety spine is shared.
+      #
+      # It becomes blocking when the agent path emits Evidence with stable
+      # ids, so factual grading can match by id instead of scanning values.
+      - name: Run eval harness (native agent path — reports, does not block)
+        if: env.EVAL_DATABASE_URL != ''
+        continue-on-error: true
+        env:
+          DATABASE_URL: ${{ secrets.EVAL_DATABASE_URL }}
+          ANTHROPIC_API_KEY: ${{ secrets.EVAL_ANTHROPIC_API_KEY }}
+          JWT_SECRET: ci-only-not-used
+          INTERNAL_API_KEY: ci-only-not-used
+        run: python -m vinayak.eval.harness --runner native
 
       - name: Skipped (no EVAL_DATABASE_URL secret)
         if: env.EVAL_DATABASE_URL == ''

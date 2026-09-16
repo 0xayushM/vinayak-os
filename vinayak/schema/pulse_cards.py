@@ -36,17 +36,26 @@ MAX_CHASES_PER_CARD = 3
 # Which cards each role leads with. Same catalogue, different first screen —
 # a user can pin their own order, which overrides this.
 ROLE_ORDER: dict[str, list[str]] = {
+    # Collections proof sits high for finance and the accountant — it is their
+    # result — and low for sales, who cannot act on it. The owner sees it after
+    # what needs deciding today, because it is evidence rather than a task.
     "owner":      ["week_delta", "cash_30d", "aging_drift", "reorder_radar", "anomalies",
-                   "concentration", "trapped_capital", "payment_behaviour", "working_capital"],
-    "finance":    ["working_capital", "aging_drift", "payment_behaviour", "cash_30d",
-                   "anomalies", "week_delta", "trapped_capital", "reorder_radar", "concentration"],
-    "accountant": ["anomalies", "aging_drift", "working_capital", "cash_30d",
-                   "payment_behaviour", "week_delta", "trapped_capital", "concentration", "reorder_radar"],
+                   "collections_proof", "concentration", "trapped_capital",
+                   "payment_behaviour", "working_capital"],
+    "finance":    ["working_capital", "aging_drift", "collections_proof",
+                   "payment_behaviour", "cash_30d", "anomalies", "week_delta",
+                   "trapped_capital", "reorder_radar", "concentration"],
+    "accountant": ["anomalies", "aging_drift", "collections_proof", "working_capital",
+                   "cash_30d", "payment_behaviour", "week_delta", "trapped_capital",
+                   "concentration", "reorder_radar"],
     "sales":      ["reorder_radar", "week_delta", "concentration", "payment_behaviour",
-                   "cash_30d", "aging_drift", "trapped_capital", "anomalies", "working_capital"],
+                   "cash_30d", "aging_drift", "trapped_capital", "anomalies",
+                   "working_capital", "collections_proof"],
     "viewer":     ["week_delta", "cash_30d", "aging_drift", "concentration",
-                   "reorder_radar", "trapped_capital", "anomalies", "payment_behaviour", "working_capital"],
+                   "reorder_radar", "trapped_capital", "anomalies", "payment_behaviour",
+                   "working_capital", "collections_proof"],
 }
+
 DEFAULT_ORDER = ROLE_ORDER["owner"]
 
 
@@ -329,6 +338,52 @@ def card_working_capital(d: dict) -> dict:
 
 # ── assembly ──────────────────────────────────────────────────────────────────
 
+def _recovery(conn, company_id: str) -> dict:
+    """The builders table expects (conn, company_id) -> dict; recovery lives in
+    vinayak/collections.py because it is a collections fact, not a Pulse one."""
+    from vinayak.collections import recovery_stats
+    return recovery_stats(conn, company_id)
+
+
+def card_collections_proof(d: dict) -> dict:
+    """What chasing actually brought in.
+
+    The one card that answers "is this product worth anything", so it is also
+    the one card that must not overclaim. It says money ARRIVED within the
+    window, never that the chase caused it — and when there is no history yet
+    it says that instead of showing a zero, because a zero here reads as
+    "chasing does not work".
+    """
+    if d.get("no_history"):
+        return _card("collections_proof", "Collections proof", 0, display="—",
+                     why="No reminder has gone out yet. Approve one from the Inbox and "
+                         "this starts measuring what comes back within a fortnight.",
+                     confidence=P.UNCERTAIN, severity=0, data=d)
+    if not d.get("measurable"):
+        return _card("collections_proof", "Collections proof", 0, display="—",
+                     why=f"{d['chases']} reminder{'s' if d['chases'] != 1 else ''} sent, none "
+                         f"far enough back to measure — recovery is read "
+                         f"{d['window_days']} days after a chase.",
+                     confidence=P.UNCERTAIN, severity=0, data=d)
+    rate = d["recovery_rate_pct"]
+    return _card("collections_proof", "Collections proof",
+                 d["recovered"], display=Money.compact(d["recovered"]),
+                 change=rate, change_display=f"{rate}%", direction="good" if rate else "flat",
+                 change_label=f"of the {Money.compact(d['chased_value'])} chased",
+                 why=(f"{Money.compact(d['recovered'])} came in within {d['window_days']} days of "
+                      f"a reminder, across {d['measurable']} chased account"
+                      f"{'s' if d['measurable'] != 1 else ''} — {rate}% of what was chased. "
+                      f"Money that arrived in the window, not money the chase can be proven "
+                      f"to have caused."),
+                 items=[{"label": f"Rung {k} · {v['chases']} chase{'s' if v['chases'] != 1 else ''}",
+                         "value": Money.compact(v["recovered"])}
+                        for k, v in list(d.get("by_rung", {}).items())[:3]],
+                 action={"label": "Run a hold-back test", "kind": "experiment",
+                         "params": {"title": "Hold back one in five from the chase list",
+                                    "metric_key": "ar.overdue_total", "window_days": 30}},
+                 confidence=P.PROBABLE, severity=0, data=d)
+
+
 _BUILDERS = [
     ("aging_drift",       P.get_aging_drift,          card_aging_drift),
     ("payment_behaviour", P.get_payment_behaviour,    card_payment_behaviour),
@@ -339,7 +394,9 @@ _BUILDERS = [
     ("trapped_capital",   P.get_dead_stock_delta,     card_trapped_capital),
     ("anomalies",         P.get_anomalies,            card_anomalies),
     ("working_capital",   P.get_working_capital,      card_working_capital),
+    ("collections_proof", _recovery,                  card_collections_proof),
 ]
+
 
 
 def _has_business_data(conn, company_id: str) -> bool:

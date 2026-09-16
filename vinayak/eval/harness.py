@@ -98,21 +98,42 @@ def _check_case(conn, company_id, case, runner_name: str | None = None) -> dict:
     # so checking the Evidence checks the answer. An oracle that returns None
     # (the fact cannot be computed today) ungrades its check rather than
     # failing it — a missing yardstick is not a wrong answer.
-    by_id = {e["id"]: e for e in a.get("evidence", [])}
+    evidence = a.get("evidence", [])
+    by_id = {e["id"]: e for e in evidence}
     fact_checks: list[dict] = []
     for want in case.get("expect_values", []):
         truth = oracles.read(conn, company_id, want["oracle"])
         if truth is None:
             continue
+        field = want.get("field", "value")
+        tol = want.get("tolerance_pct", oracles.DEFAULT_TOLERANCE_PCT)
+
+        if runner_name:
+            # Evidence ids are the deterministic engine's own naming, not a
+            # contract the agent path shares — it assembles answers from tools
+            # and names its evidence differently. Requiring `ar_total` there
+            # would fail every case for a reason that has nothing to do with
+            # whether the number was right. So on a runner the question is the
+            # weaker but meaningful one: does this answer carry the true figure
+            # anywhere in its evidence?
+            got = next((e.get(field) for e in evidence
+                        if oracles.matches(truth, e.get(field), tol)), None)
+            ok = got is not None
+            fact_checks.append({"evidence": f"any:{want['evidence']}",
+                                "oracle": want["oracle"], "truth": truth, "got": got,
+                                "ok": ok,
+                                **({} if ok else
+                                   {"why": "no evidence in the answer carries this figure"})})
+            continue
+
         ev = by_id.get(want["evidence"])
         if ev is None:
             fact_checks.append({"evidence": want["evidence"], "oracle": want["oracle"],
                                 "truth": truth, "got": None, "ok": False,
                                 "why": "the answer carried no such evidence"})
             continue
-        got = ev.get(want.get("field", "value"))
-        ok = oracles.matches(truth, got, want.get("tolerance_pct",
-                                                  oracles.DEFAULT_TOLERANCE_PCT))
+        got = ev.get(field)
+        ok = oracles.matches(truth, got, tol)
         fact_checks.append({"evidence": want["evidence"], "oracle": want["oracle"],
                             "truth": truth, "got": got, "ok": ok})
     facts_graded = len(fact_checks)

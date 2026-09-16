@@ -27,13 +27,12 @@ from vinayak.brain import bus
 
 logger = logging.getLogger(__name__)
 
-# Rung → the tone the reminder is written in. The ladder is the product
-# decision: the fourth letter to a customer should not read like the first.
-TONE_FOR_RUNG = {7: "gentle", 30: "gentle", 60: "firm", 90: "firm"}
-
-
 def _handle_overdue_rung(conn, company_id: str, event: dict) -> dict:
-    """Draft a payment reminder at the tone this rung calls for."""
+    """Draft a payment reminder at the rung this customer has reached.
+
+    The rung comes from the event, which got it from `collections.decide` —
+    the consumer does not re-derive it. One place decides how firm to be.
+    """
     from vinayak.tools import registry
     from vinayak.tools.action_tools import register_action_tools
     from vinayak.tools.executor import ToolContext, execute
@@ -48,9 +47,9 @@ def _handle_overdue_rung(conn, company_id: str, event: dict) -> dict:
     if not customer:
         return {"action": None, "reason": "event carries no customer"}
 
-    tone = TONE_FOR_RUNG.get(int(p.get("rung", 30)), "gentle")
+    level = int(p.get("rung", 1))
     ctx = ToolContext(conn=conn, company_id=company_id, user_id="agent")
-    res = execute(ctx, tool, {"customer_ref": customer, "tone": tone})
+    res = execute(ctx, tool, {"customer_ref": customer, "rung": level})
 
     if res.error:
         # The commonest "error" here is the executor's own idempotency guard —
@@ -63,8 +62,51 @@ def _handle_overdue_rung(conn, company_id: str, event: dict) -> dict:
         with conn.cursor() as cur:
             cur.execute("UPDATE actions SET event_id = %s WHERE id = %s",
                         (event["id"], action_id))
-    return {"action": action_id, "tone": tone, "rung": p.get("rung"),
+    return {"action": action_id, "rung": level, "rung_label": p.get("rung_label"),
             "customer": customer}
+
+
+def _handle_promise_broken(conn, company_id: str, event: dict) -> dict:
+    """A promised payment did not arrive.
+
+    Chasing resumes immediately and one rung higher than the ladder alone
+    would give: the customer has now had the conversation and not kept to it,
+    which is a different situation from simply being late.
+    """
+    from vinayak import collections as C
+    from vinayak.tools import registry
+    from vinayak.tools.action_tools import register_action_tools
+    from vinayak.tools.executor import ToolContext, execute
+
+    p = event["payload"]
+    customer = p.get("customer_ref")
+    if not customer:
+        return {"action": None, "reason": "event carries no customer"}
+
+    # The pause the promise created is void the moment it is broken.
+    with conn.cursor() as cur:
+        cur.execute("""UPDATE collections_state
+                          SET paused_until = NULL, pause_reason = NULL, updated_at = NOW()
+                        WHERE company_id = %s AND customer_ref = %s""",
+                    (company_id, customer))
+    conn.commit()
+
+    state = C.get_state(conn, company_id, customer)
+    level = min(C.MAX_RUNG, max(2, int(state.get("rung") or 1) + 1))
+
+    register_action_tools()
+    tool = registry.get("collections.draft_chase")
+    ctx = ToolContext(conn=conn, company_id=company_id, user_id="agent")
+    res = execute(ctx, tool, {"customer_ref": customer, "rung": level})
+    if res.error:
+        return {"action": None, "reason": res.error, "rung": level}
+    action_id = res.data.get("action_id")
+    if action_id:
+        with conn.cursor() as cur:
+            cur.execute("UPDATE actions SET event_id = %s WHERE id = %s",
+                        (event["id"], action_id))
+    return {"action": action_id, "rung": level, "customer": customer,
+            "reason": f"promise for {p.get('promised_on')} was not kept"}
 
 
 def _handle_noted(_conn, _company_id: str, event: dict) -> dict:
@@ -78,6 +120,7 @@ def _handle_noted(_conn, _company_id: str, event: dict) -> dict:
 
 HANDLERS = {
     "invoice.overdue_rung": _handle_overdue_rung,
+    "promise.broken": _handle_promise_broken,
     "data.stale": _handle_noted,
     "anomaly.detected": _handle_noted,
 }

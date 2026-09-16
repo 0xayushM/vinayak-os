@@ -173,3 +173,50 @@ most of the refusal list in one integration.
 **Corollary.** A `must_not_say` phrase has to be the shape of the WRONG answer,
 not a prefix of the right one. "tds is" fired on the refusal's own "TDS isn't in
 the data I hold". There is a test for that now.
+
+## 2026-09-16 — A ladder is climbed one rung at a time
+
+**Decision.** The next chase is at most one rung above where the customer
+already is, however late they are.
+
+**Why.** Without it, switching the product on with a neglected ledger sends
+"your account is on hold" as the first thing a customer has ever heard from
+us — on live data every one of 34 overdue accounts landed on R4 immediately,
+because they are 120–145 days late and have never been asked. That is unfair,
+commercially stupid, and the fastest way to make an owner turn chasing off
+altogether. A never-chased customer gets a gentle reminder and earns the
+firmer ones by not replying.
+
+**Decision.** Chasing is per CUSTOMER, not per invoice.
+
+**Why.** Collections is a conversation with a person about their account. The
+per-invoice detector would have emailed a customer with nine late invoices
+nine times.
+
+**Decision.** A promise to pay pauses chasing; a dispute stops it.
+
+**Why.** Chasing someone who has already told you when they will pay is how
+you lose goodwill for nothing, and a disputed balance is an argument about the
+invoice that a reminder makes worse. Both are facts the business already has
+and has never written down anywhere a system can read.
+
+**Decision.** Recovery is measured from DELIVERY, not approval, and the card
+says it is correlation.
+
+**Why.** An approval that failed to send has chased nobody, and crediting it
+would be inventing. And some of those customers would have paid anyway — "₹X
+came in from chased accounts within a fortnight" is supportable; "the product
+recovered ₹X" is not. The honest way to close that gap is a hold-back, which
+is why the card's action proposes one as an experiment.
+
+## 2026-09-16 — The native eval gate reports rather than blocks
+
+**Decision.** CI grades the agent path on every build but does not fail on it.
+
+**Why.** The agent path goes through a model, so its wording differs run to
+run: the same GST question refused impeccably on one run and tripped a
+forbidden phrase on the next. A gate that fails on green code teaches everyone
+to ignore it. What is structurally enforced on that path — grounding and the
+numeric guard — is already blocking through the deterministic run, because the
+safety spine is shared. It becomes blocking when the agent emits Evidence with
+stable ids, so facts can be matched by id rather than by scanning values.

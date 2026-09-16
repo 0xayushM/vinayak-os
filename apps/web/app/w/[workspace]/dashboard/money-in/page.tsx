@@ -6,7 +6,7 @@ import { DateRangePicker, DateRange } from "@/components/dashboard/DateRangePick
 import { StageFlow, Tabs, SectionHead, type Stage } from "@/components/dashboard/StageFlow";
 import {
   QuotePipelinePanel, OpenOrdersTablePanel, SalesInvoicesTablePanel,
-  ArInvoicesTablePanel, ArAgingPanel, CollectionsPriorityPanel,
+  ArInvoicesTablePanel, ArAgingPanel,
   RevenueTrendPanel, TopSkusTablePanel, RevenueKpiPanel, RevenueDailyPanel,
   CustomerConcentrationPanel, TopSkusPanel, MonthCompareTool,
 } from "@/components/dashboard/panels";
@@ -14,6 +14,7 @@ import {
   useQuoteSummary, useOpenOrders, useRevenueSummary, useArSummary,
 } from "@/hooks/useDashboard";
 import { useInferredPayments } from "@/hooks/usePulse";
+import { ChasePanel } from "@/components/dashboard/ChasePanel";
 import { formatCurrency } from "@/lib/utils/cn";
 
 /**
@@ -109,7 +110,10 @@ export default function MoneyInPage() {
       />
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 items-start">
         <ArAgingPanel />
-        <div className="lg:col-span-2"><CollectionsPriorityPanel rows={6} /></div>
+        {/* The ladder decides who is chased and who is left alone, so the
+            chase list replaces the old priority table: same ranking, plus the
+            half that was invisible. */}
+        <div className="lg:col-span-2"><ChasePanel /></div>
       </div>
 
       <SectionHead question="The detail, one stage at a time" />

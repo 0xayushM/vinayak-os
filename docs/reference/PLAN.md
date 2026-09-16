@@ -76,7 +76,14 @@ experiment accepted, started and closed with a computed outcome.
 | Every Inbox approval can be tagged "run as experiment" with a metric and window; outcome computed from snapshots                                                                                                                                                                                  | M1-4         | Turns ordinary chases and nudges into logged experiments with outcomes for free             |
 | **Onboard Sandeep as the daily user**: his workspace, his role, the brief to his inbox; walk him through Pulse and the Inbox once in person                                                                                                                                                       | M1-2         | Target first active day ≤ 18 Oct; 60-day clock target 18 Oct–17 Dec, with January as buffer |
 
-### Sprint 3 · Weeks 7–8 (13 Oct–24 Oct) — collections done properly
+### Sprint 3 · Weeks 7–8 (13 Oct–24 Oct) — collections done properly — **SHIPPED 16 Sep**
+
+`vinayak/collections.py` holds the ladder (R1–R4, one rung at a time), the
+promise-to-pay, the dispute flag, the chase priority and the recovery proof;
+migration 022 adds `collections_state`, `promises` and `chase_log`. Chasing is
+per customer, not per invoice. The eval's factual grading and the native-path
+CI gate landed early with the auditor question set. Outstanding from this
+sprint: the contacts CSV import screen.
 
 | Ship                                                                                                                                                                          | Serves               | Notes                                                                             |
 |-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|----------------------|-----------------------------------------------------------------------------------|

@@ -24,11 +24,8 @@ from vinayak.brain import bus
 
 logger = logging.getLogger(__name__)
 
-# The rungs of the collections ladder, in days past due. An invoice emits one
-# event per rung it crosses, ever — so a customer moves up the ladder rather
-# than being chased with the same message every week.
-RUNGS = (7, 30, 60, 90)
-
+# The ladder itself lives in vinayak/collections.py — one definition, or the
+# two drift and the detector starts disagreeing with the letter it triggers.
 # Below this, chasing costs more than it recovers.
 MIN_CHASE_AMOUNT = 5_000.0
 
@@ -41,61 +38,104 @@ MAX_RUNG_EVENTS_PER_PASS = 15
 STALE_HOURS = 25
 
 
-def _rung_for(days_overdue: int) -> int | None:
-    """The highest rung this invoice has passed, or None if it is not late
-    enough to matter."""
-    passed = [r for r in RUNGS if days_overdue >= r]
-    return max(passed) if passed else None
-
-
 def detect_overdue_rung(conn, company_id: str, *, run_id: int | None = None,
                         config: dict | None = None) -> int:
-    """Invoices that have crossed a collections rung.
+    """Customers who have earned the next rung of the collections ladder.
 
-    The event is per (invoice, rung), so an invoice that is 95 days late and
-    was never chased emits one event at rung 90 — not four. The consumer
-    turns it into a draft chase at that rung's tone.
+    Per CUSTOMER, not per invoice. Chasing is a conversation with a person
+    about their account, and a customer with nine late invoices should get one
+    call, not nine emails — which is what the per-invoice version produced.
+
+    Everything that decides whether a chase is allowed lives in
+    `collections.decide`: the ladder, the cooldown between rungs, an open
+    promise to pay, a manual pause, and the dispute flag. The detector's job
+    is to ask, not to judge.
     """
+    from vinayak import collections as C
+
     cfg = config or {}
     min_amount = float(cfg.get("min_amount", MIN_CHASE_AMOUNT))
     cap = int(cfg.get("max_per_pass", MAX_RUNG_EVENTS_PER_PASS))
 
+    # A customer who has cleared starts again at the bottom, so the next
+    # reminder they ever get is a first reminder.
+    C.reset_if_settled(conn, company_id)
+
     with conn.cursor() as cur:
         cur.execute("""
-            SELECT customer_name, invoice_number, due_date,
-                   COALESCE(outstanding_amount, 0) AS outstanding,
-                   (CURRENT_DATE - due_date) AS days_overdue
+            SELECT customer_name,
+                   COALESCE(SUM(outstanding_amount), 0)  AS outstanding,
+                   MAX(CURRENT_DATE - due_date)          AS days_overdue,
+                   COUNT(*)                              AS invoices
               FROM canon_ar_flat
              WHERE company_id = %s
-               AND COALESCE(outstanding_amount, 0) >= %s
+               AND COALESCE(outstanding_amount, 0) > 0
                AND due_date IS NOT NULL
                AND due_date < CURRENT_DATE
-             ORDER BY (CURRENT_DATE - due_date) * COALESCE(outstanding_amount, 0) DESC
+             GROUP BY customer_name
+            HAVING COALESCE(SUM(outstanding_amount), 0) >= %s
+             ORDER BY MAX(CURRENT_DATE - due_date) * COALESCE(SUM(outstanding_amount), 0) DESC
              LIMIT 400
         """, (company_id, min_amount))
         rows = cur.fetchall()
 
+    states = C.all_states(conn, company_id)
+    promises = C.open_promises(conn, company_id)
+
     emitted = 0
-    for customer, number, due, outstanding, days in rows:
+    for customer, outstanding, days, invoices in rows:
         if emitted >= cap:
             break
-        rung = _rung_for(int(days or 0))
-        if rung is None:
+        outstanding, days = float(outstanding or 0), int(days or 0)
+        d = C.decide(days_overdue=days, outstanding=outstanding,
+                     state=states.get(customer), open_promise=promises.get(customer),
+                     min_amount=min_amount)
+        if not d.allowed:
             continue
         new_id = bus.emit(
             conn, company_id, "invoice.overdue_rung",
-            dedupe_key=f"{number}:rung{rung}",
+            # One event per customer per rung, ever. The ladder is the memory.
+            dedupe_key=f"{customer}:rung{d.rung}",
             entity_ref=f"customer:{customer}",
-            severity=min(90, 30 + rung // 2),
+            severity=min(90, 30 + d.rung * 12),
             source="detect.overdue_rung",
             run_id=run_id,
-            payload={"customer_name": customer, "invoice_number": number,
-                     "due_date": due.isoformat() if isinstance(due, date) else due,
-                     "outstanding": float(outstanding or 0),
-                     "days_overdue": int(days or 0), "rung": rung},
+            payload={"customer_name": customer, "outstanding": outstanding,
+                     "days_overdue": days, "invoice_count": int(invoices or 0),
+                     "rung": d.rung, "rung_label": C.rung(d.rung).label},
         )
         if new_id:
             emitted += 1
+    return emitted
+
+
+def detect_promise_broken(conn, company_id: str, *, run_id: int | None = None,
+                          config: dict | None = None) -> int:
+    """Promises whose day has come and gone.
+
+    A broken promise is worth more than the missed payment. A customer who is
+    simply slow and a customer who agrees a date and ignores it are different
+    credit risks, and this is the only place that difference gets recorded.
+    """
+    from vinayak import collections as C
+
+    result = C.settle_due_promises(conn, company_id)
+    emitted = 0
+    for broken in result["broken"]:
+        new_id = bus.emit(
+            conn, company_id, "promise.broken",
+            dedupe_key=broken["id"],
+            entity_ref=f"customer:{broken['customer_ref']}",
+            severity=75,
+            source="detect.promise_broken",
+            run_id=run_id,
+            payload=broken,
+        )
+        if new_id:
+            emitted += 1
+    if result["kept"]:
+        logger.info("%s: %d promise(s) kept", company_id, len(result["kept"]))
+    conn.commit()
     return emitted
 
 
@@ -188,6 +228,7 @@ def detect_anomaly(conn, company_id: str, *, run_id: int | None = None,
 
 DETECTORS = {
     "detect.overdue_rung": detect_overdue_rung,
+    "detect.promise_broken": detect_promise_broken,
     "detect.data_stale": detect_data_stale,
     "detect.anomaly": detect_anomaly,
 }

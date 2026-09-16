@@ -17,7 +17,7 @@ from datetime import date
 
 import pytest
 
-from vinayak.brain.detectors import RUNGS, _rung_for
+from vinayak.collections import LADDER, rung_for
 from vinayak.brain.outcomes import verdict
 from vinayak.brain.strategy import build_suggestions
 from vinayak.brain.registry import all_watchers, by_key
@@ -25,18 +25,41 @@ from vinayak.brain.registry import all_watchers, by_key
 
 # ── the collections ladder ────────────────────────────────────────────────
 @pytest.mark.parametrize("days, expected", [
-    (0, None), (3, None), (6, None),
-    (7, 7), (12, 7), (29, 7),
-    (30, 30), (59, 30),
-    (60, 60), (89, 60),
-    (90, 90), (400, 90),
+    (0, 0), (3, 0), (6, 0),        # 0 = not late enough to chase at all
+    (7, 1), (12, 1), (29, 1),
+    (30, 2), (59, 2),
+    (60, 3), (89, 3),
+    (90, 4), (400, 4),
 ])
 def test_rung_is_the_highest_line_crossed(days, expected):
-    assert _rung_for(days) == expected
+    """What lateness alone has EARNED, before the one-step-at-a-time rule
+    caps it — so `current_rung` is set to what the customer has already had."""
+    assert rung_for(days, current_rung=max(0, expected - 1)) == expected
 
 
-def test_rungs_are_ordered_and_unique():
-    assert list(RUNGS) == sorted(set(RUNGS))
+def test_silence_moves_a_customer_up_the_ladder():
+    """Two reminders with nothing back is information. A customer who ignores
+    the first two at 10 days late should not receive a third identical one."""
+    assert rung_for(10) == 1
+    assert rung_for(10, chases_sent=2, current_rung=1) == 2
+    assert rung_for(10, chases_sent=4, current_rung=2) == 3
+
+
+def test_a_never_chased_customer_always_starts_at_the_bottom():
+    """The rule that stops switching the product on from sending "your account
+    is on hold" as the first thing a customer has ever heard from us. However
+    late they are, the first ask is a gentle one."""
+    assert rung_for(140) == 1
+    assert rung_for(9999) == 1
+
+
+def test_the_ladder_climbs_one_rung_at_a_time():
+    for current in (0, 1, 2, 3):
+        assert rung_for(400, chases_sent=99, current_rung=current) == current + 1
+
+
+def test_the_ladder_never_climbs_past_its_top():
+    assert rung_for(9999, chases_sent=99, current_rung=LADDER[-1].level) == LADDER[-1].level
 
 
 # ── how an experiment is judged ───────────────────────────────────────────
@@ -229,7 +252,11 @@ def test_every_event_type_a_detector_emits_has_a_handler():
     assert emitted <= set(consumer.HANDLERS), emitted - set(consumer.HANDLERS)
 
 
-def test_the_ladder_has_a_tone_for_every_rung():
-    from vinayak.brain.consumer import TONE_FOR_RUNG
-    assert set(TONE_FOR_RUNG) == set(RUNGS)
-    assert TONE_FOR_RUNG[7] == "gentle" and TONE_FOR_RUNG[90] == "firm"
+def test_the_ladder_has_a_distinct_tone_at_every_rung():
+    """Four rungs, four tones, each slower and firmer than the last. If two
+    rungs ever share wording, the ladder is decorative."""
+    from vinayak.collections import LADDER
+    assert [r.level for r in LADDER] == [1, 2, 3, 4]
+    assert len({r.tone for r in LADDER}) == len(LADDER)
+    assert [r.from_days for r in LADDER] == sorted(r.from_days for r in LADDER)
+    assert [r.cooldown_days for r in LADDER] == sorted(r.cooldown_days for r in LADDER)

@@ -49,6 +49,14 @@ def all_watchers() -> list[Watcher]:
                             "max_per_pass": detectors.MAX_RUNG_EVENTS_PER_PASS},
         ),
         Watcher(
+            key="detect.promise_broken",
+            title="Promises to pay",
+            what_it_does=("Checks every promised payment date that has passed and "
+                          "raises an event when the money did not arrive."),
+            interval_minutes=60 * 12,
+            fn=_wrap_detector(detectors.detect_promise_broken),
+        ),
+        Watcher(
             key="detect.data_stale",
             title="Feed health",
             what_it_does=("Raises an event once a day for any feed that has not "

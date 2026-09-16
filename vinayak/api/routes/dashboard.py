@@ -724,7 +724,7 @@ def actions_decide(action_id: str, body: DecideIn,
                                     detail=f"Your account cannot approve this ({needed.replace('_', ' ')} not granted)")
         with conn.cursor() as cur:
             cur.execute(
-                """SELECT payload, entity_ref, status, result FROM actions
+                """SELECT payload, entity_ref, status, result, tool_name FROM actions
                    WHERE id = %s AND company_id = %s""",
                 (action_id, company_id),
             )
@@ -732,6 +732,7 @@ def actions_decide(action_id: str, body: DecideIn,
             if not row:
                 raise HTTPException(status_code=404, detail="Action not found")
             payload, entity_ref, cur_status, prev_result = (row[0] or {}), row[1], row[2], (row[3] or {})
+            tool_name = row[4]
             already_sent = bool(prev_result.get("sent")) if isinstance(prev_result, dict) else False
             if cur_status == "proposed":
                 pass
@@ -776,6 +777,25 @@ def actions_decide(action_id: str, body: DecideIn,
                 (new_status, user.sub, bool(send.get("sent")), _json.dumps(send), action_id, company_id),
             )
         conn.commit()
+
+        # A reminder that actually went out moves the customer up the ladder
+        # and starts a recovery clock. Logged here rather than at approval,
+        # because an approval that failed to deliver has chased nobody — and
+        # measuring recovery from it would credit the product with money it
+        # had no part in.
+        if send.get("sent") and tool_name == "collections.draft_chase":
+            try:
+                from vinayak import collections as _collections
+                _collections.record_chase(
+                    conn, company_id, entity_ref,
+                    int(payload.get("rung") or 1),
+                    action_id=action_id,
+                    balance=float(payload.get("outstanding") or 0),
+                    approved_by=user.sub)
+            except Exception as exc:  # noqa: BLE001 — never fail a sent message
+                logger.warning("collections: could not log the chase for %s: %s",
+                               entity_ref, exc)
+                conn.rollback()
     finally:
         conn.close()
     return {"id": action_id, "status": new_status, "sent": bool(send.get("sent")), "detail": send}
