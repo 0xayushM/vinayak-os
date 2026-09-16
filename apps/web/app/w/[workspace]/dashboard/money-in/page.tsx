@@ -58,7 +58,9 @@ export default function MoneyInPage() {
     {
       key: "orders", label: "Ordered, not delivered",
       value: o ? formatCurrency(o.open_value, true) : "—",
-      note: o ? `${o.open_count} open · ${Math.round(o.dispatched_pct)}% dispatched` : undefined,
+      // "orders", not lines — the query counts distinct order numbers now, and
+      // the wording has to match or the fix is invisible where it mattered.
+      note: o ? `${o.open_count} orders · ${Math.round(o.dispatched_pct)}% fully delivered` : undefined,
       stuck: o?.overdue_count
         ? { value: String(o.overdue_count), label: "past delivery date" }
         : undefined,
