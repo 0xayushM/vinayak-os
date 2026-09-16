@@ -2463,3 +2463,119 @@ def get_sync_health(conn, company_id: str) -> dict:
         "pipelines":    pipelines,
         "checked_at":   _fmt(_now_utc()),
     }
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# The auditor's questions
+# ──────────────────────────────────────────────────────────────────────────
+# Two things a CA reaches for in the first ten minutes of a review, neither of
+# which the owner ever asks: how much of the receivable book is old enough to
+# need provisioning, and how much of the year's revenue was billed to other
+# companies in the same group.
+# ══════════════════════════════════════════════════════════════════════════
+
+def get_ar_ageing_over(conn, company_id: str, over_days: int = 180) -> dict:
+    """Outstanding older than `over_days`, aged from the DUE DATE, as at today.
+
+    Aged from due date and recomputed now — never from the `days_overdue` the
+    source stored. That stored figure was computed when TranzAct generated the
+    report and is already four days stale on live data, which is exactly the
+    kind of drift that turns a provisioning number into an argument.
+    """
+    with conn.cursor() as cur:
+        cur.execute("""
+            SELECT COUNT(*),
+                   COALESCE(SUM(outstanding_amount), 0),
+                   COUNT(DISTINCT customer_name)
+              FROM canon_ar_flat
+             WHERE company_id = %s AND COALESCE(outstanding_amount, 0) > 0
+               AND due_date IS NOT NULL
+               AND (CURRENT_DATE - due_date) > %s
+        """, (company_id, over_days))
+        n, value, customers = cur.fetchone()
+
+        cur.execute("""
+            SELECT COALESCE(SUM(outstanding_amount), 0)
+              FROM canon_ar_flat
+             WHERE company_id = %s AND COALESCE(outstanding_amount, 0) > 0
+        """, (company_id,))
+        total = float(cur.fetchone()[0] or 0)
+
+        cur.execute(f"""
+            SELECT customer_name,
+                   COALESCE(SUM(outstanding_amount), 0) AS v,
+                   MAX(CURRENT_DATE - due_date)         AS oldest
+              FROM canon_ar_flat
+             WHERE company_id = %s AND COALESCE(outstanding_amount, 0) > 0
+               AND due_date IS NOT NULL
+               AND (CURRENT_DATE - due_date) > %s
+             GROUP BY customer_name ORDER BY v DESC LIMIT {MAX_INVOICES}
+        """, (company_id, over_days))
+        rows = cur.fetchall()
+
+    value = float(value or 0)
+    ls = _last_sync(conn, "ar_aging", company_id)
+    return {
+        "over_days": over_days,
+        "invoice_count": int(n or 0),
+        "value": value,
+        "customer_count": int(customers or 0),
+        "total_outstanding": total,
+        "share_pct": round(value / total * 100, 1) if total else 0.0,
+        "customers": [{"customer_name": r[0], "outstanding": float(r[1] or 0),
+                       "oldest_days": int(r[2] or 0)} for r in rows],
+        "last_synced_at": _fmt(ls), "stale": _is_stale(ls),
+    }
+
+
+def get_related_party_sales(conn, company_id: str, window_days: int = 365) -> dict:
+    """Sales billed to other companies in the group.
+
+    A related-party figure has to be disclosed, and the only way to produce it
+    here is by name: every other workspace's company name is matched against
+    the customer list. That is a real limitation, not a hidden one — a group
+    company trading under a name we do not hold will be missed, and one whose
+    name happens to appear inside an unrelated customer's name will be a false
+    positive. The matched names are returned so a person can check them, which
+    is the only honest way to ship a number like this.
+    """
+    with conn.cursor() as cur:
+        cur.execute("""SELECT id, name FROM companies
+                        WHERE id <> %s AND LENGTH(name) >= 5""", (company_id,))
+        others = cur.fetchall()
+    if not others:
+        return {"window_days": window_days, "parties": [], "value": 0.0,
+                "share_pct": 0.0, "total_revenue": 0.0, "no_group": True,
+                "matched_on": []}
+
+    patterns = [f"%{name}%" for _id, name in others]
+    with conn.cursor() as cur:
+        cur.execute("""
+            SELECT customer_name, COALESCE(SUM(line_total), 0) AS v,
+                   COUNT(DISTINCT invoice_number) AS invoices
+              FROM canon_sales_invoice_flat
+             WHERE company_id = %s
+               AND invoice_date >= CURRENT_DATE - %s
+               AND customer_name ILIKE ANY(%s)
+             GROUP BY customer_name ORDER BY v DESC
+        """, (company_id, window_days, patterns))
+        rows = cur.fetchall()
+
+        cur.execute("""SELECT COALESCE(SUM(line_total), 0) FROM canon_sales_invoice_flat
+                        WHERE company_id = %s AND invoice_date >= CURRENT_DATE - %s""",
+                    (company_id, window_days))
+        total = float(cur.fetchone()[0] or 0)
+
+    value = sum(float(r[1] or 0) for r in rows)
+    ls = _last_sync(conn, "sales_invoices", company_id)
+    return {
+        "window_days": window_days,
+        "parties": [{"customer_name": r[0], "value": float(r[1] or 0),
+                     "invoices": int(r[2] or 0)} for r in rows],
+        "value": value,
+        "total_revenue": total,
+        "share_pct": round(value / total * 100, 1) if total else 0.0,
+        "matched_on": [name for _id, name in others],
+        "no_group": False,
+        "last_synced_at": _fmt(ls), "stale": _is_stale(ls),
+    }

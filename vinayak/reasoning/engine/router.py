@@ -11,6 +11,52 @@ import re
 
 
 INTENTS: list[tuple[str, list[str]]] = [
+    # ── Refuse first ─────────────────────────────────────────────────────
+    # These must outrank everything: "reconcile GSTR-2A against our purchase
+    # register" contains "purchase", and "creditors ageing" contains "ageing".
+    # Both used to return a confident answer to a different question.
+    ("not_in_data",     ["gst", "gstr", "input credit", "e-way", "eway", "tds", "tcs",
+                          "bank balance", "bank statement", "bank reconciliation", "brs",
+                          "cash in hand", "profit and loss", "p&l", "income statement",
+                          "net profit", "ebitda", "balance sheet", "trial balance",
+                          "creditor", "payable", "accounts payable", "dpo", "days payable",
+                          "pay our suppliers", "paying our suppliers", "owe our vendors",
+                          "depreciation", "fixed asset", "wdv", "capex",
+                          "cash flow statement", "cashflow statement", "funds flow",
+                          "payroll", "salary", "salaries", "gratuity"]),
+
+    # ── The auditor's set ────────────────────────────────────────────────
+    # First in the table because these phrasings are specific and would
+    # otherwise be swallowed by the broad owner-facing keywords below:
+    # "how much is over 180 days" contains "overdue", "related party sales"
+    # contains "sales", "work in progress" contains "progress".
+    ("ar_ageing_over",  ["over 90 days", "over 180 days", "over 120 days", "more than 90 days",
+                          "more than 180 days", "older than", "over a year", "more than a year",
+                          "ageing", "aging over", "past due more than", "long overdue",
+                          "doubtful", "provision", "write off", "written off", "bad debt"]),
+    ("related_party",   ["related party", "related parti", "related-party", "group company", "group companies",
+                          "sister company", "sister companies", "inter company", "intercompany",
+                          "inter-company", "within the group", "other companies in the group"]),
+    ("working_capital", ["working capital", "cash locked", "locked up", "tied up",
+                          "money stuck", "capital employed", "cash cycle", "current assets"]),
+    ("data_quality",    ["data quality", "data issues", "data problems", "missing data",
+                          "before the audit", "ready for audit", "audit ready", "clean data",
+                          "completeness", "integrity", "negative stock", "negative quantity",
+                          "negative qty", "showing a negative"]),
+    ("month_compare",   ["compare this month", "compare last month", "this month vs",
+                          "last month vs", "versus last month", "against last month",
+                          "month against", "compared to last month", "best month on record"]),
+    ("quotes",          ["quotation", "quotations", "quote", "quotes", "pipeline",
+                          "enquiries", "enquiry", "conversion rate"]),
+    ("credit_risk",     ["credit risk", "credit flag", "credit flags", "on hold", "credit hold",
+                          "risky customers", "which customers are risky", "exposure limit"]),
+    ("grn_status",      ["goods received", "grn", "receipts", "inward", "inspection",
+                          "rejected material", "qir", "incoming quality", "was received",
+                          "material received", "was rejected", "how much was rejected"]),
+    ("production",      ["production", "manufactured", "work in progress", "work order",
+                          "work orders", "wip", "reject rate", "rejection rate",
+                          "shop floor", "output"]),
+
     # Wave 1 analytical intents (specific phrasings first so they win).
     ("business_pulse",  ["briefing", "brief me", "morning brief", "business pulse", "how is my business",
                           "how are we doing", "business health", "catch me up", "overall summary", "give me an overview"]),

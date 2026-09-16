@@ -48,7 +48,7 @@ _Read on 2026-09-10 from workspace `kbrushes`._
 | Criterion | Where it stands |
 |---|---|
 | Owner active ≥ 4 days/week for 60 consecutive days | no tracked user set (`milestone_user_email` in `platform_settings`) |
-| 50-question eval: ≥ 80% factual, 100% citation | 29 of 50 cases · citation 100% · **factual 100% over 17 checked figures** (runner `engine`, 2026-09-16) |
+| 50-question eval: ≥ 80% factual, 100% citation | **60 cases** (freeze at 50) · citation 100% · **factual 100% over 23 checked figures** (runner `engine`, 2026-09-16) |
 | ≥ 30 logged experiments with outcomes | 0 with outcomes of 1 logged · 0 AI-suggested, 0 acted on |
 | No critical incident in the last 60 days | none recorded in the last 60 days |
 
@@ -113,11 +113,19 @@ Fixed; counts are now per order, values still per line. The same run showed
 that `pending_qty` is populated for sales orders and never for purchase orders,
 so "still open" branches on what the source actually provides.
 
-**Left, in order:** grow to **50 hand-verified questions** drawn from real Ask
-logs rather than invented — which needs Sandeep using it, so it is downstream
-of criterion 2; grade the **native agent path**, which is what production uses,
-in CI as a second gate; **freeze the set with Shourya by 15 Jan 2027** so
-"fixed" is auditable.
+**The set is at 60, written from the auditor's side.** The second half was
+built by working through a statutory review as the group's CA would and
+checking each question against the data we actually sync — see
+`docs/wiki/auditor-view.md`. Sixteen of the sixty are refusals, because a third
+of what a CA needs (GST, TDS, bank, P&L, creditors, depreciation) is not in an
+operational ERP feed at all, and that is exactly where a confident wrong answer
+would cost the most. Carrying sixty is deliberate: hand-verification will drop
+some, and a set that arrives at the freeze date one case short gets padded.
+
+**Left, in order:** hand-verify with Shourya and **freeze at 50 by 15 Jan
+2027** so "fixed" is auditable; replace invented phrasings with real ones from
+Sandeep's Ask logs as they accumulate (downstream of criterion 2); grade the
+**native agent path**, which is what production uses, in CI as a second gate.
 
 ### 4 · ≥ 30 logged experiments with outcomes — 🟡
 

@@ -138,7 +138,53 @@ def top_vendor_1y(conn, company_id: str):
                 (company_id,))
 
 
+def ar_over_180(conn, company_id: str):
+    """Outstanding more than 180 days past due — the provisioning question."""
+    return float(_one(conn, """SELECT COALESCE(SUM(outstanding_amount),0)
+                                 FROM canon_ar_flat
+                                WHERE company_id=%s AND COALESCE(outstanding_amount,0) > 0
+                                  AND due_date IS NOT NULL
+                                  AND (CURRENT_DATE - due_date) > 180""", (company_id,)) or 0)
+
+
+def ar_over_90(conn, company_id: str):
+    return float(_one(conn, """SELECT COALESCE(SUM(outstanding_amount),0)
+                                 FROM canon_ar_flat
+                                WHERE company_id=%s AND COALESCE(outstanding_amount,0) > 0
+                                  AND due_date IS NOT NULL
+                                  AND (CURRENT_DATE - due_date) > 90""", (company_id,)) or 0)
+
+
+def related_party_sales_1y(conn, company_id: str):
+    """Billed to other connected group companies, matched by name — the same
+    limitation as the query itself, stated in both places."""
+    rows = None
+    with conn.cursor() as cur:
+        cur.execute("SELECT name FROM companies WHERE id <> %s AND LENGTH(name) >= 5",
+                    (company_id,))
+        names = [r[0] for r in cur.fetchall()]
+    if not names:
+        return None
+    return float(_one(conn, """SELECT COALESCE(SUM(line_total),0)
+                                 FROM canon_sales_invoice_flat
+                                WHERE company_id=%s AND invoice_date >= CURRENT_DATE - 365
+                                  AND customer_name ILIKE ANY(%s)""",
+                      (company_id, [f"%{n}%" for n in names])) or 0)
+
+
+def negative_stock_skus(conn, company_id: str):
+    """An audit red flag: stock that has gone below zero is a sequence or
+    data-entry error, never real."""
+    return float(_one(conn, """SELECT COUNT(*) FROM canon_inventory_flat
+                                WHERE company_id=%s AND COALESCE(quantity,0) < 0""",
+                      (company_id,)) or 0)
+
+
 ORACLES = {
+    "ar_over_180": ar_over_180,
+    "ar_over_90": ar_over_90,
+    "related_party_sales_1y": related_party_sales_1y,
+    "negative_stock_skus": negative_stock_skus,
     "ar_outstanding": ar_outstanding,
     "ar_overdue": ar_overdue,
     "ar_biggest_debtor": ar_biggest_debtor,

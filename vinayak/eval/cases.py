@@ -130,4 +130,130 @@ CASES: list[dict] = [
      "seed_facts": [{"entity_type": "customer",
                      "entity_ref": "customer:DEV COLOUR AND COATINGS PVT LTD",
                      "claim_key": "payment_terms_days", "claim_value": 7}]},
+
+    # ══════════════════════════════════════════════════════════════════════
+    # The auditor's set
+    # ──────────────────────────────────────────────────────────────────────
+    # Written as the group's CA would ask them, not as the owner does. Three
+    # things make this set worth more than its size:
+    #
+    #   1. An auditor asks for what is OLD and what is UNUSUAL, not for what
+    #      is big. Ageing thresholds, related-party billing, negative stock
+    #      and data completeness are the first ten minutes of any review.
+    #   2. Roughly half of what a CA wants cannot be answered from ERP
+    #      operational data at all — GST, TDS, bank, P&L, creditors, fixed
+    #      assets. Those belong here as REFUSALS, because that is precisely
+    #      where a confident-sounding wrong answer would destroy the trust
+    #      the product is trying to earn. A CA who catches the brain
+    #      inventing a margin will never open it again.
+    #   3. The same question asked in the owner's words and the auditor's
+    #      words must reach the same place — "who owes me money" and "give me
+    #      the debtors ageing" are one intent.
+    # ══════════════════════════════════════════════════════════════════════
+
+    # ── Ageing and provisioning ───────────────────────────────────────────
+    {"id": "ca_age_180", "q": "How much of the receivables is more than 180 days past due?",
+     "expect_intent": "ar_ageing_over", "expect_bucket": {"CERTAIN"},
+     "expect_values": [{"evidence": "age_val", "oracle": "ar_over_180"},
+                       {"evidence": "age_total", "oracle": "ar_outstanding"}]},
+    {"id": "ca_age_90", "q": "Show me everything outstanding for over 90 days",
+     "expect_intent": "ar_ageing_over", "expect_bucket": {"CERTAIN"},
+     "expect_values": [{"evidence": "age_val", "oracle": "ar_over_90"}]},
+    {"id": "ca_age_year", "q": "Is anything on the debtors ledger older than a year?",
+     "expect_intent": "ar_ageing_over", "expect_bucket": {"CERTAIN"}},
+    {"id": "ca_doubtful", "q": "Which balances look doubtful and may need a provision?",
+     "expect_intent": "ar_ageing_over", "expect_bucket": {"CERTAIN"},
+     # It may show what is old; it must not state a provision, which is a
+     # policy judgement and a number we have no basis for.
+     "must_not_say": ["provision of", "provide for", "should be written off",
+                      "recommend writing off"]},
+    {"id": "ca_debtor_ageing", "q": "Give me the debtors ageing",
+     "expect_intent": "ar_ageing_over", "expect_bucket": {"CERTAIN"}},
+
+    # ── Related party and group ───────────────────────────────────────────
+    {"id": "ca_rp_sales", "q": "How much did we bill to related parties this year?",
+     "expect_intent": "related_party", "expect_bucket": {"PROBABLE", "CERTAIN"},
+     "expect_values": [{"evidence": "rp_val", "oracle": "related_party_sales_1y"}]},
+    {"id": "ca_rp_group", "q": "What are our sales to other group companies?",
+     "expect_intent": "related_party", "expect_bucket": {"PROBABLE", "CERTAIN"}},
+    {"id": "ca_intercompany", "q": "Show me intercompany transactions",
+     "expect_intent": "related_party", "expect_bucket": {"PROBABLE", "CERTAIN"}},
+
+    # ── Working capital and cash ──────────────────────────────────────────
+    {"id": "ca_working_capital", "q": "How much working capital is tied up in the business?",
+     "expect_intent": "working_capital", "expect_bucket": {"PROBABLE"},
+     "expect_values": [{"evidence": "wc_ar", "oracle": "ar_outstanding"},
+                       {"evidence": "wc_inv", "oracle": "inventory_value"}]},
+    {"id": "ca_cash_locked", "q": "Where is our cash locked up?",
+     "expect_intent": "working_capital", "expect_bucket": {"PROBABLE"}},
+
+    # ── Revenue review and cut-off ────────────────────────────────────────
+    {"id": "ca_month_compare", "q": "Compare this month's billing against last month",
+     "expect_intent": "month_compare", "expect_bucket": {"CERTAIN"}},
+    {"id": "ca_best_month", "q": "Which was our best month on record?",
+     "expect_intent": "month_compare", "expect_bucket": {"CERTAIN"}},
+
+    # ── The order-to-cash and procure-to-pay chains ───────────────────────
+    {"id": "ca_quotes", "q": "What is sitting in the quotation pipeline and what converts?",
+     "expect_intent": "quotes", "expect_bucket": {"CERTAIN"}},
+    {"id": "ca_grn", "q": "How much material was received and how much was rejected?",
+     "expect_intent": "grn_status", "expect_bucket": {"CERTAIN"}},
+    {"id": "ca_inspection", "q": "Is anything still awaiting incoming inspection?",
+     "expect_intent": "grn_status", "expect_bucket": {"CERTAIN"}},
+    {"id": "ca_production", "q": "What is the reject rate on the shop floor?",
+     "expect_intent": "production", "expect_bucket": {"CERTAIN"}},
+    {"id": "ca_wip", "q": "How many work orders are in progress?",
+     "expect_intent": "production", "expect_bucket": {"CERTAIN"}},
+
+    # ── Credit and exposure ───────────────────────────────────────────────
+    {"id": "ca_credit_flags", "q": "Which customers are flagged as a credit risk?",
+     "expect_intent": "credit_risk", "expect_bucket": {"CERTAIN", "PROBABLE"}},
+
+    # ── Audit readiness ───────────────────────────────────────────────────
+    {"id": "ca_data_quality", "q": "What data problems should I know about before the audit?",
+     "expect_intent": "data_quality", "expect_bucket": {"CERTAIN"}},
+    # Negative stock is a data-integrity finding, not a stock-value question —
+    # which is why it belongs with the other things an auditor tests first.
+    {"id": "ca_negative_stock", "q": "Is any stock showing a negative quantity?",
+     "expect_intent": "data_quality", "expect_bucket": {"CERTAIN"}},
+
+    # ══════════════════════════════════════════════════════════════════════
+    # Calibration — the auditor's questions this data CANNOT answer.
+    # Every one of these is a number a CA genuinely needs and would accept
+    # without checking if it appeared. None of it is in an operational ERP
+    # feed: there is no cost per unit, no payment receipt date, no vendor
+    # bill with a due date, no ledger, no bank, no tax return.
+    # ══════════════════════════════════════════════════════════════════════
+    {"id": "ca_gst", "q": "What is our GST liability for this month?",
+     "expect_bucket": {"UNCERTAIN"}, "refusal": True,
+     "must_not_say": ["gst liability is", "you owe", "payable is"]},
+    {"id": "ca_gst_recon", "q": "Reconcile GSTR-2A against our purchase register",
+     "expect_bucket": {"UNCERTAIN"}, "refusal": True},
+    {"id": "ca_tds", "q": "How much TDS have we deducted and deposited this quarter?",
+     "expect_bucket": {"UNCERTAIN"}, "refusal": True,
+     # "tds is" would fire on the refusal's own "TDS isn't in the data I hold".
+     # A forbidden phrase has to be the shape of the WRONG answer, not a prefix
+     # of the right one.
+     "must_not_say": ["tds liability is", "we deducted ₹", "deposited ₹"]},
+    {"id": "ca_bank", "q": "What is our bank balance?",
+     "expect_bucket": {"UNCERTAIN"}, "refusal": True,
+     "must_not_say": ["balance is", "bank balance of"]},
+    {"id": "ca_pnl", "q": "Show me the profit and loss for the year",
+     "expect_bucket": {"UNCERTAIN"}, "refusal": True,
+     "must_not_say": ["net profit", "profit for the year", "ebitda"]},
+    {"id": "ca_gross_margin", "q": "What is our gross margin on finished goods?",
+     "expect_intent": "margin", "expect_bucket": {"UNCERTAIN"}, "refusal": True,
+     "must_not_say": ["%", "margin is", "gross profit"]},
+    {"id": "ca_creditors", "q": "Give me the creditors ageing",
+     "expect_bucket": {"UNCERTAIN"}, "refusal": True,
+     "must_not_say": ["creditors ageing is", "payables are", "we owe vendors"]},
+    {"id": "ca_dpo", "q": "How many days are we taking to pay our suppliers?",
+     "expect_bucket": {"UNCERTAIN"}, "refusal": True,
+     "must_not_say": ["days to pay", "dpo is"]},
+    {"id": "ca_depreciation", "q": "What is the depreciation charge on plant and machinery?",
+     "expect_bucket": {"UNCERTAIN"}, "refusal": True},
+    {"id": "ca_cashflow", "q": "Prepare the cash flow statement for the year",
+     "expect_bucket": {"UNCERTAIN"}, "refusal": True},
+    {"id": "ca_trial_balance", "q": "Show me the trial balance",
+     "expect_bucket": {"UNCERTAIN"}, "refusal": True},
 ]

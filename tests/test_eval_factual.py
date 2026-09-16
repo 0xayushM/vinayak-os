@@ -94,6 +94,33 @@ def test_enough_cases_are_factually_graded_to_mean_something():
     assert len(graded) >= 10, f"only {len(graded)} cases check a figure"
 
 
+def test_the_set_is_large_enough_to_freeze_at_fifty():
+    """Milestone 1 names a fixed 50-question set. Carrying more than fifty is
+    deliberate: hand-verification with Shourya will drop some, and a set that
+    arrives at the freeze date one case short is a set that gets padded."""
+    assert len(CASES) >= 50, f"only {len(CASES)} cases"
+
+
+def test_a_meaningful_share_of_the_set_must_be_refused():
+    """Roughly a third. The questions a CA asks that this data cannot answer —
+    GST, TDS, bank, P&L, creditors — are exactly where a confident wrong
+    answer would cost the most trust, so they have to be tested hardest."""
+    refusals = [c for c in CASES if c.get("refusal")]
+    assert len(refusals) >= 12, f"only {len(refusals)} refusal cases"
+
+
+def test_no_forbidden_phrase_fires_on_its_own_refusal():
+    """A must_not_say has to be the shape of the WRONG answer, not a prefix of
+    the right one: "tds is" matched the refusal's own "TDS isn't in the data
+    I hold"."""
+    for case in CASES:
+        for phrase in case.get("must_not_say", []):
+            assert not any(phrase.lower() in bad for bad in
+                           ("tds isn't in the data i hold",
+                            "gst isn't in the data i hold",
+                            "payables isn't in the data i hold")), (case["id"], phrase)
+
+
 def test_refusal_cases_are_never_graded_on_facts():
     """A case that should refuse has no figures to be right about."""
     for case in CASES:

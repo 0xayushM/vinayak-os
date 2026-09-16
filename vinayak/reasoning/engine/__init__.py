@@ -591,6 +591,269 @@ def _h_sales_by_category(conn, cid, q, entity, period=None) -> Answer:
                   "CERTAIN", claims, ev, data_used=["sales_by_category"], chart=chart)
 
 
+# ══════════════════════════════════════════════════════════════════════════
+# The auditor's handlers
+# ──────────────────────────────────────────────────────────────────────────
+# A CA opening this product asks a different set of questions from the owner:
+# not "how are we doing" but "what is old, what is unusual, and what will I
+# have to explain". Each of these reuses a query that already existed — what
+# was missing was a way to ask for it in words.
+# ══════════════════════════════════════════════════════════════════════════
+
+_AGE_WORDS = [(r"\b(\d{2,4})\s*days?\b", lambda m: int(m.group(1))),
+              (r"\ba?\s*year\b", lambda m: 365),
+              (r"\b(\d+)\s*months?\b", lambda m: int(m.group(1)) * 30),
+              (r"\bhalf a year\b", lambda m: 180)]
+
+
+def _age_threshold(q: str, default: int = 180) -> int:
+    """"over 180 days", "more than six months", "older than a year" — the
+    auditor's threshold is part of the question, so read it rather than
+    picking one for them."""
+    ql = q.lower()
+    for pattern, take in _AGE_WORDS:
+        m = re.search(pattern, ql)
+        if m:
+            return max(1, min(3650, take(m)))
+    return default
+
+
+# What a CA asks for that no operational ERP feed contains, and what would
+# have to arrive before it could. Refusing well means naming the missing
+# source: "I can't" teaches nobody, "Tally would give me this" is a roadmap.
+_NOT_IN_DATA: list[tuple[list[str], str, str]] = [
+    (["gst", "gstr", "input credit", "itc", "e-way", "eway"],
+     "GST", "the GST returns and the purchase register — neither is synced"),
+    (["tds", "tcs", "withholding"],
+     "TDS", "the tax ledgers, which live in the accounting system"),
+    (["bank balance", "bank statement", "bank reconciliation", "brs", "cash in hand"],
+     "bank position", "a bank feed or the cash and bank ledgers"),
+    (["profit and loss", "p&l", "p & l", "income statement", "net profit", "ebitda",
+      "balance sheet", "trial balance"],
+     "the financial statements", "the general ledger — this reads operational "
+     "documents, not accounts"),
+    (["creditor", "payable", "accounts payable", "ap ageing", "owe our vendors",
+      "owe suppliers", "dpo", "days payable", "pay our suppliers", "paying our suppliers"],
+     "payables", "vendor bills with due dates and payment dates; purchase invoices "
+     "are synced without either"),
+    (["depreciation", "fixed asset", "wdv", "capex", "block of assets"],
+     "fixed assets", "the asset register"),
+    (["cash flow statement", "cashflow statement", "funds flow"],
+     "the cash flow statement", "the ledgers and the bank — the 30-day cash view "
+     "is a forecast from receivables, not a statement"),
+    (["payroll", "salary", "salaries", "pf ", "esi", "gratuity"],
+     "payroll", "the payroll system"),
+]
+
+
+def _not_in_data_match(q: str):
+    ql = q.lower()
+    for words, what, missing in _NOT_IN_DATA:
+        if any(w in ql for w in words):
+            return what, missing
+    return None
+
+
+def _h_not_in_data(conn, cid, q, entity, period=None) -> Answer:
+    """Refuse a question we understand perfectly and cannot answer.
+
+    This handler exists because the alternative is worse than silence. Without
+    it, "reconcile GSTR-2A against our purchase register" matched the keyword
+    `purchase` and came back with a confident spend summary, and "give me the
+    creditors ageing" matched `ageing` and returned the DEBTORS ageing. Both
+    read as answers. A CA acting on either would be wrong, and would never
+    trust the product again — and quite right too.
+    """
+    hit = _not_in_data_match(q)
+    what, missing = hit if hit else ("that", "a source we do not sync")
+    text = (f"I can't answer that — {what} isn't in the data I hold. It needs {missing}.")
+    return Answer(q, "not_in_data", text, "UNCERTAIN",
+                  [Claim(text, "unknown")], [],
+                  what_i_dont_know=[f"{what}: needs {missing}."])
+
+
+def _h_ar_ageing_over(conn, cid, q, entity, period=None) -> Answer:
+    days = _age_threshold(q)
+    d = Q.get_ar_ageing_over(conn, cid, days)
+    if not d["total_outstanding"]:
+        return _no_data(q, "ar_ageing_over", "There is nothing outstanding to age.")
+    ev = [Evidence("age_val", f"Outstanding over {days} days", d["value"], inr(d["value"])),
+          Evidence("age_share", "Share of the book", d["share_pct"], f"{d['share_pct']}% of outstanding"),
+          Evidence("age_total", "Total outstanding", d["total_outstanding"], inr(d["total_outstanding"]))]
+    for i, c in enumerate(d["customers"][:5]):
+        ev.append(Evidence(f"age_{i}", c["customer_name"], c["outstanding"],
+                           f"{inr(c['outstanding'])} ({c['oldest_days']}d oldest)"))
+    if not d["invoice_count"]:
+        text = f"Nothing is more than {days} days past due. The whole book is {inr(d['total_outstanding'])}."
+        claims = [Claim(text, "computed", ["age_val", "age_total"])]
+        return Answer(q, "ar_ageing_over", text, "CERTAIN", claims, ev,
+                      data_used=["ar_ageing_over"])
+    names = ", ".join(c["customer_name"] for c in d["customers"][:3])
+    text = (f"{inr(d['value'])} is more than {days} days past due — {d['share_pct']}% of the "
+            f"{inr(d['total_outstanding'])} book, across {d['invoice_count']} invoices and "
+            f"{d['customer_count']} customers. Mostly {names}.")
+    claims = [Claim(text, "computed", ["age_val", "age_share", "age_total"]),
+              Claim("Aged from the due date and recomputed today, not from the ageing the "
+                    "source last stored.", "inference")]
+    return Answer(q, "ar_ageing_over", text, "CERTAIN", claims, ev,
+                  data_used=["ar_ageing_over"],
+                  what_i_dont_know=["Whether any of this is disputed or already provided for — "
+                                    "the data carries no dispute or provision flag."])
+
+
+def _h_related_party(conn, cid, q, entity, period=None) -> Answer:
+    d = Q.get_related_party_sales(conn, cid)
+    if d.get("no_group"):
+        return _no_data(q, "related_party",
+                        "No other group company is connected, so there is nothing to match against.")
+    if not d["parties"]:
+        text = ("No sales to other group companies in the last year, matching on the names of "
+                f"the connected workspaces ({', '.join(d['matched_on'])}).")
+        return Answer(q, "related_party", text, "PROBABLE",
+                      [Claim(text, "computed", [])], [], data_used=["related_party_sales"],
+                      assumptions=["Group companies are identified by name match only."])
+    ev = [Evidence("rp_val", "Billed to group companies", d["value"], inr(d["value"])),
+          Evidence("rp_share", "Share of revenue", d["share_pct"], f"{d['share_pct']}% of revenue"),
+          Evidence("rp_total", "Revenue in the window", d["total_revenue"], inr(d["total_revenue"]))]
+    for i, pty in enumerate(d["parties"][:5]):
+        ev.append(Evidence(f"rp_{i}", pty["customer_name"], pty["value"],
+                           f"{inr(pty['value'])} over {pty['invoices']} invoices"))
+    who = ", ".join(p["customer_name"] for p in d["parties"][:3])
+    text = (f"{inr(d['value'])} was billed to group companies in the last "
+            f"{d['window_days']} days — {d['share_pct']}% of revenue. {who}.")
+    return Answer(q, "related_party", text, "PROBABLE",
+                  [Claim(text, "computed", ["rp_val", "rp_share", "rp_total"])],
+                  ev, data_used=["related_party_sales"],
+                  assumptions=[f"Group companies are matched by name against the connected "
+                               f"workspaces ({', '.join(d['matched_on'])}); a group company "
+                               f"trading under another name would be missed."],
+                  what_i_dont_know=["Whether these are at arm's length — the data carries no "
+                                    "price benchmark."])
+
+
+def _h_working_capital(conn, cid, q, entity, period=None) -> Answer:
+    from vinayak.schema.pulse import get_working_capital
+    d = get_working_capital(conn, cid)
+    if not d["locked"]:
+        return _no_data(q, "working_capital", "No stock or receivables on record.")
+    ev = [Evidence("wc_locked", "Cash locked up", d["locked"], inr(d["locked"])),
+          Evidence("wc_inv", "In stock", d["inventory"], inr(d["inventory"])),
+          Evidence("wc_ar", "With customers", d["receivables"], inr(d["receivables"])),
+          Evidence("wc_po", "Committed on open POs", d["open_commitments"], inr(d["open_commitments"]))]
+    text = (f"{inr(d['locked'])} is tied up — {inr(d['inventory'])} in stock and "
+            f"{inr(d['receivables'])} with customers. {inr(d['open_commitments'])} is committed "
+            f"on open purchase orders.")
+    claims = [Claim(text, "computed", ["wc_locked", "wc_inv", "wc_ar", "wc_po"])]
+    return Answer(q, "working_capital", text, "PROBABLE", claims, ev,
+                  data_used=["working_capital"],
+                  what_i_dont_know=["True payables. Vendor bills with due dates are not synced, "
+                                    "so the purchase figure is commitment, not creditors — the "
+                                    "working-capital cycle cannot be closed without it."])
+
+
+def _h_data_quality(conn, cid, q, entity, period=None) -> Answer:
+    d = Q.get_ingest_quality(conn, cid)
+    with conn.cursor() as cur:
+        cur.execute("""SELECT COUNT(*) FROM canon_inventory_flat
+                        WHERE company_id = %s AND COALESCE(quantity, 0) < 0""", (cid,))
+        negative = int(cur.fetchone()[0] or 0)
+    ev = [Evidence("dq_cov", "Field coverage", d["coverage_pct"], f"{d['coverage_pct']}%"),
+          Evidence("dq_issues", "Issues found", d["issue_count"], str(d["issue_count"])),
+          Evidence("dq_rows", "Rows mapped", d["total_mapped"], f"{d['total_mapped']:,}"),
+          # Stock below zero is never real stock, and it is the first thing an
+          # auditor tests. It belongs with the other integrity findings.
+          Evidence("dq_negative", "SKUs at negative stock", negative, str(negative))]
+    top = d.get("top_issues", [])[:4]
+    detail = "; ".join(str(i.get("issue", i)) for i in top) if top else "nothing flagged"
+    text = (f"{d['coverage_pct']}% of expected fields are populated across {d['total_mapped']:,} "
+            f"mapped rows, with {d['issue_count']} issues flagged: {detail}.")
+    if negative:
+        text += (f" {negative} SKU{'s' if negative > 1 else ''} show negative stock — "
+                 f"a sequence or entry error, never real stock.")
+    return Answer(q, "data_quality", text, "CERTAIN",
+                  [Claim(text, "computed", ["dq_cov", "dq_issues", "dq_rows", "dq_negative"])],
+                  ev, data_used=["ingest_quality"])
+
+
+def _h_month_compare(conn, cid, q, entity, period=None) -> Answer:
+    d = Q.get_sales_monthly_comparison(conn, cid)
+    months = d.get("months", [])
+    if len(months) < 2:
+        return _no_data(q, "month_compare", "Not enough months of history to compare.")
+    ev = [Evidence(f"mc_{i}", m["month"], m["revenue"], inr(m["revenue"]))
+          for i, m in enumerate(months[-6:])]
+    last, prev = months[-1], months[-2]
+    delta = last["revenue"] - prev["revenue"]
+    ev.append(Evidence("mc_best", f"Best month ({d.get('best_month')})",
+                       d.get("best_revenue", 0), inr(d.get("best_revenue", 0))))
+    text = (f"{last['month']} billed {inr(last['revenue'])} against {prev['month']}'s "
+            f"{inr(prev['revenue'])} — {'up' if delta >= 0 else 'down'} {inr(abs(delta))}. "
+            f"The best month on record is {d.get('best_month')} at {inr(d.get('best_revenue', 0))}.")
+    return Answer(q, "month_compare", text, "CERTAIN",
+                  [Claim(text, "computed", [e.id for e in ev])], ev,
+                  data_used=["sales_monthly_comparison"])
+
+
+def _h_quotes(conn, cid, q, entity, period=None) -> Answer:
+    d = Q.get_quote_summary(conn, cid)
+    ev = [Evidence("qt_open_n", "Open quotations", d["open_count"], str(d["open_count"])),
+          Evidence("qt_open_v", "Open quotation value", d["open_value"], inr(d["open_value"])),
+          Evidence("qt_conv", "Conversion rate", d["conversion_rate"], f"{d['conversion_rate']}%")]
+    text = (f"{d['open_count']} quotations are open, worth {inr(d['open_value'])}, and "
+            f"{d['conversion_rate']}% of quotations convert.")
+    return Answer(q, "quotes", text, "CERTAIN",
+                  [Claim(text, "computed", ["qt_open_n", "qt_open_v", "qt_conv"])], ev,
+                  data_used=["quote_summary"])
+
+
+def _h_credit_risk(conn, cid, q, entity, period=None) -> Answer:
+    d = Q.get_credit_risk_flags(conn, cid)
+    items = d.get("items", [])
+    ev = [Evidence("cr_hold", "On hold", d["hold_count"], str(d["hold_count"])),
+          Evidence("cr_watch", "On watch", d["watch_count"], str(d["watch_count"]))]
+    for i, it in enumerate(items[:5]):
+        ev.append(Evidence(f"cr_{i}", it["customer_name"], it.get("outstanding", 0),
+                           f"{inr(it.get('outstanding', 0))} — {it['verdict']}"))
+    if not items:
+        text = "No customer trips a credit flag right now."
+        return Answer(q, "credit_risk", text, "CERTAIN",
+                      [Claim(text, "computed", ["cr_hold", "cr_watch"])], ev,
+                      data_used=["credit_risk_flags"])
+    who = ", ".join(i["customer_name"] for i in items[:3])
+    text = (f"{d['hold_count']} customers are flagged hold and {d['watch_count']} watch — "
+            f"{who}. These are deterministic flags from the current book, not a credit decision.")
+    return Answer(q, "credit_risk", text, "PROBABLE",
+                  [Claim(text, "computed", ["cr_hold", "cr_watch"])], ev,
+                  data_used=["credit_risk_flags"],
+                  what_i_dont_know=["Anything outside this ledger — bank conduct, references, "
+                                    "or a security the customer has given."])
+
+
+def _h_grn_status(conn, cid, q, entity, period=None) -> Answer:
+    d = Q.get_grn_summary(conn, cid)
+    ev = [Evidence("gr_n", "Receipts in the period", d["received_count"], str(d["received_count"])),
+          Evidence("gr_qir", "Awaiting inspection", d["pending_qir"], str(d["pending_qir"])),
+          Evidence("gr_rej", "Rejection rate", d["rejection_rate"], f"{d['rejection_rate']}%")]
+    text = (f"{d['received_count']} goods receipts in the last {d['period_days']} days, "
+            f"{d['pending_qir']} still awaiting inspection, {d['rejection_rate']}% rejected.")
+    return Answer(q, "grn_status", text, "CERTAIN",
+                  [Claim(text, "computed", ["gr_n", "gr_qir", "gr_rej"])], ev,
+                  data_used=["grn_summary"])
+
+
+def _h_production(conn, cid, q, entity, period=None) -> Answer:
+    d = Q.get_production_summary(conn, cid)
+    ev = [Evidence("pr_fg", "Finished goods produced", d["fg_produced"], f"{d['fg_produced']:,.0f}"),
+          Evidence("pr_rej", "Rejected", d["rejected"], f"{d['rejected']:,.0f}"),
+          Evidence("pr_rate", "Reject rate", d["reject_rate_pct"], f"{d['reject_rate_pct']}%"),
+          Evidence("pr_wip", "Work orders in progress", d["wip_count"], str(d["wip_count"]))]
+    text = (f"{d['fg_produced']:,.0f} finished units in the last {d['period_days']} days with a "
+            f"{d['reject_rate_pct']}% reject rate; {d['wip_count']} work orders are in progress.")
+    return Answer(q, "production", text, "CERTAIN",
+                  [Claim(text, "computed", ["pr_fg", "pr_rej", "pr_rate", "pr_wip"])], ev,
+                  data_used=["production_summary"])
+
+
 HANDLERS: dict[str, Callable] = {
     "business_pulse": _h_business_pulse, "collections_priority": _h_collections, "dso": _h_dso,
     "customer_changes": _h_customer_changes, "customer_movement": _h_customer_movement,
@@ -601,6 +864,12 @@ HANDLERS: dict[str, Callable] = {
     "purchases": _h_purchases, "inventory": _h_inventory,
     "overdue_pos": _h_overdue_pos, "overdue_orders": _h_overdue_orders, "margin": _h_margin,
     "forecast": _h_forecast, "creditworthy": _h_creditworthy,
+    # The auditor's set — see "The auditor's handlers" above.
+    "ar_ageing_over": _h_ar_ageing_over, "related_party": _h_related_party,
+    "working_capital": _h_working_capital, "data_quality": _h_data_quality,
+    "month_compare": _h_month_compare, "quotes": _h_quotes,
+    "credit_risk": _h_credit_risk, "grn_status": _h_grn_status,
+    "production": _h_production, "not_in_data": _h_not_in_data,
 }
 
 

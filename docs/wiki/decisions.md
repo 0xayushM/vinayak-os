@@ -151,3 +151,25 @@ metric, because it reads as evidence the criterion is met.
 392 overdue orders reported where 22 were real. Also that a wrong *fact* is not
 a ship-blocker while a wrong *citation* is — stating an uncited number is a
 different class of fault from stating a cited number that is miscounted.
+
+## 2026-09-16 — A refusal is an intent, not a fallthrough
+
+**Decision.** `not_in_data` is a routed intent with its own handler and its own
+keyword table, placed first so it outranks everything.
+
+**Why.** Refusing by falling through to "I don't understand" is not refusing.
+Before this existed, "reconcile GSTR-2A against our purchase register" matched
+the keyword `purchase` and returned a confident spend summary, and "give me the
+creditors ageing" matched `ageing` and returned the **debtors** ageing. Both
+read as answers to the question asked. A CA acting on either would be wrong,
+and would never open the product again.
+
+The handler names what is missing and what would supply it — "payables isn't in
+the data I hold; it needs vendor bills with due dates and payment dates" — so
+the refusal doubles as a roadmap. Working through an auditor's question list is
+what produced the strongest argument for the Tally bridge that exists: it closes
+most of the refusal list in one integration.
+
+**Corollary.** A `must_not_say` phrase has to be the shape of the WRONG answer,
+not a prefix of the right one. "tds is" fired on the refusal's own "TDS isn't in
+the data I hold". There is a test for that now.
