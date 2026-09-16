@@ -7,7 +7,7 @@ import { usePathname } from "next/navigation";
 import {
   TrendingUp, Users, Package, Truck, Settings, LogOut,
   Menu, X, ChevronsUpDown, Plus, ExternalLink, Check, Loader2, Brain, Sparkles,
-  ShieldCheck, FlaskConical, Sun, LayoutGrid,
+  ShieldCheck, FlaskConical, Sun, LayoutGrid, Building2,
 } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
 import { useSyncHealth } from "@/hooks/useDashboard";
@@ -21,6 +21,7 @@ const NAV = [
     section: "Today",
     items: [
       { label: "Today",              href: "/dashboard",             icon: Sun         },
+      { label: "The group",          href: "/dashboard/group",       icon: Building2   },
       { label: "Approvals",          href: "/dashboard/approvals",   icon: ShieldCheck },
     ],
   },

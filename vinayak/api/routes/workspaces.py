@@ -252,3 +252,32 @@ def create_workspace(
 
     logger.info("Created workspace %s (%s) for owner %s", slug, body.name, user.sub)
     return {"status": "ok", "id": slug, "name": body.name.strip()}
+
+
+@router.get("/group", summary="Every workspace on one row — the group view")
+def group_overview(user: TokenPayload = Depends(get_current_user)):
+    """The whole group, ranked by what needs attention.
+
+    Scoped by the same ownership rule as the workspace list, so nobody sees a
+    company through this that they could not open directly.
+    """
+    from vinayak import group as G
+
+    clause, params = _owns_clause(user)
+    conn = _conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                f"""SELECT c.id, c.name FROM companies c
+                     WHERE {clause}
+                       AND EXISTS (SELECT 1 FROM tool_connections t
+                                    WHERE t.company_id = c.id AND t.is_active = TRUE)
+                     ORDER BY c.name""",
+                params)
+            companies = [(r[0], r[1]) for r in cur.fetchall()]
+        if not companies:
+            return {"companies": [], "count": 0, "unreadable": 0,
+                    "totals": {}, "totals_cover": 0}
+        return G.overview(conn, companies)
+    finally:
+        conn.close()

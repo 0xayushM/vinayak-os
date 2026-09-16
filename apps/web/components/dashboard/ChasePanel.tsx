@@ -7,6 +7,7 @@ import {
 } from "@/hooks/useCollections";
 import { formatCurrency } from "@/lib/utils/cn";
 import { cn } from "@/lib/utils/cn";
+import { useFlags, FlagBadge } from "@/components/dashboard/CreditFlag";
 
 /**
  * The chase list, both halves.
@@ -69,6 +70,7 @@ function PromiseButton({ customer, onDone }: { customer: string; onDone: () => v
 
 function Row({ r, held, onChanged }: { r: ChaseRow; held?: boolean; onChanged: () => void }) {
   const [busy, setBusy] = useState(false);
+  const { data: flagged } = useFlags();
   async function dispute() {
     setBusy(true);
     try { await setDispute(r.customer_name, true); onChanged(); }
@@ -83,6 +85,7 @@ function Row({ r, held, onChanged }: { r: ChaseRow; held?: boolean; onChanged: (
               RUNG_STYLE[r.rung] ?? RUNG_STYLE[1])}>R{r.rung}</span>
           )}
           {r.customer_name}
+          <FlagBadge flag={flagged?.flags?.[r.customer_name]} compact />
         </p>
         <p className="text-[11px] text-zinc-500 mt-0.5 tabular-nums">
           {formatCurrency(r.outstanding, true)} · {r.days_overdue} days overdue

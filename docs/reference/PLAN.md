@@ -92,7 +92,16 @@ sprint: the contacts CSV import screen.
 | Contacts CSV import screen; Zoho contacts auto-fill where connected                                                                                                           | Sends                | Accountant task, 30 minutes                                                       |
 | Eval: add expected values to the 29 cases; harness grades factual accuracy; `--runner native` in CI as a second gate                                                          | M1-3                 | Question collection starts from real Ask logs from Sprint 1 onward                |
 
-### Sprint 4 · Weeks 9–10 (27 Oct–7 Nov) — first synapse, group view, eval growth
+### Sprint 4 · Weeks 9–10 (27 Oct–7 Nov) — first synapse, group view, eval growth — **SHIPPED 16 Sep**
+
+The credit synapse is live: `vinayak/flags.py` + migration 023's
+`customer_flags`, raised by `detect.credit_flag` from what collections already
+knows, surfaced as a badge wherever a customer is named, and proposing a hold
+in the Inbox — capped at three asks a pass, because the first run produced 26.
+Group view v1 at `/dashboard/group`, one row per connected company, ranked by
+what needs attention, recomputing nothing. The eval set reached 60 with the
+auditor questions. Outstanding: connecting a second Vinayak company beyond
+kbrushes and protegere, and the hand-verification sessions with Shourya.
 
 | Ship                                                                                                                                  | Serves     | Notes                                                                             |
 |---------------------------------------------------------------------------------------------------------------------------------------|------------|-----------------------------------------------------------------------------------|

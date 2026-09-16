@@ -135,3 +135,73 @@ def promises(customer_ref: str | None = Query(default=None),
         return {"promises": C.promise_history(conn, company_id, customer_ref)}
     finally:
         conn.close()
+
+
+# ── Credit flags: what Accounts knows, where Sales sees it ───────────────
+
+@router.get("/flags")
+def live_flags(company_id: str = Depends(require_workspace)):
+    """Every live credit flag, keyed by customer.
+
+    One request decorates every screen that names a customer — quotes, orders,
+    the customer list. Fetching per row would be the same information at
+    twenty times the cost, and the set is small by construction because a flag
+    is only raised when something is actually wrong.
+    """
+    from vinayak import flags as F
+    conn = _conn()
+    try:
+        flags = F.live(conn, company_id)
+        return {"flags": flags,
+                "hold_count": sum(1 for f in flags.values() if f["level"] == "hold"),
+                "watch_count": sum(1 for f in flags.values() if f["level"] == "watch")}
+    finally:
+        conn.close()
+
+
+class FlagActionIn(BaseModel):
+    customer_ref: str
+    note: str | None = None
+
+
+@router.post("/flags/clear")
+def clear_flag(body: FlagActionIn, company_id: str = Depends(require_workspace),
+               user: TokenPayload = Depends(get_current_user)):
+    """Take the flag down. The history stays."""
+    from vinayak import flags as F
+    conn = _conn()
+    try:
+        ok = F.clear(conn, company_id, body.customer_ref.strip(), by=user.sub,
+                     reason=body.note)
+        return {"ok": ok, "customer_ref": body.customer_ref}
+    finally:
+        conn.close()
+
+
+@router.post("/flags/override")
+def override_flag(body: FlagActionIn, company_id: str = Depends(require_workspace),
+                  user: TokenPayload = Depends(get_current_user)):
+    """"I know, and I'm fine with it."
+
+    Keeps the flag on record but stops it driving anything, and stops the
+    detector raising it again. A machine that re-raises over a person's
+    judgement is one they learn to switch off entirely.
+    """
+    from vinayak import flags as F
+    conn = _conn()
+    try:
+        ok = F.override(conn, company_id, body.customer_ref.strip(), by=user.sub,
+                        note=body.note)
+        return {"ok": ok, "customer_ref": body.customer_ref}
+    finally:
+        conn.close()
+
+
+@router.get("/flags/{customer_ref}/history")
+def flag_history(customer_ref: str, company_id: str = Depends(require_workspace)):
+    from vinayak import flags as F
+    conn = _conn()
+    try:
+        return {"history": F.history(conn, company_id, customer_ref)}
+    finally:
+        conn.close()

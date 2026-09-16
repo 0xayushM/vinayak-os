@@ -34,6 +34,10 @@ MIN_CHASE_AMOUNT = 5_000.0
 # cap turns that into a fortnight of manageable mornings, worst first.
 MAX_RUNG_EVENTS_PER_PASS = 15
 
+# How many credit decisions one pass may put in front of a person. The flags
+# themselves are not capped — only the asks.
+MAX_HOLD_PROPOSALS_PER_PASS = 3
+
 # A feed this far behind is a fact worth an event, not just a grey badge.
 STALE_HOURS = 25
 
@@ -139,6 +143,109 @@ def detect_promise_broken(conn, company_id: str, *, run_id: int | None = None,
     return emitted
 
 
+def detect_credit_flag(conn, company_id: str, *, run_id: int | None = None,
+                       config: dict | None = None) -> int:
+    """The synapse. Accounts notices; Sales will be told.
+
+    Raises a credit flag from facts the collections side already holds — a
+    broken promise, the top of the ladder, a very old balance, a concentrated
+    exposure — and clears it when the cause has genuinely gone. The event it
+    emits is what puts a hold proposal in the Inbox; the flag it writes is what
+    puts a badge on the quote screen.
+
+    Clearing is deliberately harder than raising. A customer who has paid down
+    to nothing loses the flag; one who is merely less bad keeps it. A flag that
+    flickers is one people learn to ignore, which is worse than no flag.
+    """
+    from vinayak import collections as C
+    from vinayak import flags as F
+
+    with conn.cursor() as cur:
+        cur.execute("""
+            SELECT customer_name,
+                   COALESCE(SUM(outstanding_amount), 0)  AS outstanding,
+                   MAX(CURRENT_DATE - due_date)          AS oldest
+              FROM canon_ar_flat
+             WHERE company_id = %s AND COALESCE(outstanding_amount, 0) > 0
+             GROUP BY customer_name
+        """, (company_id,))
+        rows = cur.fetchall()
+
+        cur.execute("""
+            SELECT customer_ref, COUNT(*) FROM promises
+             WHERE company_id = %s AND status = 'broken'
+             GROUP BY customer_ref
+        """, (company_id,))
+        broken = {r[0]: int(r[1]) for r in cur.fetchall()}
+
+    total = sum(float(r[1] or 0) for r in rows) or 0.0
+    states = C.all_states(conn, company_id)
+    existing = F.live(conn, company_id)
+
+    # Raising a flag and asking for a decision are different acts, and on a
+    # neglected ledger the difference is everything. Every flag that is true
+    # gets raised — a badge is passive and costs the reader nothing. But an
+    # event becomes a hold proposal in the Inbox, and the first live run here
+    # produced 26 of them in one pass: a morning's worth of credit decisions
+    # nobody will make, which is how an Inbox turns into something people stop
+    # opening. So the flags are complete and the ASKS are paced, worst first.
+    cap = int((config or {}).get("max_holds_per_pass", MAX_HOLD_PROPOSALS_PER_PASS))
+
+    still_bad: set[str] = set()
+    pending: list[tuple[float, str, dict, str]] = []
+    for customer, outstanding, oldest in rows:
+        outstanding = float(outstanding or 0)
+        oldest = int(oldest or 0)
+        verdict = F.assess(
+            customer=customer, outstanding=outstanding, oldest_days=oldest,
+            exposure_share_pct=(outstanding / total * 100) if total else 0.0,
+            rung=int((states.get(customer) or {}).get("rung") or 0),
+            broken_promises=broken.get(customer, 0))
+        if verdict is None:
+            continue
+        still_bad.add(customer)
+        flag_id = F.raise_flag(conn, company_id, customer, verdict)
+        if flag_id is None:
+            continue                              # unchanged, or overridden
+        pending.append((outstanding, customer, verdict, flag_id))
+
+    # Most money at stake first — that is the decision worth the owner's
+    # attention, and the rest are still flagged and still visible.
+    pending.sort(key=lambda x: (x[2]["level"] != F.HOLD, -x[0]))
+
+    emitted = 0
+    for outstanding, customer, verdict, flag_id in pending[:cap]:
+        new_id = bus.emit(
+            conn, company_id, "credit.flagged",
+            dedupe_key=flag_id,
+            entity_ref=f"customer:{customer}",
+            severity=80 if verdict["level"] == F.HOLD else 50,
+            source="detect.credit_flag",
+            run_id=run_id,
+            payload={"customer_name": customer, "level": verdict["level"],
+                     "reason": verdict["reason"], "signal": verdict["signal"],
+                     "outstanding": outstanding, "flagged_total": len(pending),
+                     **verdict["evidence"]},
+        )
+        if new_id:
+            emitted += 1
+
+    # Cleared only when the customer is no longer flaggable at all — and never
+    # when a person has overridden the flag, which is their call to revoke.
+    owed = {r[0] for r in rows}
+    for customer, flag in existing.items():
+        if flag.get("overridden"):
+            continue
+        if customer in still_bad:
+            continue
+        if customer in owed and (states.get(customer) or {}).get("rung", 0) >= 4:
+            continue
+        F.clear(conn, company_id, customer, by="agent",
+                reason="the balance that raised it has cleared")
+    conn.commit()
+    return emitted
+
+
 def detect_data_stale(conn, company_id: str, *, run_id: int | None = None,
                       config: dict | None = None) -> int:
     """A feed that has stopped arriving.
@@ -229,6 +336,7 @@ def detect_anomaly(conn, company_id: str, *, run_id: int | None = None,
 DETECTORS = {
     "detect.overdue_rung": detect_overdue_rung,
     "detect.promise_broken": detect_promise_broken,
+    "detect.credit_flag": detect_credit_flag,
     "detect.data_stale": detect_data_stale,
     "detect.anomaly": detect_anomaly,
 }

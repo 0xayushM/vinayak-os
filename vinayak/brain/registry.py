@@ -57,6 +57,14 @@ def all_watchers() -> list[Watcher]:
             fn=_wrap_detector(detectors.detect_promise_broken),
         ),
         Watcher(
+            key="detect.credit_flag",
+            title="Credit watch",
+            what_it_does=("Raises a credit flag when a customer stops paying, so the "
+                          "warning reaches whoever takes their next order."),
+            interval_minutes=360,
+            fn=_wrap_detector(detectors.detect_credit_flag),
+        ),
+        Watcher(
             key="detect.data_stale",
             title="Feed health",
             what_it_does=("Raises an event once a day for any feed that has not "

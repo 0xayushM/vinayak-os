@@ -220,3 +220,45 @@ to ignore it. What is structurally enforced on that path — grounding and the
 numeric guard — is already blocking through the deterministic run, because the
 safety spine is shared. It becomes blocking when the agent emits Evidence with
 stable ids, so facts can be matched by id rather than by scanning values.
+
+## 2026-09-16 — Raising a flag and asking for a decision are different acts
+
+**Decision.** `detect.credit_flag` raises every flag that is true, but emits at
+most three events per pass — and only events become hold proposals.
+
+**Why.** The first live run raised 26 holds on kbrushes and put 26 credit
+decisions in the Inbox in one go. Every one of them was *correct* — those
+balances are 120–150 days old — and the result was still useless, because
+nobody makes 26 credit decisions in a morning and an Inbox like that is one
+people stop opening. A badge is passive and costs the reader nothing, so the
+flags are complete; the asks are paced worst-first by exposure.
+
+This is the same shape as the collections ladder starting everyone at R4: on a
+neglected ledger every threshold trips at once, and the fix is never to soften
+the threshold — the facts are right — but to pace what the system *asks a
+person to do about them*.
+
+**Decision.** A person can override a flag, and the detector never re-raises
+over the override.
+
+**Why.** "I know, the MD has agreed terms" is information the ledger does not
+have. A machine that keeps re-raising over a person's judgement is one they
+switch off entirely, and then it protects nothing.
+
+**Decision.** Clearing is harder than raising. A flag comes down only when the
+customer is no longer flaggable at all.
+
+**Why.** A flag that flickers teaches people to ignore it, which is worse than
+no flag.
+
+## 2026-09-16 — The group view recomputes nothing
+
+**Decision.** `vinayak/group.py` calls the same query functions the
+single-company pages call, and says how many companies its totals cover.
+
+**Why.** A group total that disagrees with the sum of its parts is the fastest
+way to lose the room, and the only reliable defence is not having two code
+paths. And a company that cannot be read shows the error in its row rather
+than a zero — the first version of this read `overdue_amount`, got None, and
+displayed a confident ₹0 overdue for a company with ₹2.85Cr past due. A zero
+is a worse lie than a blank, because nobody questions it.

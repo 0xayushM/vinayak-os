@@ -21,6 +21,7 @@ send anything, by construction — it holds no send tool.
 """
 from __future__ import annotations
 
+import json
 import logging
 
 from vinayak.brain import bus
@@ -118,9 +119,55 @@ def _handle_noted(_conn, _company_id: str, event: dict) -> dict:
             "kind": kind}
 
 
+def _handle_credit_flagged(conn, company_id: str, event: dict) -> dict:
+    """A hold is a decision, so it goes to the Inbox rather than happening.
+
+    Only `hold` proposes anything. A `watch` is information for whoever takes
+    the next order — the badge on the quote screen is the whole of its job, and
+    turning every watch into an approval would bury the ones that matter.
+    """
+    p = event["payload"]
+    customer = p.get("customer_name")
+    if p.get("level") != "hold" or not customer:
+        return {"action": None,
+                "reason": ("recorded as a flag; it shows on quotes and orders and needs "
+                           "no decision" if customer else "event carries no customer")}
+
+    with conn.cursor() as cur:
+        # One open hold proposal per customer. Re-proposing on every pass is
+        # how an Inbox becomes something people stop opening.
+        cur.execute(
+            """SELECT 1 FROM actions
+                WHERE company_id = %s AND tool_name = 'credit.propose_hold'
+                  AND entity_ref = %s AND status = 'proposed' LIMIT 1""",
+            (company_id, customer))
+        if cur.fetchone():
+            return {"action": None, "reason": "a hold proposal is already waiting"}
+
+        cur.execute(
+            """INSERT INTO actions (company_id, tool_name, entity_ref, payload, status,
+                                    gate, proposed_by, event_id)
+               VALUES (%s, 'credit.propose_hold', %s, %s, 'proposed', 'human', 'agent', %s)
+               RETURNING id""",
+            (company_id, customer,
+             json.dumps({"customer": customer, "level": "hold",
+                         "reason": p.get("reason"),
+                         "outstanding": p.get("outstanding"),
+                         "summary": f"Hold new orders for {customer}",
+                         "what_happens": ("Nothing is sent to the customer. Approving marks "
+                                          "the account on hold so new quotes and orders "
+                                          "carry the warning."),
+                         }, default=str),
+             event["id"]))
+        action_id = str(cur.fetchone()[0])
+    conn.commit()
+    return {"action": action_id, "customer": customer, "level": "hold"}
+
+
 HANDLERS = {
     "invoice.overdue_rung": _handle_overdue_rung,
     "promise.broken": _handle_promise_broken,
+    "credit.flagged": _handle_credit_flagged,
     "data.stale": _handle_noted,
     "anomaly.detected": _handle_noted,
 }

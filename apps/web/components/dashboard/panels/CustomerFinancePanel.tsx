@@ -5,9 +5,12 @@ import { PanelWrapper } from "@/components/dashboard/PanelWrapper";
 import { formatCurrency } from "@/lib/utils/cn";
 import { useCustomerFinance, type CustomerFinanceRow } from "@/hooks/useDashboard";
 import { Pager, PER_PAGE, searchCls } from "./_shared";
+import { useFlags, FlagBadge } from "@/components/dashboard/CreditFlag";
 
 export function CustomerFinancePanel() {
   const { data, error, isLoading } = useCustomerFinance();
+  // The synapse arriving where a person decides something about a customer.
+  const { data: flagged } = useFlags();
   const all: CustomerFinanceRow[] = data?.data?.items ?? [];
   const [q, setQ] = useState("");
   const [sortKey, setSortKey] = useState<"outstanding" | "revenue" | "overdue">("outstanding");
@@ -47,7 +50,12 @@ export function CustomerFinancePanel() {
             <tbody>
               {rows.map((c, i) => (
                 <tr key={i} className="border-t border-white/5">
-                  <td className="py-1.5 pr-2 truncate max-w-[200px]">{c.customer_name}</td>
+                  <td className="py-1.5 pr-2 max-w-[240px]">
+                    <span className="flex items-center gap-1.5">
+                      <span className="truncate">{c.customer_name}</span>
+                      <FlagBadge flag={flagged?.flags?.[c.customer_name]} compact />
+                    </span>
+                  </td>
                   <td className="py-1.5 px-2 text-right tabular-nums">{formatCurrency(c.revenue, true)}</td>
                   <td className="py-1.5 px-2 text-right tabular-nums">{formatCurrency(c.outstanding, true)}</td>
                   <td className="py-1.5 px-2 text-right tabular-nums opacity-80">{c.overdue ? formatCurrency(c.overdue, true) : "—"}</td>
