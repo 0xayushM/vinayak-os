@@ -114,8 +114,12 @@ def as_markdown(s: dict) -> str:
 
     if best_eval:
         fa = best_eval["factual_accuracy"]
-        eval_line = (f"{best_eval['cases_run']} of 50 cases · "
-                     f"citation {best_eval['citation_compliance']:.0%} · "
+        n = best_eval["cases_run"]
+        # The criterion is a set FIXED at 50. Carrying more than that before the
+        # freeze is the plan, not an overshoot — so say which it is rather than
+        # printing "58 of 50", which reads like a bug.
+        size = f"{n} cases (freeze at 50)" if n > 50 else f"{n} of 50 cases"
+        eval_line = (f"{size} · citation {best_eval['citation_compliance']:.0%} · "
                      f"factual {f'{fa:.0%}' if fa is not None else 'not graded yet'} "
                      f"(runner `{best_eval['runner']}`, {best_eval['ran_at'][:10]})")
     else:

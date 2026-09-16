@@ -43,24 +43,42 @@ whole sequencing of `PLAN.md`:
 
 ## Where the numbers stand
 
-_Read on 2026-09-10 from workspace `kbrushes`._
+**kbrushes**
+
+_Read on 2026-09-16 from workspace `kbrushes`._
 
 | Criterion | Where it stands |
 |---|---|
 | Owner active ≥ 4 days/week for 60 consecutive days | no tracked user set (`milestone_user_email` in `platform_settings`) |
-| 50-question eval: ≥ 80% factual, 100% citation | **60 cases** (freeze at 50) · citation 100% · **factual 100% over 23 checked figures** (runner `engine`, 2026-09-16) |
-| ≥ 30 logged experiments with outcomes | 0 with outcomes of 1 logged · 0 AI-suggested, 0 acted on |
+| 50-question eval: ≥ 80% factual, 100% citation | 58 cases (freeze at 50) · citation 100% · factual 100% (runner `engine`, 2026-09-16) |
+| ≥ 30 logged experiments with outcomes | 0 with outcomes of 6 logged · 5 AI-suggested, 0 acted on |
 | No critical incident in the last 60 days | none recorded in the last 60 days |
 
-Month-3 demo **2026-12-01** · month-6 review **2027-03-01** (172 days away) · latest acceptable **2027-05-01**.
+Month-3 demo **2026-12-01** · month-6 review **2027-03-01** (166 days away) · latest acceptable **2027-05-01**.
 
-**What this reading says.** Every clock is at zero, and none of the four open
-criteria is blocked on engineering any more. Sprints 0–2 are shipped — three
-weeks ahead of the plan — but nothing is deployed, no tracked user is set, the
-harness has never been run with `--record`, and the brain has never run against
-this database (0 rows in `brain_runs`), which is why no experiment has been
-suggested. Deploying the worker is what turns criterion 4 from a supply problem
-into an acceptance one.
+**protegere**
+
+_Read on 2026-09-16 from workspace `protegere`._
+
+| Criterion | Where it stands |
+|---|---|
+| Owner active ≥ 4 days/week for 60 consecutive days | no tracked user set (`milestone_user_email` in `platform_settings`) |
+| 50-question eval: ≥ 80% factual, 100% citation | 58 cases (freeze at 50) · citation 100% · factual 100% (runner `engine`, 2026-09-16) |
+| ≥ 30 logged experiments with outcomes | 0 with outcomes of 4 logged · 4 AI-suggested, 0 acted on |
+| No critical incident in the last 60 days | none recorded in the last 60 days |
+
+Month-3 demo **2026-12-01** · month-6 review **2027-03-01** (166 days away) · latest acceptable **2027-05-01**.
+
+**What this reading says.** The brain is running and producing: 12 watcher
+passes, 33 events, 10 experiments suggested by the Strategy watcher and 7
+chase proposals waiting in the Inbox — all from live data, none of it typed in
+by hand. The eval is above its target size and passing both halves.
+
+**And every clock is still at zero.** No tracked user is set, so criterion 2's
+60-day window has not begun; no experiment has been *accepted*, so none can
+close, and 30 with outcomes is the criterion. Neither is an engineering
+problem. The binding constraint is criterion 2: the window has to start by
+**1 Nov** to finish before the March review with January as buffer.
 
 ---
 
@@ -259,6 +277,18 @@ those runs are recorded in `eval_runs`. Migration 017 was found missing and
 applied — the cause of an Approvals inbox that looked empty — and migrations are
 now tracked in `schema_migrations` with a startup warning, so a database behind
 the code says so instead of showing a blank page.
+
+**2026-09-16 · The auditor's half of the eval, and the brain's first real
+output.** The question set went to 60, the second half written from a CA's side
+of the desk: ageing thresholds, related-party billing, working capital, data
+quality — and sixteen refusals, because a third of what a CA needs is not in an
+operational ERP feed. Building those found that refusing by falling through is
+not refusing: "creditors ageing" was returning the *debtors* ageing. `not_in_data`
+is a routed intent now and names what would supply each missing answer. Nine
+new intents, two new queries, both of which found something on first run —
+₹50.4L of Protegere's book is over 180 days past due, and 13.9% of its revenue
+is billed to a group company. Meanwhile the brain ran on live data for the
+first time: 12 passes, 33 events, 10 suggested experiments, 7 chases waiting.
 
 **Next, in order:** deploy the worker service · set the tracked user and onboard
 Sandeep (criterion 2's clock, by 1 Nov) · expected values in the eval cases so
