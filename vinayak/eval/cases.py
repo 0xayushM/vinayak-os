@@ -27,6 +27,16 @@ Case fields:
                           the same fact independently. This is what makes
                           "≥ 80% factual accuracy" a measured number rather
                           than an assertion.
+  verified              — None (absent) until a person has checked the case
+                          against the live answer, then
+                          {"by": "shourya", "on": "2027-01-10", "note": "...",
+                           "keep": True}. `keep: False` records a case that was
+                          checked and rejected, so it is not re-proposed. Not
+                          part of the frozen hash — see eval/frozen.py.
+
+The milestone is judged on 50 of these, frozen in eval/frozen.py. Editing the
+question or expectations of a frozen case is detected there; add verification
+records freely.
 
 Only facts with a window-free definition are graded — total outstanding, stock
 value, overdue counts, and identities like the largest debtor. Revenue "in the

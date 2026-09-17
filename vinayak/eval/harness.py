@@ -17,13 +17,21 @@ Metrics (per the product doc):
 
 Ship-blocker: unsupported_claim_rate > 0  OR  must_not_say_violations > 0.
 
+Criterion 3 of Milestone 1 is judged on the FROZEN 50 (eval/frozen.py), and its
+pass rule is `criterion_met(metrics)`. Every run records which set it graded
+(`set`: frozen | candidates), the freeze's `frozen_hash` and `cases_verified`,
+so a recorded score says what it was earned on.
+
 Usage:
-    PYTHONPATH=. python3 -m vinayak.eval.harness            # both companies
-    PYTHONPATH=. python3 -m vinayak.eval.harness kbrushes   # one
-    run_eval(conn, company_id)                              # programmatic
+    PYTHONPATH=. python3 -m vinayak.eval.harness                    # all candidates, both companies
+    PYTHONPATH=. python3 -m vinayak.eval.harness kbrushes           # one
+    PYTHONPATH=. python3 -m vinayak.eval.harness --frozen --record  # the frozen 50, recorded
+    PYTHONPATH=. python3 -m vinayak.eval.harness --runner native    # grade the agent path
+    run_eval(conn, company_id, frozen=True)                         # programmatic
 """
 from __future__ import annotations
 
+import argparse
 import json
 import sys
 
@@ -31,6 +39,8 @@ from vinayak.reasoning.engine import answer as reason_answer
 from vinayak.memory import store as M
 from vinayak.eval.cases import CASES, BOTH
 from vinayak.eval import oracles
+from vinayak.eval import frozen as F
+from vinayak.eval.frozen import FreezeError, criterion_met  # noqa: F401 — part of this module's surface
 
 
 def _seed(conn, company_id, facts) -> list[str]:
@@ -152,6 +162,10 @@ def _check_case(conn, company_id, case, runner_name: str | None = None) -> dict:
     return {
         "id": case["id"], "company": company_id, "question": case["q"],
         "intent": a["intent"], "confidence": a["confidence_level"],
+        # What was actually said and shown, for the verification worksheet — a
+        # person checking a case needs the answer, not only its grades.
+        "answer": a.get("answer", ""),
+        "evidence": [dict(e) for e in evidence],
         "computed_claims": len(computed), "unsupported": len(unsupported),
         "must_not_violations": must_not,
         "facts_graded": facts_graded, "facts_right": facts_right,
@@ -181,6 +195,9 @@ def compute_metrics(results: list[dict]) -> dict:
     unsupported_rate = round(total_unsupported / total_computed, 4) if total_computed else 0.0
     metrics = {
         "cases_run": len(results),
+        # Distinct questions, as opposed to graded rows — a case runs once per
+        # workspace it applies to. The criterion's "50" counts these.
+        "questions": len({r["id"] for r in results if "id" in r}),
         "passed": sum(1 for r in results if r["passed"]),
         "intent_accuracy": round(sum(r["checks"]["intent_ok"] for r in results) / n, 3),
         "bucket_accuracy": round(sum(r["checks"]["bucket_ok"] for r in results) / n, 3),
@@ -203,16 +220,55 @@ def compute_metrics(results: list[dict]) -> dict:
     return metrics
 
 
-def run_eval(conn, company_id: str | None = None, runner_name: str | None = None) -> dict:
+def cases_for(frozen: bool, cases: list[dict] | None = None,
+              manifest: dict[str, str] | None = None) -> list[dict]:
+    """The cases a run grades: every candidate, or the frozen 50. Raises
+    FreezeError when the frozen set is asked for and there is none, or it has
+    drifted — a clear refusal beats a run that quietly grades something else
+    and records it as the frozen score."""
+    cases = CASES if cases is None else cases
+    if not frozen:
+        return list(cases)
+    return F.frozen_cases(manifest, cases)
+
+
+def run_metadata(metrics: dict, run_cases: list[dict], frozen: bool,
+                 manifest: dict[str, str] | None = None) -> dict:
+    """compute_metrics' output plus what the run was graded on and whether it
+    meets criterion 3. Separate from compute_metrics so that stays a pure
+    function of the results alone, as its tests expect."""
+    manifest = F.FROZEN if manifest is None else manifest
+    out = {**metrics, **F.set_metadata(run_cases, frozen, manifest)}
+    out["criterion_met"] = criterion_met(out, F.manifest_hash(manifest))
+    return out
+
+
+def run_eval(conn, company_id: str | None = None, runner_name: str | None = None,
+             frozen: bool = False) -> dict:
+    run_cases = cases_for(frozen)
     results = []
-    for case in CASES:
+    for case in run_cases:
         companies = case.get("companies", BOTH)
         if company_id:
             companies = [company_id] if company_id in companies else []
         for cid in companies:
             results.append(_check_case(conn, cid, case, runner_name=runner_name))
 
-    return {"metrics": compute_metrics(results), "results": results}
+    metrics = run_metadata(compute_metrics(results), run_cases, frozen)
+    return {"metrics": metrics, "results": results}
+
+
+def parse_args(argv: list[str]) -> argparse.Namespace:
+    p = argparse.ArgumentParser(prog="python -m vinayak.eval.harness",
+                                description="Grade the golden cases.")
+    p.add_argument("company", nargs="?", default=None,
+                   help="one workspace (default: every workspace a case names)")
+    p.add_argument("--runner", default=None,
+                   help="grade an agent runner (native | adk) instead of the deterministic engine")
+    p.add_argument("--record", action="store_true", help="write this run to eval_runs")
+    p.add_argument("--frozen", action="store_true",
+                   help="grade only the frozen 50 — the set criterion 3 is judged on")
+    return p.parse_args(argv)
 
 
 if __name__ == "__main__":
@@ -221,20 +277,17 @@ if __name__ == "__main__":
     from dotenv import load_dotenv
     load_dotenv()
 
-    # Usage: python -m vinayak.eval.harness [company_id] [--runner native|adk]
-    argv = sys.argv[1:]
-    runner_name = None
-    if "--runner" in argv:
-        i = argv.index("--runner")
-        runner_name = argv[i + 1]
-        del argv[i:i + 2]
-    record = "--record" in argv
-    if record:
-        argv.remove("--record")
-    cid = argv[0] if argv else None
+    args = parse_args(sys.argv[1:])
+    runner_name, record, cid = args.runner, args.record, args.company
+    if args.frozen:
+        try:
+            cases_for(True)   # refuse before a connection is opened
+        except FreezeError as e:
+            print(f"--frozen: {e}", file=sys.stderr)
+            sys.exit(2)
 
     conn = psycopg2.connect(os.environ["DATABASE_URL"])
-    report = run_eval(conn, cid, runner_name=runner_name)
+    report = run_eval(conn, cid, runner_name=runner_name, frozen=args.frozen)
     if record:
         # Milestone evidence: persist this run so the board shows the latest score.
         m_ = report["metrics"]
@@ -252,7 +305,9 @@ if __name__ == "__main__":
         print(f"(grading via the '{runner_name}' runner)")
     m = report["metrics"]
     print(json.dumps(m, indent=2))
-    print(f"\n{m['passed']}/{m['cases_run']} cases passed · "
+    print(f"\nset: {m['set']}" + (f" (hash {m['frozen_hash']})" if m["frozen_hash"] else "")
+          + f" · {m['questions']} questions · {m['cases_verified']} verified")
+    print(f"{m['passed']}/{m['cases_run']} cases passed · "
           f"citation compliance {m['citation_compliance'] * 100:.1f}% (must be 100%).")
     fa = m.get("factual_accuracy")
     print(f"factual accuracy {fa * 100:.1f}% over {m['facts_graded']} checked figures."
@@ -266,5 +321,9 @@ if __name__ == "__main__":
                     print(f"      fact {f['evidence']} vs {f['oracle']}: "
                           f"expected {f['truth']}, got {f['got']}"
                           f"{' — ' + f['why'] if f.get('why') else ''}")
+    if m["set"] == "frozen":
+        print("\ncriterion 3 MET on this run." if m["criterion_met"] else
+              "\ncriterion 3 NOT met on this run "
+              "(needs ≥ 80% factual, 100% citation, the 50 frozen questions).")
     print("\nSHIP BLOCKED" if m["ship_blocked"] else "\nOK to ship (no unsupported claims, no forbidden phrases).")
     sys.exit(1 if m["ship_blocked"] else 0)
