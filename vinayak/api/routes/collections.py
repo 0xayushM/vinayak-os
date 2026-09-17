@@ -11,6 +11,11 @@ Chasing money, as the screens need it.
   POST /dashboard/collections/pause        stop chasing until a date
   GET  /dashboard/collections/promises     the promise history
 
+  GET  /dashboard/contacts/coverage        of the overdue customers, who a
+                                           reminder can actually reach
+  POST /dashboard/contacts/import/preview  what a contacts CSV would do
+  POST /dashboard/contacts/import/commit   write the rows a person ticked
+
 The two halves of the chase list matter equally. A collections screen that
 shows only who to chase, and silently omits the disputed and the promised,
 looks like it has lost them.
@@ -203,5 +208,88 @@ def flag_history(customer_ref: str, company_id: str = Depends(require_workspace)
     conn = _conn()
     try:
         return {"history": F.history(conn, company_id, customer_ref)}
+    finally:
+        conn.close()
+
+
+# ── Contacts: a reminder is only as good as the address it goes to ────────
+
+@router.get("/contacts/coverage")
+def contacts_coverage(company_id: str = Depends(require_workspace)):
+    """How many overdue customers a reminder can reach, and the ones it can't,
+    largest balance first. The chase list without this is a list of letters
+    with nowhere to go."""
+    from vinayak import contacts_import as CI
+    conn = _conn()
+    try:
+        return CI.coverage(conn, company_id)
+    finally:
+        conn.close()
+
+
+class ContactsCsvIn(BaseModel):
+    csv: str
+    filename: str | None = None
+
+
+@router.post("/contacts/import/preview")
+def contacts_import_preview(body: ContactsCsvIn,
+                            company_id: str = Depends(require_workspace)):
+    """Read a contacts CSV and say what committing it would do. Writes nothing.
+
+    The file arrives as text in JSON rather than multipart: the BFF forwards
+    JSON bodies only, a contact list is small, and the browser has already
+    read it.
+    """
+    from vinayak import contacts_import as CI
+    try:
+        rows = CI.read_rows(body.csv)
+    except CI.UnreadableFile as exc:
+        raise HTTPException(400, str(exc))
+    conn = _conn()
+    try:
+        names = CI.customer_names(conn, company_id)
+        existing = CI.existing_contacts(conn, company_id)
+    finally:
+        conn.close()
+    result = CI.preview(rows, names, existing)
+    result["filename"] = body.filename
+    return result
+
+
+class ContactRowIn(BaseModel):
+    customer_ref: str
+    email: str | None = None
+    phone: str | None = None
+
+
+class ContactsCommitIn(BaseModel):
+    rows: list[ContactRowIn]
+
+
+@router.post("/contacts/import/commit")
+def contacts_import_commit(body: ContactsCommitIn,
+                           company_id: str = Depends(require_workspace),
+                           user: TokenPayload = Depends(get_current_user)):
+    """Write the rows a person confirmed, as source='csv'.
+
+    No approval permission is asked for, as with every other write on this
+    screen and the single-contact save: saving a contact is not sending. The
+    gate that protects a customer is the Inbox, which shows the recipient
+    beside every reminder and needs `may_approve_messages` to let one go.
+    """
+    from vinayak import contacts_import as CI
+    from vinayak import notify
+    if len(body.rows) > CI.MAX_ROWS:
+        raise HTTPException(400, f"at most {CI.MAX_ROWS} rows per import")
+    conn = _conn()
+    try:
+        names = CI.customer_names(conn, company_id)
+        writes, rejected = CI.plan_commit([r.model_dump() for r in body.rows], names)
+        n = notify.upsert_contacts(conn, company_id, writes, source="csv")
+        logger.info("contacts import: %s saved %d contacts for %s (%d rejected)",
+                    user.sub, n, company_id, len(rejected))
+        return {"saved": n, "rejected": rejected,
+                "coverage": CI.coverage(conn, company_id)}
     finally:
         conn.close()

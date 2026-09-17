@@ -15,6 +15,7 @@ import {
 } from "@/hooks/useDashboard";
 import { useInferredPayments } from "@/hooks/usePulse";
 import { ChasePanel } from "@/components/dashboard/ChasePanel";
+import { ContactsImportPanel } from "@/components/dashboard/ContactsImportPanel";
 import { formatCurrency } from "@/lib/utils/cn";
 
 /**
@@ -115,7 +116,9 @@ export default function MoneyInPage() {
             half that was invisible. */}
         <div className="lg:col-span-2"><ChasePanel /></div>
       </div>
-
+      {/* A reminder needs somewhere to go. Full width, because the import
+          preview is a table the accountant reads row by row. */}
+      <ContactsImportPanel />
       <SectionHead question="The detail, one stage at a time" />
       <Tabs tabs={TABS} active={tab} onChange={setTab} />
 

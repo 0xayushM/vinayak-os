@@ -53,6 +53,30 @@ def upsert_contact(conn, company_id: str, customer_ref: str,
     conn.commit()
 
 
+def upsert_contacts(conn, company_id: str, rows: list[dict], source: str) -> int:
+    """Many contacts in one transaction — the CSV import's write.
+
+    Same merge rule as upsert_contact: a None never replaces a value on file,
+    so a sheet with only phone numbers cannot erase the emails reminders go
+    to. All or nothing, because a half-applied import leaves the accountant
+    unable to tell which rows landed."""
+    if not rows:
+        return 0
+    with conn.cursor() as cur:
+        cur.executemany(
+            """INSERT INTO customer_contacts (company_id, customer_ref, email, phone, source, updated_at)
+               VALUES (%s, %s, %s, %s, %s, NOW())
+               ON CONFLICT (company_id, customer_ref) DO UPDATE SET
+                 email  = COALESCE(EXCLUDED.email, customer_contacts.email),
+                 phone  = COALESCE(EXCLUDED.phone, customer_contacts.phone),
+                 source = EXCLUDED.source, updated_at = NOW()""",
+            [(company_id, r["customer_ref"], r.get("email") or None,
+              r.get("phone") or None, source) for r in rows],
+        )
+    conn.commit()
+    return len(rows)
+
+
 def populate_from_zoho(conn, company_id: str) -> int:
     """Fill customer_contacts from Zoho contacts (email/phone we otherwise lack).
     Idempotent; only touches customers that have an email."""
