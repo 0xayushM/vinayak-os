@@ -88,9 +88,13 @@ def _from_addr() -> str:
     return os.getenv("EMAIL_FROM", "BIDE <no-reply@bide.local>")
 
 
-def send_email(to: str | None, subject: str, body: str) -> dict:
+def send_email(to: str | None, subject: str, body: str, html: str | None = None) -> dict:
     """Deliver an email via the configured provider. Never raises — returns a
-    dict {sent, provider?, to?, error?} so the caller records the outcome."""
+    dict {sent, provider?, to?, error?} so the caller records the outcome.
+
+    `html` is optional and always travels WITH the plain text, never instead of
+    it: the text part is what a client that blocks html shows, and what the
+    WhatsApp channel will reuse, so it must stand on its own."""
     if not to:
         return {"sent": False, "error": "no recipient email"}
     prov = email_provider()
@@ -99,11 +103,14 @@ def send_email(to: str | None, subject: str, body: str) -> dict:
     try:
         if prov == "resend":
             import requests
+            payload = {"from": _from_addr(), "to": [to], "subject": subject, "text": body}
+            if html:
+                payload["html"] = html
             r = requests.post(
                 "https://api.resend.com/emails",
                 headers={"Authorization": f"Bearer {os.environ['RESEND_API_KEY']}",
                          "Content-Type": "application/json"},
-                json={"from": _from_addr(), "to": [to], "subject": subject, "text": body},
+                json=payload,
                 timeout=20,
             )
             if r.status_code // 100 == 2:
@@ -118,6 +125,9 @@ def send_email(to: str | None, subject: str, body: str) -> dict:
         msg = EmailMessage()
         msg["From"], msg["To"], msg["Subject"] = _from_addr(), to, subject
         msg.set_content(body)
+        if html:
+            # multipart/alternative: clients show the richest part they can.
+            msg.add_alternative(html, subtype="html")
         with smtplib.SMTP(host, port, timeout=20) as s:
             s.starttls(context=ssl.create_default_context())
             if user:
