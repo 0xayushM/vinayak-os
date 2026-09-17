@@ -154,6 +154,20 @@ def send_brief(conn, company_id: str, to: str | None = None, role: str | None = 
             "subject": brief["subject"], "results": results, "company_id": company_id}
 
 
+def _alert_undelivered(results: list[dict]) -> None:
+    """A brief that reached nobody is the morning's one job not done, and the
+    person who would notice is the owner, not us. Only the scheduled run
+    alerts; a manual send from the page shows its result to whoever pressed it."""
+    from vinayak import alerts
+    for r in results:
+        try:
+            reason = alerts.brief_failure(r)
+            if reason:
+                alerts.brief_failed(r.get("company_id") or "unknown", reason)
+        except Exception:  # noqa: BLE001
+            logger.exception("could not raise the brief alert for %s", r.get("company_id"))
+
+
 def send_all_briefs() -> dict:
     """The scheduled job: one brief per workspace that has a connected source.
     A failure for one workspace never stops the others."""
@@ -172,7 +186,12 @@ def send_all_briefs() -> dict:
                 out.append(send_brief(conn, cid))
             except Exception as exc:  # noqa: BLE001
                 logger.exception("brief failed for %s", cid)
+                try:
+                    conn.rollback()      # the next workspace gets a usable connection
+                except Exception:  # noqa: BLE001
+                    pass
                 out.append({"sent": False, "company_id": cid, "error": str(exc)})
     finally:
         conn.close()
+    _alert_undelivered(out)
     return {"companies": len(out), "delivered": sum(1 for r in out if r.get("sent")), "results": out}

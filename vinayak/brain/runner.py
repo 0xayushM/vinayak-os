@@ -12,7 +12,9 @@ that customer on Tuesday?" is a question that gets asked.
 Two safety rails, both mundane and both load-bearing:
 
   • a watcher that throws is caught, recorded, and counted. Three failures in
-    a row disable it for that company rather than filling the log forever.
+    a row disable it for that company rather than filling the log forever —
+    and send an alert, because a watcher that stops is otherwise a watcher
+    nobody notices has stopped (alerts.py).
   • the run row is written even when the watcher fails, in its own
     transaction, so the record of a crash survives the crash.
 """
@@ -93,7 +95,8 @@ def run(conn, company_id: str, key: str, *, trigger: str = "schedule") -> dict:
         logger.exception("watcher %s failed for %s", key, company_id)
         _close_run(conn, run_id, status="error", ms=_ms(started), error=str(exc)[:2000],
                    summary=f"{watcher.title} could not finish.")
-        _record_failure(conn, company_id, key, str(exc)[:2000])
+        errors = _record_failure(conn, company_id, key, str(exc)[:2000])
+        _alert_if_halted(company_id, key, errors, str(exc))
         return {"run_id": run_id, "status": "error", "error": str(exc)}
 
     events = int(result.get("events_emitted", 0))
@@ -149,14 +152,33 @@ def _record_success(conn, company_id: str, key: str) -> None:
     conn.commit()
 
 
-def _record_failure(conn, company_id: str, key: str, error: str) -> None:
+def _record_failure(conn, company_id: str, key: str, error: str) -> int | None:
+    """Count the failure. Returns the new consecutive_errors, or None if the
+    count could not be read back."""
     with conn.cursor() as cur:
         cur.execute(
             """UPDATE workflows
                   SET last_run_at = NOW(), last_status = 'error', last_error = %s,
                       consecutive_errors = consecutive_errors + 1
-                WHERE company_id = %s AND workflow_key = %s""", (error, company_id, key))
+                WHERE company_id = %s AND workflow_key = %s
+            RETURNING consecutive_errors""", (error, company_id, key))
+        row = cur.fetchone()
     conn.commit()
+    try:
+        return int(row[0]) if row else None
+    except (TypeError, ValueError, IndexError):
+        return None
+
+
+def _alert_if_halted(company_id: str, key: str, errors: int | None, error: str) -> None:
+    """The failure that stops a watcher being scheduled is the one to say out
+    loud. Never raises: this runs inside the watcher's error path."""
+    try:
+        from vinayak import alerts
+        if alerts.watcher_halted(errors, MAX_CONSECUTIVE_ERRORS):
+            alerts.watcher_halted_alert(company_id, key, int(errors), error[:1000])
+    except Exception:  # noqa: BLE001
+        logger.exception("could not raise the halted-watcher alert for %s/%s", company_id, key)
 
 
 def _config_for(conn, company_id: str, key: str, watcher: Watcher) -> dict:
