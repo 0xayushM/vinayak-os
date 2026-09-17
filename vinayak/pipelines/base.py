@@ -31,6 +31,17 @@ from vinayak.config import DATABASE_URL
 logger = logging.getLogger(__name__)
 
 
+def _alert_sync_failed(company_id: str, pipeline: str, exc: BaseException) -> None:
+    """A failed run is recorded in tz_sync_runs, which only someone opening
+    the Sync page would see. Say it to a person too. Never raises — the
+    original exception is the one the caller must get."""
+    try:
+        from vinayak import alerts
+        alerts.sync_failed(company_id, pipeline, f"{type(exc).__name__}: {exc}"[:1000])
+    except Exception:  # noqa: BLE001
+        logger.exception("could not raise the sync-failed alert for %s/%s", company_id, pipeline)
+
+
 class BasePipeline(ABC):
 
     PIPELINE_NAME: str
@@ -112,6 +123,7 @@ class BasePipeline(ABC):
         except Exception as exc:
             self._fail_run(conn, run_id, str(exc))
             logger.exception("%s: ❌  chunk failed (start_page=%s)", self.PIPELINE_NAME, start_page)
+            _alert_sync_failed(company_id, self.PIPELINE_NAME, exc)
             raise
         finally:
             conn.close()

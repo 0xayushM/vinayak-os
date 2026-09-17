@@ -18,10 +18,14 @@ What it runs:
   • the ten sync pipelines and the morning brief, on the existing schedule
   • a brain tick every few minutes: for each connected company, run whichever
     watchers are due (brain/runner.py decides), inside a brain_runs episode
+  • a heartbeat every minute into worker_heartbeats, so the API can tell a
+    running worker from a dead one (health.py) — silence is this process's
+    only failure mode, so it has to keep proving it is not silent
 
-Deployment: a second Railway service off the same image, with the same
-environment, whose start command is this module. The API service sets
-RUN_SCHEDULER=0 so it no longer runs the jobs itself.
+Deployment: a second Railway service off the same repo, with the same
+environment, configured from railway.worker.json (start command is this
+module, no HTTP healthcheck). The API service leaves RUN_SCHEDULER unset so it
+no longer runs the jobs itself.
 """
 from __future__ import annotations
 
@@ -29,15 +33,15 @@ import asyncio
 import logging
 import os
 import signal
+from datetime import datetime, timezone
 
 import psycopg2
 
 from vinayak.config import DATABASE_URL
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s  %(levelname)-8s  %(name)s — %(message)s",
-)
+from vinayak.logs import configure_logging, company_id_var
+
+configure_logging()
 logger = logging.getLogger("vinayak.worker")
 
 BRAIN_TICK_MINUTES = int(os.getenv("BRAIN_TICK_MINUTES", "10"))
@@ -69,6 +73,7 @@ def brain_tick() -> None:
         return
     for company_id in ids:
         conn = None
+        token = company_id_var.set(company_id)       # log lines carry the workspace
         try:
             conn = psycopg2.connect(DATABASE_URL)
             runs = runner.run_due(conn, company_id)
@@ -78,13 +83,30 @@ def brain_tick() -> None:
         except Exception as exc:  # noqa: BLE001
             logger.exception("brain tick failed for %s: %s", company_id, exc)
         finally:
+            company_id_var.reset(token)
             if conn is not None:
                 conn.close()
 
 
-def build_scheduler():
-    """The sync jobs, the brief, and the brain tick on one scheduler."""
+def _on_job_error(event) -> None:
+    """A job that raised past its own handlers. Every job here catches its
+    own failures, so reaching this means a failure nobody planned for — the
+    kind that otherwise shows up only as a traceback in a log nobody reads."""
+    from vinayak import alerts
+    try:
+        logger.error("job %s raised: %s", event.job_id, event.exception)
+        alerts.job_error(event.job_id, f"{type(event.exception).__name__}: {event.exception}")
+    except Exception:  # noqa: BLE001 — a listener must never break the scheduler
+        logger.exception("job error listener failed")
+
+
+def build_scheduler(role: str = "worker"):
+    """The sync jobs, the brief, the brain tick and the heartbeat on one
+    scheduler. `role` names the heartbeat: 'worker' for this process, 'api'
+    when the API runs the scheduler itself (RUN_SCHEDULER=1)."""
+    from apscheduler.events import EVENT_JOB_ERROR
     from apscheduler.triggers.interval import IntervalTrigger
+    from vinayak import health
     from vinayak.pipelines.scheduler import scheduler
 
     scheduler.add_job(
@@ -97,6 +119,19 @@ def build_scheduler():
         misfire_grace_time=300,
         coalesce=True,
     )
+    scheduler.add_job(
+        health.make_heartbeat_job(role, lambda: len(scheduler.get_jobs())),
+        trigger=IntervalTrigger(seconds=health.BEAT_SECONDS),
+        id="heartbeat",
+        name="Heartbeat (every minute)",
+        replace_existing=True,
+        max_instances=1,
+        misfire_grace_time=60,
+        coalesce=True,
+        next_run_time=datetime.now(timezone.utc),   # beat at startup, not a minute later
+    )
+    scheduler.remove_listener(_on_job_error)       # idempotent if built twice
+    scheduler.add_listener(_on_job_error, EVENT_JOB_ERROR)
     return scheduler
 
 

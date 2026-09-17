@@ -588,6 +588,10 @@ def _rebuild_canonical(company_id: str) -> None:
             cdb.close()
     except Exception as exc:  # noqa: BLE001
         logger.error("Canonical rebuild for %s failed: %s", company_id, exc)
+        # Best-effort for the sync, not for the reader: the raw rows landed but
+        # every page still shows the old figures, which no one can see.
+        from vinayak import alerts
+        alerts.canonical_failed(company_id, "tranzact", f"{type(exc).__name__}: {exc}"[:1000])
 
 
 def _run_single_pipeline(company_id: str, email: str, password: str,
@@ -689,6 +693,11 @@ def _run_single_pipeline(company_id: str, email: str, password: str,
         logger.exception("Migration %s for %s failed", key, company_id)
         _set(status="failed", error=_clean_error(exc),
              finished_at=_dt.datetime.now(_dt.timezone.utc).isoformat())
+        # Most failures were already alerted by the pipeline run itself; this
+        # catches the ones outside a run (cursor writes, credentials). Same key,
+        # so the dedupe keeps it to one email.
+        from vinayak import alerts
+        alerts.sync_failed(company_id, key, f"{type(exc).__name__}: {exc}"[:1000])
 
 
 @router.get("/tranzact/sync/pipelines", summary="Per-report migration status")

@@ -43,6 +43,7 @@ def test_milestone_routes_are_behind_the_boundary_and_auth():
     # underneath it are still here and still guarded.
     for path in ("/dashboard/experiments", "/dashboard/usage/me",
                  "/dashboard/incidents", "/workspaces/users",
-                 "/dashboard/brain", "/dashboard/brain/runs"):
+                 "/dashboard/brain", "/dashboard/brain/runs",
+                 "/dashboard/worker"):
         assert client.get(path).status_code == 403                                        # no key
         assert client.get(path, headers={"X-Internal-Key": INTERNAL_KEY}).status_code == 401  # key, no user
