@@ -138,8 +138,8 @@ def build_scheduler(role: str = "worker"):
 async def _main() -> None:
     from vinayak.pipelines.scheduler import start_scheduler, stop_scheduler
 
-    from vinayak.api.main import _warn_if_migrations_pending
-    _warn_if_migrations_pending()
+    from vinayak.scripts.migrate import warn_if_pending
+    warn_if_pending(logger)
 
     scheduler = build_scheduler()
     start_scheduler()

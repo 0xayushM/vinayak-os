@@ -79,6 +79,28 @@ def pending(conn) -> list[pathlib.Path]:
     return [p for p, s in status(conn) if s == "pending"]
 
 
+def warn_if_pending(logger) -> None:
+    """Say so, loudly, at startup — called by the API and by the worker.
+
+    A missing migration never announces itself: the query raises, something
+    catches broadly, and the user sees an empty page. One line in the log at
+    boot turns a day of confusion into a one-command fix. It lives here rather
+    than in the API so the worker can run it without importing the API (and
+    with it the login routes, which refuse to load without JWT_SECRET)."""
+    try:
+        conn = psycopg2.connect(DATABASE_URL)
+        try:
+            todo = pending(conn)
+        finally:
+            conn.close()
+        if todo:
+            logger.warning(
+                "%d MIGRATION(S) NOT APPLIED: %s — run `python -m vinayak.scripts.migrate`",
+                len(todo), ", ".join(p.name for p in todo))
+    except Exception as exc:  # noqa: BLE001 — a check must never block startup
+        logger.warning("Could not check migrations: %s", exc)
+
+
 def apply(conn, p: pathlib.Path) -> int:
     """Run one migration and record it. Returns milliseconds taken."""
     started = time.monotonic()
