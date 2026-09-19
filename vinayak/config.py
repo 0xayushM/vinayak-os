@@ -24,17 +24,28 @@ TRANZACT_BASE_URL      = os.getenv("TRANZACT_BASE_URL",      "https://be.letstra
 # Confirmed 2026-05-22: reports live on a separate reporting subdomain
 TRANZACT_REPORTING_URL = os.getenv("TRANZACT_REPORTING_URL", "https://reporting.letstranzact.com")
 
+def env_int(name: str, default: int) -> int:
+    """An integer setting, where blank means "not set". A host that passes an
+    empty value through (a Railway reference to a variable the other service
+    never defined) must fall back to the default, not stop the process."""
+    raw = (os.getenv(name) or "").strip()
+    try:
+        return int(raw) if raw else default
+    except ValueError:
+        return default
+
+
 # ── Postgres ─────────────────────────────────────────────────────────────────
 DATABASE_URL = os.environ["DATABASE_URL"]
 # e.g. postgresql://user:pass@host:5432/vinayak_brain
 
 # ── Rate-limiting ─────────────────────────────────────────────────────────────
 # TranzAct enforces 10 req/min/machine.  We stay comfortably under that.
-TRANZACT_REQUESTS_PER_MINUTE = int(os.getenv("TRANZACT_REQUESTS_PER_MINUTE", "8"))
+TRANZACT_REQUESTS_PER_MINUTE = env_int("TRANZACT_REQUESTS_PER_MINUTE", 8)
 
 # ── Data freshness alert threshold ───────────────────────────────────────────
 # If a pipeline has not completed within this many hours, alert fires.
-SYNC_STALENESS_HOURS = int(os.getenv("SYNC_STALENESS_HOURS", "25"))
+SYNC_STALENESS_HOURS = env_int("SYNC_STALENESS_HOURS", 25)
 
 # ── Claude / Anthropic (optional — Layer 3 reasoning) ────────────────────────
 # When ANTHROPIC_API_KEY is set, the reasoning engine uses Claude to ROUTE

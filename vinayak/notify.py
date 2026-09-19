@@ -144,7 +144,8 @@ def send_email(to: str | None, subject: str, body: str, html: str | None = None)
 
         # SMTP
         host = os.environ["SMTP_HOST"]
-        port = int(os.getenv("SMTP_PORT", "587"))
+        from vinayak.config import env_int
+        port = env_int("SMTP_PORT", 587)
         user, pw = os.getenv("SMTP_USER"), os.getenv("SMTP_PASSWORD")
         msg = EmailMessage()
         msg["From"], msg["To"], msg["Subject"] = _from_addr(), to, subject

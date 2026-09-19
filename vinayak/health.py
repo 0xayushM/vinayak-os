@@ -48,7 +48,7 @@ PRUNE_AFTER_DAYS = 7
 
 def stale_after_minutes() -> float:
     try:
-        v = float(os.getenv("HEARTBEAT_STALE_MINUTES", "5"))
+        v = float(os.getenv("HEARTBEAT_STALE_MINUTES") or "5")
     except ValueError:
         return 5.0
     return v if v > 0 else 5.0

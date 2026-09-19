@@ -78,3 +78,18 @@ def test_log_records_outside_a_request_have_no_context_prefix():
     rec = _record()
     ContextFilter().filter(rec)
     assert rec.ctx == "" and rec.request_id is None
+
+
+# ── settings read from the environment ───────────────────────────────────
+def test_a_blank_numeric_setting_falls_back_to_its_default(monkeypatch):
+    """Railway passes a reference to a variable the other service never set
+    as an empty string. That once stopped the worker at import."""
+    from vinayak.config import env_int
+    monkeypatch.setenv("SOME_LIMIT", "")
+    assert env_int("SOME_LIMIT", 8) == 8
+    monkeypatch.setenv("SOME_LIMIT", "  ")
+    assert env_int("SOME_LIMIT", 8) == 8
+    monkeypatch.setenv("SOME_LIMIT", "not a number")
+    assert env_int("SOME_LIMIT", 8) == 8
+    monkeypatch.setenv("SOME_LIMIT", "12")
+    assert env_int("SOME_LIMIT", 8) == 12

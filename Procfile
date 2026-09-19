@@ -2,16 +2,17 @@
 #   web    — the API. Serves requests only; runs no background jobs.
 #   worker — the syncs, the morning brief, the brain tick and the heartbeat.
 #
-# On Railway this is two services from the same repo, each with its own
-# config-as-code file:
-#   web    → railway.json         (uvicorn, healthcheck on /health)
-#   worker → railway.worker.json  (python -m vinayak.worker, no healthcheck —
-#            it serves no HTTP, so a healthcheck would fail every deploy)
-# For the worker service: Settings → Config-as-code → Railway Config File →
-# set the path to /railway.worker.json. Without that it reads railway.json,
-# starts uvicorn and waits for a /health that the worker never serves.
-# Share the API's variables with the worker (DATABASE_URL, FERNET_KEY, email
-# provider, ALERT_EMAIL, ...). RUN_SCHEDULER must stay unset on web — the
+# On Railway this is two services from the same repo. Railway deprecated
+# config-as-code files (no new service may opt in after 28 Aug 2026; existing
+# ones stop being read on 1 Dec 2026), so the worker is set in the dashboard:
+#   worker → Settings → Deploy → Custom Start Command: python -m vinayak.worker
+#            and an EMPTY Healthcheck Path — it serves no HTTP, so a
+#            healthcheck would fail every deploy.
+# web still reads railway.json until 1 Dec; before then, copy its healthcheck
+# (/health, 30s) and restart policy (on failure, 3) into web's dashboard.
+# Share the API's variables with the worker as references (${{web.DATABASE_URL}}
+# and so on; FERNET_KEY must match). A reference to a variable web never set
+# arrives as an empty string, which numeric settings treat as unset. RUN_SCHEDULER must stay unset on web — the
 # worker owns the jobs, and a second scheduler would run each one twice (the
 # worker itself ignores the variable).
 #

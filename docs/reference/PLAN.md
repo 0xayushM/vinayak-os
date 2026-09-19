@@ -118,7 +118,7 @@ Hardening **shipped early, 17 Sep**: a worker heartbeat (migration 025), alert
 email on failed syncs, halted watchers, a brief that reached nobody and a worker
 that stopped checking in (`vinayak/alerts.py`, deduped per condition); worker
 health at the top of the Sync page; request and workspace ids on every API log
-line; `railway.worker.json` for the second service. Also early: the brief
+line; the worker as a second Railway service. Also early: the brief
 delivery log (migration 024) and `milestone_status --demo`, which reads §4
 before the day. Still to do here: the reorder-radar and win-back watchers,
 WhatsApp, and the rehearsal.

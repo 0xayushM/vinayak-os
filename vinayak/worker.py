@@ -23,8 +23,8 @@ What it runs:
     only failure mode, so it has to keep proving it is not silent
 
 Deployment: a second Railway service off the same repo, with the same
-environment, configured from railway.worker.json (start command is this
-module, no HTTP healthcheck). The API service leaves RUN_SCHEDULER unset so it
+environment, whose dashboard start command is this module and whose
+healthcheck path is empty (see Procfile). The API service leaves RUN_SCHEDULER unset so it
 no longer runs the jobs itself.
 """
 from __future__ import annotations
@@ -37,14 +37,14 @@ from datetime import datetime, timezone
 
 import psycopg2
 
-from vinayak.config import DATABASE_URL
+from vinayak.config import DATABASE_URL, env_int
 
 from vinayak.logs import configure_logging, company_id_var
 
 configure_logging()
 logger = logging.getLogger("vinayak.worker")
 
-BRAIN_TICK_MINUTES = int(os.getenv("BRAIN_TICK_MINUTES", "10"))
+BRAIN_TICK_MINUTES = env_int("BRAIN_TICK_MINUTES", 10)
 
 
 def companies() -> list[str]:

@@ -98,7 +98,7 @@ Vercel (web) + Railway (API and worker) + Supabase (Postgres and auth), CI on
 every push. Today is the landing page: nine decision cards, each naming a delta,
 a cause or a decision, plus the 06:00 IST brief by email.
 
-**Left:** deploy the worker as its own Railway service (`railway.worker.json`);
+**Left:** deploy the worker as its own Railway service (start command in the dashboard, see `Procfile`);
 apply migrations 024–025 with `python -m vinayak.scripts.migrate`; set
 `ALERT_EMAIL`, an email provider and `NEXT_PUBLIC_APP_URL` on Railway; confirm the
 workspace Sandeep opens is the one that is connected and syncing. ⬜
@@ -342,8 +342,9 @@ between the 16th and the 17th, and could not have: every clock left is waiting
 on a person.
 
 **Next — engineering, to deploy:** apply migrations 024–025
-(`python -m vinayak.scripts.migrate`) · create the worker service on Railway
-from `railway.worker.json` · set `ALERT_EMAIL`, an email provider and
+(`python -m vinayak.scripts.migrate`) · create the worker service on Railway ·
+move web's healthcheck and restart policy out of `railway.json` into the
+dashboard before **1 Dec**, when Railway stops reading config files · set `ALERT_EMAIL`, an email provider and
 `NEXT_PUBLIC_APP_URL` · import contacts for the overdue customers.
 
 **Next — people, and these are the milestone:** set `milestone_user_email` to
