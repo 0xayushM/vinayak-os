@@ -12,7 +12,7 @@ A week-by-week plan to hit Milestone 1 by month 6, Milestone 2 by month 12 and M
 
 - **1 Sep 2026** — Week 1. Start. Sprint 0 begins.
 - **30 Nov 2026** — Month 3 — 90-day demo. Gate. Criteria in §4.
-- **by 31 Dec 2026** — 60-day usage clock must have started. Sandeep on the daily habit; usage tracking live.
+- **by Mon 2 Nov 2026** — 60-day usage clock must have started (first qualifying week). It is also what the month-3 demo needs: four qualifying weeks before 30 Nov. Mon 28 Dec is the arithmetic last chance and leaves no room for a single missed week.
 - **1 Mar 2027** — Month 6 — Milestone 1 review. All six criteria; H1 bonus criteria.
 - **1 May 2027** — Month 8 — latest acceptable M1. Grant reduces after month 6; forfeited after month 8.
 - **1 Sep 2027** — Month 12 — Milestone 2 review. Revenue, attributable pipeline, experiments, content; H2 bonus.
@@ -24,7 +24,7 @@ Four Milestone-1 criteria cannot be crammed at the end. They decide the order of
 
 | Clock                                                         | Why it's a clock                                                                                                   | Must be live by                          | Which means building first                                                                                               |
 |---------------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------|------------------------------------------|--------------------------------------------------------------------------------------------------------------------------|
-| Sandeep: ≥ 4 days/week for 60 consecutive days                | 60 days must end before 1 Mar; the habit takes time to form; a missed week restarts the count                      | 29 Dec 2026 (latest); aim 17 Nov 2026    | Usage tracking; a home page worth opening daily (Pulse); the brief that brings him to it; his role's layout              |
+| Sandeep: ≥ 4 days/week for 60 consecutive days                | 60 days must end before 1 Mar; the habit takes time to form; a missed week restarts the count                      | Mon 2 Nov 2026; aim Mon 19 Oct         | Usage tracking; a home page worth opening daily (Pulse); the brief that brings him to it; his role's layout              |
 | ≥ 30 experiments logged *with outcomes*                       | An experiment needs 2–4 weeks to have an outcome; 30 with outcomes by 1 Mar means ~6 started a month from November | Log live 1 Oct; first suggestions 18 Oct | Experiments table + page; Strategy suggestions from Pulse signals; the rule that every Inbox action can be an experiment |
 | 50-question set, ≥ 80% factual, 100% citation                 | Hand-verifying 50 answers with Shourya takes calendar time, and the set must be frozen weeks before the review     | Frozen 1 Jan; passing 1 Feb              | Expected-value grading in the harness; the agent path in CI; question collection from real Ask usage                     |
 | No critical incident in the 60 days before month 6 (H1 bonus) | Anything risky must ship before 1 Jan                                                                              | Feature freeze 1 Jan                     | Incident log; the worker split and watchers land in Nov–Dec, not Feb                                                     |
@@ -74,7 +74,7 @@ experiment accepted, started and closed with a computed outcome.
 | Worker split (separate Railway service, Celery + Redis or APScheduler in its own process); `events` emission from three detectors (overdue rung, data stale, anomaly); event consumer; `brain_runs` episodic log; `workflows` table                                                               | M1-1         | The architecture's Layer 10, first real use                                                 |
 | Strategy suggestions v1: a weekly watcher that turns Pulse signals into *proposed experiments* (clear this dead stock to these customers; hold credit on X; nudge these six regulars; test firm tone on late payers) and files them in the experiments log as `ai_suggested`, awaiting acceptance | M1-4, H2, M2 | Aim for 4–6 suggestions a week; Sandeep or Shourya accepts, the log tracks outcome          |
 | Every Inbox approval can be tagged "run as experiment" with a metric and window; outcome computed from snapshots                                                                                                                                                                                  | M1-4         | Turns ordinary chases and nudges into logged experiments with outcomes for free             |
-| **Onboard Sandeep as the daily user**: his workspace, his role, the brief to his inbox; walk him through Pulse and the Inbox once in person                                                                                                                                                       | M1-2         | Target first active day ≤ 18 Oct; 60-day clock target 18 Oct–17 Dec, with January as buffer |
+| **Onboard Sandeep as the daily user**: his workspace, his role, the brief to his inbox; walk him through Pulse and the Inbox once in person                                                                                                                                                       | M1-2         | Target first qualifying week Mon 19 Oct; 9 weeks = 19 Oct–20 Dec, with a restart still possible from January |
 
 ### Sprint 3 · Weeks 7–8 (13 Oct–24 Oct) — collections done properly — **SHIPPED 16 Sep**
 
@@ -83,7 +83,9 @@ promise-to-pay, the dispute flag, the chase priority and the recovery proof;
 migration 022 adds `collections_state`, `promises` and `chase_log`. Chasing is
 per customer, not per invoice. The eval's factual grading and the native-path
 CI gate landed early with the auditor question set. Outstanding from this
-sprint: the contacts CSV import screen.
+sprint: the contacts CSV import screen — shipped 17 Sep on the Money-in page,
+with a coverage line (how many overdue customers can actually be reached) and a
+template prefilled with the ones that cannot.
 
 | Ship                                                                                                                                                                          | Serves               | Notes                                                                             |
 |-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|----------------------|-----------------------------------------------------------------------------------|
@@ -111,6 +113,15 @@ kbrushes and protegere, and the hand-verification sessions with Shourya.
 | Wiki: decisions log and business dictionary filled from the reference docs; per-company onboarding notes                              | H1         |                                                                                   |
 
 ### Sprint 5 · Weeks 11–12 (10 Nov–21 Nov) — harden, then demo
+
+Hardening **shipped early, 17 Sep**: a worker heartbeat (migration 025), alert
+email on failed syncs, halted watchers, a brief that reached nobody and a worker
+that stopped checking in (`vinayak/alerts.py`, deduped per condition); worker
+health at the top of the Sync page; request and workspace ids on every API log
+line; `railway.worker.json` for the second service. Also early: the brief
+delivery log (migration 024) and `milestone_status --demo`, which reads §4
+before the day. Still to do here: the reorder-radar and win-back watchers,
+WhatsApp, and the rehearsal.
 
 | Ship                                                                                                                                   | Serves                      | Notes                                                               |
 |----------------------------------------------------------------------------------------------------------------------------------------|-----------------------------|---------------------------------------------------------------------|
@@ -154,7 +165,7 @@ The offer letter refers to "the month-3 demo of the 90-day plan" without definin
 | Criterion                                                                                            | Evidence (status CLI + MILESTONES.md)                              | Target on 1 Mar 2027                                                                                                                       |
 |------------------------------------------------------------------------------------------------------|--------------------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------|
 | Dashboard live in production                                                                         | Deployment record; Pulse, Inbox, group view screenshots on the day | Live since October                                                                                                                         |
-| Sandeep ≥ 4 days/week for 60 consecutive days                                                        | `usage_events` active-days chart per week                          | A completed 60-day window ending before 1 Mar (planned 18 Oct–17 Dec, with a second window as backup)                                      |
+| Sandeep ≥ 4 days/week for 60 consecutive days                                                        | `usage_events` active-days chart per week                          | A completed 60-day window ending before 1 Mar (planned 19 Oct–20 Dec, with a second window as backup)                                      |
 | 50-question set, ≥ 80% factual, 100% citation                                                        | Harness output from CI on the frozen set, both paths               | ≥ 40/50 correct, 100% cited, on the native (production) path                                                                               |
 | ≥ 30 experiments with outcomes                                                                       | Experiments export                                                 | ≥ 30 closed with a recorded outcome; ≥ 45 logged                                                                                           |
 | Month-3 demo passed; month-6 demo criteria                                                           | Demo records                                                       | Month-6 demo = the month-3 criteria plus: group view with ≥ 2 companies; first synapse live; content engine and lead hub in production use |

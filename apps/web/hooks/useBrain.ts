@@ -91,6 +91,77 @@ export async function runWatcherNow(key: string) {
   return res.json();
 }
 
+// ── Worker health (Sync page) ────────────────────────────────────────────────
+// Each section can come back as { error } on its own — a missing table must
+// show as that sentence, not as a blank panel.
+export type SectionError = { error: string };
+
+export function sectionError(s: unknown): string | null {
+  return s && typeof s === "object" && "error" in s ? String((s as SectionError).error) : null;
+}
+
+export interface WorkerStatus {
+  state: "alive" | "stale" | "never";
+  alive: boolean;
+  last_beat_at: string | null;
+  minutes_since_beat: number | null;
+  stale_after_minutes: number;
+  worker_id: string | null;
+  role: string | null;
+  version: string | null;
+  started_at: string | null;
+  jobs: number | null;
+  other_schedulers: { worker_id: string; role: string; last_beat_at: string | null }[];
+}
+
+export interface HaltedWatcher {
+  key: string;
+  title: string;
+  last_error: string | null;
+  last_run_at: string | null;
+  consecutive_errors: number;
+}
+
+export interface BrainStatus {
+  last_run_at: string | null;
+  last_run_status: string | null;
+  last_run_workflow: string | null;
+  halted: HaltedWatcher[];
+}
+
+export interface FeedStatus {
+  failing: { pipeline_name: string; completed_at: string | null; error_message: string | null }[];
+  stale: { pipeline_name: string; completed_at: string | null }[];
+  last_completed_at: string | null;
+  feeds: { pipeline_name: string; status: string; completed_at: string | null; stale: boolean }[];
+}
+
+export interface RecentAlert {
+  kind: string;
+  subject: string;
+  global: boolean;
+  first_seen_at: string | null;
+  last_seen_at: string | null;
+  times_seen: number;
+  last_sent_at: string | null;
+  email_error: string | null;
+}
+
+export interface WorkerHealth {
+  checked_at: string;
+  worker: WorkerStatus | SectionError;
+  brain: BrainStatus | SectionError;
+  sync: FeedStatus | SectionError;
+  alerts: RecentAlert[] | SectionError;
+}
+
+export function useWorkerHealth() {
+  return useSWR<WorkerHealth>("/api/be/dashboard/worker", fetcher, {
+    refreshInterval: 60_000,
+    revalidateOnFocus: true,
+  });
+}
+
 /** "4m ago" — the only time format a run log needs. */
 export function timeAgo(iso: string | null): string {
   if (!iso) return "never";

@@ -33,8 +33,11 @@
 Two criteria have clocks that cannot be compressed near the end, and they set the
 whole sequencing of `PLAN.md`:
 
-1. **The 60 consecutive days of use.** It has to *start* by 1 Nov 2026 to finish
-   inside the window with January as buffer. That is what made the Pulse landing
+1. **The 60 consecutive days of use.** The first qualifying week has to begin
+   by **Monday 2 Nov 2026**: nine weeks then end on 3 Jan, leaving January and
+   February for a restart if a week is missed — and the month-3 demo needs four
+   qualifying weeks before 30 Nov anyway. Monday 28 Dec is the arithmetic last
+   chance and has no room for a single light week. That is what made the Pulse landing
    page and the 06:00 brief the first things built.
 2. **30 experiments with outcomes.** At roughly six a month from October, with a
    six-week average window, the last one has to be *started* by mid-January.
@@ -45,7 +48,7 @@ whole sequencing of `PLAN.md`:
 
 **kbrushes**
 
-_Read on 2026-09-16 from workspace `kbrushes`._
+_Read on 2026-09-17 from workspace `kbrushes`._
 
 | Criterion | Where it stands |
 |---|---|
@@ -54,11 +57,11 @@ _Read on 2026-09-16 from workspace `kbrushes`._
 | ≥ 30 logged experiments with outcomes | 0 with outcomes of 6 logged · 5 AI-suggested, 0 acted on |
 | No critical incident in the last 60 days | none recorded in the last 60 days |
 
-Month-3 demo **2026-12-01** · month-6 review **2027-03-01** (166 days away) · latest acceptable **2027-05-01**.
+Month-3 demo **2026-12-01** · month-6 review **2027-03-01** (165 days away) · latest acceptable **2027-05-01**.
 
 **protegere**
 
-_Read on 2026-09-16 from workspace `protegere`._
+_Read on 2026-09-17 from workspace `protegere`._
 
 | Criterion | Where it stands |
 |---|---|
@@ -67,7 +70,7 @@ _Read on 2026-09-16 from workspace `protegere`._
 | ≥ 30 logged experiments with outcomes | 0 with outcomes of 4 logged · 4 AI-suggested, 0 acted on |
 | No critical incident in the last 60 days | none recorded in the last 60 days |
 
-Month-3 demo **2026-12-01** · month-6 review **2027-03-01** (166 days away) · latest acceptable **2027-05-01**.
+Month-3 demo **2026-12-01** · month-6 review **2027-03-01** (165 days away) · latest acceptable **2027-05-01**.
 
 **What this reading says.** The brain is running and producing: 12 watcher
 passes, 33 events, 10 experiments suggested by the Strategy watcher and 7
@@ -78,7 +81,8 @@ by hand. The eval is above its target size and passing both halves.
 60-day window has not begun; no experiment has been *accepted*, so none can
 close, and 30 with outcomes is the criterion. Neither is an engineering
 problem. The binding constraint is criterion 2: the window has to start by
-**1 Nov** to finish before the March review with January as buffer.
+**Monday 2 Nov**. The 17 Sep reading is unchanged from the 16th on every count —
+which is itself the finding: nothing moves these numbers except a person.
 
 ---
 
@@ -94,7 +98,9 @@ Vercel (web) + Railway (API and worker) + Supabase (Postgres and auth), CI on
 every push. Today is the landing page: nine decision cards, each naming a delta,
 a cause or a decision, plus the 06:00 IST brief by email.
 
-**Left:** deploy the Sprint 2 worker as its own Railway service; confirm the
+**Left:** deploy the worker as its own Railway service (`railway.worker.json`);
+apply migrations 024–025 with `python -m vinayak.scripts.migrate`; set
+`ALERT_EMAIL`, an email provider and `NEXT_PUBLIC_APP_URL` on Railway; confirm the
 workspace Sandeep opens is the one that is connected and syncing. ⬜
 
 ### 2 · Sandeep has used it ≥ 4 days/week for 60 consecutive days — 🟡
@@ -107,11 +113,11 @@ authenticated request — it is written automatically and needs no screen.
 
 **Left:** set `milestone_user_email` in `platform_settings` to Sandeep's address;
 onboard him (his workspace, his role, the brief to his inbox, one walkthrough in
-person); **start the window by 1 Nov 2026**.
+person); **first qualifying week to begin by Monday 2 Nov 2026**.
 
 ### 3 · 50-question eval: ≥ 80% factual accuracy, 100% citation compliance — 🟡
 
-29 golden cases today. The harness grades citation compliance (100% on the
+60 candidate cases today. The harness grades citation compliance (100% on the
 deterministic path), refusal, intent and bucket, gates CI, and `--record` writes
 each run to `eval_runs` so the numbers above are real rather than remembered.
 
@@ -140,10 +146,21 @@ operational ERP feed at all, and that is exactly where a confident wrong answer
 would cost the most. Carrying sixty is deliberate: hand-verification will drop
 some, and a set that arrives at the freeze date one case short gets padded.
 
-**Left, in order:** hand-verify with Shourya and **freeze at 50 by 15 Jan
-2027** so "fixed" is auditable; replace invented phrasings with real ones from
-Sandeep's Ask logs as they accumulate (downstream of criterion 2); grade the
-**native agent path**, which is what production uses, in CI as a second gate.
+**The freeze is tooling now, not a promise.** `python -m vinayak.eval.worksheet`
+writes the session sheet (failing cases and refusals first, every figure beside
+its oracle, three boxes per case); a `verified` record on each case captures the
+sign-off; `worksheet --select` proposes a balanced 50; `python -m
+vinayak.eval.frozen <ids> --write` freezes them with a content hash, refusing
+unless all 50 are verified, and `--check` catches a frozen case edited later.
+`harness --frozen --record` then records a run that `criterion_met` can judge:
+frozen set, exactly 50 questions, ≥ 80% factual, 100% citation. Only cases that
+run on both workspaces can be frozen — 58 of the 60.
+
+**Left, in order:** two hand-verification sessions with Shourya, one per path
+(`worksheet` and `worksheet --runner native`, against the eval database);
+**freeze at 50 by 15 Jan 2027**; record frozen runs per workspace on both paths;
+replace invented phrasings with real ones from Sandeep's Ask logs as they
+accumulate (downstream of criterion 2).
 
 ### 4 · ≥ 30 logged experiments with outcomes — 🟡
 
@@ -161,8 +178,14 @@ anyone setting aside time for it:
 again, so an experiment cannot sit open forever waiting for someone to score it.
 `inconclusive` is a real outcome and counts as captured.
 
-**Left:** Sandeep or Shourya accepting suggestions weekly from October. Only
-`closed` rows count.
+The morning brief now carries the queue: on Mondays the count and the three
+longest-waiting suggestions, on other days one line once anything has waited
+more than three days — so the decision is put in front of the person who has to
+make it, rather than on a page they have to remember to visit.
+
+**Left:** Sandeep or Shourya accepting suggestions weekly — from **now**, not
+October. Ten are waiting. Only `closed` rows count, and at a 30-day window an
+experiment accepted after mid-January cannot close before the review.
 
 ### 5 · ~~Busy API integration~~ — dropped by agreement, not tracked
 
@@ -171,6 +194,12 @@ again, so an experiment cannot sit open forever waiting for someone to score it.
 No 90-day plan existed when this started; `docs/reference/PLAN.md` now serves as
 it and proposes the criteria for both demos. The month-3 demo (1 Dec 2026) is
 Sandeep's own Pulse and Inbox on his own numbers — not slides.
+
+`python -m vinayak.scripts.milestone_status --demo` reads the §4 criteria that
+can be counted — brief delivered every working day, watchers on schedule,
+actions executed, chases logged, customers flagged, experiments closed, active
+weeks, eval runs on both paths — and marks the two that cannot as manual.
+Run it weekly from October so the demo is never the first time it is checked.
 
 **Left:** agree both sets of criteria in writing with Shourya. ⬜ Record the
 month-3 outcome in the log at the bottom of this file.
@@ -187,7 +216,9 @@ compliance · **no critical production incidents in the prior 60 days**.
 
 - Wiki 🟢 — `docs/wiki/` (business dictionary, data sources, decisions log,
   learnings, onboarding runbook, per-company notes). Kept current every sprint.
-- Incidents 🟢 — what counts as critical is defined in `docs/INCIDENTS.md`, and
+- Incidents 🟢 — nothing in the background can now fail quietly: a failed sync,
+  a halted watcher, an undelivered brief or a silent worker emails `ALERT_EMAIL`,
+  and the Sync page shows worker health. What counts as critical is defined in `docs/INCIDENTS.md`, and
   **that file is now the log too**. The `incidents` table still exists and the
   status CLI counts from it; write the entry in the doc and the row in the table
   when one happens.
@@ -290,7 +321,33 @@ new intents, two new queries, both of which found something on first run —
 is billed to a group company. Meanwhile the brain ran on live data for the
 first time: 12 passes, 33 events, 10 suggested experiments, 7 chases waiting.
 
-**Next, in order:** deploy the worker service · set the tracked user and onboard
-Sandeep (criterion 2's clock, by 1 Nov) · expected values in the eval cases so
-factual accuracy is graded at all (criterion 3) · agree the demo criteria with
-Shourya in writing (criterion 6).
+**2026-09-17 · Sprints 3–4, and everything left that engineering can close
+without a person.** Sprints 3 and 4 shipped on the 16th, six weeks early:
+collections as a process (the R1–R4 ladder climbed one rung at a time, promises,
+disputes, recovery measured from delivery) and the first synapse (credit flags
+raised by Accounts, shown to Sales, three asks a pass). Then the rest of what
+was in our hands: the brief is now evidence — every delivery logged, HTML sent,
+and the experiments waiting for a decision put in front of the person who
+makes it; the contacts CSV import, so chases can reach the customers they are
+for; worker heartbeat, alerting and worker health on the Sync page, for H1;
+the eval freeze as tooling — worksheet, `verified` records, a hashed manifest,
+`criterion_met`; and `milestone_status --demo`, which reads the month-3
+criteria now rather than on 1 Dec. Found on the way: a `scripts/` ignore rule
+had kept `migrate.py` and `milestone_status.py` out of git since they were
+written, so the deployed startup check for missing migrations could never run
+and the command this file tells everyone to use did not exist in the repo.
+The start date for criterion 2 was written three different ways across the
+two documents; it is **Monday 2 Nov** everywhere now. The numbers did not move
+between the 16th and the 17th, and could not have: every clock left is waiting
+on a person.
+
+**Next — engineering, to deploy:** apply migrations 024–025
+(`python -m vinayak.scripts.migrate`) · create the worker service on Railway
+from `railway.worker.json` · set `ALERT_EMAIL`, an email provider and
+`NEXT_PUBLIC_APP_URL` · import contacts for the overdue customers.
+
+**Next — people, and these are the milestone:** set `milestone_user_email` to
+Sandeep's address and onboard him, first qualifying week by **Mon 2 Nov** ·
+Sandeep or Shourya accepting the ten waiting experiments, weekly from now ·
+two eval verification sessions with Shourya, freeze by **15 Jan** · agree the
+demo criteria in writing (criterion 6).

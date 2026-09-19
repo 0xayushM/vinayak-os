@@ -8,6 +8,8 @@ What the brain has been doing while nobody was watching.
   GET  /dashboard/brain/events       the event feed
   PUT  /dashboard/brain/workflows/{key}   enable / disable / retune a watcher
   POST /dashboard/brain/run/{key}    run one watcher now (manual trigger)
+  GET  /dashboard/worker             is background work running? heartbeat,
+                                     halted watchers, failing feeds, alerts
 
 This page exists because a background system that cannot be inspected is a
 background system nobody trusts. Everything here is a read of brain_runs,
@@ -139,5 +141,27 @@ def run_now(key: str, company_id: str = Depends(require_workspace)):
         runner.ensure_registered(conn, company_id)
         result = runner.run(conn, company_id, key, trigger="manual")
         return {**result, "runs": runner.recent_runs(conn, company_id, limit=10)}
+    finally:
+        conn.close()
+
+
+@router.get("/worker")
+def worker_health(company_id: str = Depends(require_workspace)):
+    """The Sync page's health panel: is the worker alive, which watchers have
+    halted, which feeds are failing, and what has been alerted.
+
+    Reading this also re-runs the worker-down check in the background. The
+    API's watchdog task normally does that every few minutes, but a check that
+    only one task performs is one silent crash away from never running; a
+    person opening the Sync page is a second, independent trigger. The alert
+    dedupe makes the extra checks free."""
+    from vinayak import health
+    from vinayak.api.main import STARTED_AT
+
+    if health.watchdog_enabled():
+        health.check_worker_stale_in_background(STARTED_AT)
+    conn = _conn()
+    try:
+        return health.worker_health(conn, company_id)
     finally:
         conn.close()

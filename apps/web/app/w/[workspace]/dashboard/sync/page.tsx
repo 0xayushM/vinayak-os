@@ -4,6 +4,7 @@ import { useSyncHealth, useIngestQuality } from "@/hooks/useDashboard";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { CheckCircle, AlertTriangle, RefreshCw, Database } from "lucide-react";
 import { cn, friendlySyncError, syncLabel } from "@/lib/utils/cn";
+import { WorkerHealthPanel } from "@/components/dashboard/WorkerHealthPanel";
 
 const OBJECT_LABELS: Record<string, string> = {
   customer: "Customers",
@@ -99,6 +100,9 @@ export default function SyncHealthPage() {
           Refresh
         </button>
       </div>
+
+      {/* Is the worker alive, have watchers stopped, are feeds failing */}
+      <WorkerHealthPanel />
 
       {/* Layer-0 canonical mapping coverage */}
       <DataQualityCard />

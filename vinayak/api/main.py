@@ -3,8 +3,9 @@ api/main.py
 ────────────
 FastAPI application entry point for Vinayak Brain OS.
 
-Starts the APScheduler (pipelines run inside this process — no separate worker).
-Exposes all dashboard and AI endpoints.
+Serves the dashboard and AI endpoints. Background jobs run in the worker
+(vinayak/worker.py) unless RUN_SCHEDULER=1; the API watches that the worker is
+alive (vinayak/health.py).
 
 Run locally:
     uvicorn vinayak.api.main:app --reload --port 8000
@@ -14,9 +15,13 @@ Deploy (production):
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
+import time
+import uuid
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 
 from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -24,10 +29,10 @@ from fastapi.responses import JSONResponse
 
 from vinayak.pipelines.scheduler import start_scheduler, stop_scheduler
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s  %(levelname)-8s  %(name)s — %(message)s",
-)
+from vinayak.logs import (configure_logging, request_id_var, company_id_var,
+                          safe_id)
+
+configure_logging()
 logger = logging.getLogger(__name__)
 
 
@@ -63,18 +68,38 @@ def _warn_if_migrations_pending() -> None:
         logger.warning("Could not check migrations: %s", exc)
 
 
+# When this API process started. The worker watchdog uses it to tell "the
+# worker has not beaten yet because we both just deployed" from "the worker
+# was never started".
+STARTED_AT = datetime.now(timezone.utc)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Start the in-process scheduler only when this instance owns it."""
+    """Start the in-process scheduler only when this instance owns it, and the
+    worker watchdog always.
+
+    The watchdog lives here, not in the worker, because it exists to notice
+    the worker being dead — see vinayak/health.py."""
+    from vinayak import health
+
     _warn_if_migrations_pending()
     if RUN_SCHEDULER:
         logger.info("RUN_SCHEDULER is set — starting APScheduler in the API process")
-        from vinayak.worker import build_scheduler   # adds the brain tick
-        build_scheduler()
+        from vinayak.worker import build_scheduler   # adds the brain tick + heartbeat
+        build_scheduler(role="api")
         start_scheduler()
     else:
         logger.info("Scheduler not started here; background jobs run in the worker")
+
+    watchdog = None
+    if health.watchdog_enabled():
+        watchdog = asyncio.create_task(health.watchdog(STARTED_AT))
+    else:
+        logger.warning("WORKER_WATCHDOG is off — a dead worker will not raise an alert")
     yield
+    if watchdog is not None:
+        watchdog.cancel()
     if RUN_SCHEDULER:
         logger.info("Stopping APScheduler...")
         stop_scheduler()
@@ -106,13 +131,68 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# ── Request context: an id per request, and the workspace it is for ──────────
+# Pure ASGI rather than BaseHTTPMiddleware: it sets the contextvars before the
+# route runs (sync routes run in a threadpool that copies the context, so the
+# ids reach their log lines too) and adds nothing else to the request path.
+# An incoming X-Request-ID is kept when it is a plain token, so the BFF or a
+# proxy can correlate its own logs with ours; otherwise one is generated.
+_SLOW_REQUEST_SECONDS = 5.0
+
+
+class RequestContextMiddleware:
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            return await self.app(scope, receive, send)
+        headers = {k.decode("latin-1").lower(): v.decode("latin-1")
+                   for k, v in scope.get("headers") or []}
+        rid = safe_id(headers.get("x-request-id")) or uuid.uuid4().hex[:16]
+        # The header is what the BFF sends; require_workspace still decides
+        # whether the caller may use it. For logging, the claim is enough.
+        cid = safe_id(headers.get("x-workspace-id"))
+        # Not reset afterwards: each request runs in its own task with its own
+        # context, and leaving them set lets the unhandled-exception handler
+        # (which runs outside this middleware) log with the same ids.
+        request_id_var.set(rid)
+        company_id_var.set(cid)
+        started = time.monotonic()
+        status_holder = {"status": 500}
+
+        async def _send(message):
+            if message["type"] == "http.response.start":
+                status_holder["status"] = message["status"]
+                message.setdefault("headers", [])
+                message["headers"] = list(message["headers"]) + [
+                    (b"x-request-id", rid.encode("latin-1"))]
+            await send(message)
+
+        try:
+            await self.app(scope, receive, _send)
+        finally:
+            elapsed = time.monotonic() - started
+            status = status_holder["status"]
+            if status >= 500 or elapsed >= _SLOW_REQUEST_SECONDS:
+                logger.warning("%s %s -> %s in %.2fs", scope.get("method"),
+                               scope.get("path"), status, elapsed)
+
+
+app.add_middleware(RequestContextMiddleware)
+
+
 # ── Global exception handler — ensures all errors return JSON, not plain text ──
 @app.exception_handler(Exception)
 async def _unhandled(request: Request, exc: Exception):
     logger.error("Unhandled exception on %s: %s", request.url.path, exc, exc_info=True)
+    rid = request_id_var.get()
     return JSONResponse(
         status_code=500,
-        content={"detail": "Internal server error", "type": type(exc).__name__},
+        # The id is what turns "it errored this morning" into one log search.
+        content={"detail": "Internal server error", "type": type(exc).__name__,
+                 "request_id": rid},
+        headers={"X-Request-ID": rid} if rid else None,
     )
 
 

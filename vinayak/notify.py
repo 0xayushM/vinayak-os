@@ -53,6 +53,30 @@ def upsert_contact(conn, company_id: str, customer_ref: str,
     conn.commit()
 
 
+def upsert_contacts(conn, company_id: str, rows: list[dict], source: str) -> int:
+    """Many contacts in one transaction — the CSV import's write.
+
+    Same merge rule as upsert_contact: a None never replaces a value on file,
+    so a sheet with only phone numbers cannot erase the emails reminders go
+    to. All or nothing, because a half-applied import leaves the accountant
+    unable to tell which rows landed."""
+    if not rows:
+        return 0
+    with conn.cursor() as cur:
+        cur.executemany(
+            """INSERT INTO customer_contacts (company_id, customer_ref, email, phone, source, updated_at)
+               VALUES (%s, %s, %s, %s, %s, NOW())
+               ON CONFLICT (company_id, customer_ref) DO UPDATE SET
+                 email  = COALESCE(EXCLUDED.email, customer_contacts.email),
+                 phone  = COALESCE(EXCLUDED.phone, customer_contacts.phone),
+                 source = EXCLUDED.source, updated_at = NOW()""",
+            [(company_id, r["customer_ref"], r.get("email") or None,
+              r.get("phone") or None, source) for r in rows],
+        )
+    conn.commit()
+    return len(rows)
+
+
 def populate_from_zoho(conn, company_id: str) -> int:
     """Fill customer_contacts from Zoho contacts (email/phone we otherwise lack).
     Idempotent; only touches customers that have an email."""
@@ -88,9 +112,13 @@ def _from_addr() -> str:
     return os.getenv("EMAIL_FROM", "BIDE <no-reply@bide.local>")
 
 
-def send_email(to: str | None, subject: str, body: str) -> dict:
+def send_email(to: str | None, subject: str, body: str, html: str | None = None) -> dict:
     """Deliver an email via the configured provider. Never raises — returns a
-    dict {sent, provider?, to?, error?} so the caller records the outcome."""
+    dict {sent, provider?, to?, error?} so the caller records the outcome.
+
+    `html` is optional and always travels WITH the plain text, never instead of
+    it: the text part is what a client that blocks html shows, and what the
+    WhatsApp channel will reuse, so it must stand on its own."""
     if not to:
         return {"sent": False, "error": "no recipient email"}
     prov = email_provider()
@@ -99,11 +127,14 @@ def send_email(to: str | None, subject: str, body: str) -> dict:
     try:
         if prov == "resend":
             import requests
+            payload = {"from": _from_addr(), "to": [to], "subject": subject, "text": body}
+            if html:
+                payload["html"] = html
             r = requests.post(
                 "https://api.resend.com/emails",
                 headers={"Authorization": f"Bearer {os.environ['RESEND_API_KEY']}",
                          "Content-Type": "application/json"},
-                json={"from": _from_addr(), "to": [to], "subject": subject, "text": body},
+                json=payload,
                 timeout=20,
             )
             if r.status_code // 100 == 2:
@@ -118,6 +149,9 @@ def send_email(to: str | None, subject: str, body: str) -> dict:
         msg = EmailMessage()
         msg["From"], msg["To"], msg["Subject"] = _from_addr(), to, subject
         msg.set_content(body)
+        if html:
+            # multipart/alternative: clients show the richest part they can.
+            msg.add_alternative(html, subtype="html")
         with smtplib.SMTP(host, port, timeout=20) as s:
             s.starttls(context=ssl.create_default_context())
             if user:

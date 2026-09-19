@@ -74,3 +74,70 @@ export function recordPromise(body: {
 export function setDispute(customer_ref: string, disputed: boolean, note?: string) {
   return post("/api/be/dashboard/collections/dispute", { customer_ref, disputed, note });
 }
+
+// ── Contacts: who a reminder can actually reach ───────────────────────────
+
+export interface UnreachableCustomer {
+  customer_name: string;
+  outstanding: number;
+  days_overdue: number;
+  phone: string | null;
+}
+
+export interface ContactsCoverage {
+  overdue_customers: number;
+  with_email: number;
+  with_phone: number;
+  with_either: number;
+  unreachable_count: number;
+  unreachable_value: number;
+  unreachable: UnreachableCustomer[];
+}
+
+export type ImportStatus =
+  | "matched" | "fuzzy" | "ambiguous" | "unmatched" | "invalid" | "duplicate" | "unchanged";
+
+export interface ImportPreviewRow {
+  line: number;
+  name: string;
+  status: ImportStatus;
+  customer_ref: string | null;
+  candidates: string[];
+  email: string | null;
+  phone: string | null;
+  existing_email: string | null;
+  existing_phone: string | null;
+  overwrites: ("email" | "phone")[];
+  problems: string[];
+  duplicate_of: number | null;
+  include: boolean;
+}
+
+export interface ImportPreview {
+  rows: ImportPreviewRow[];
+  counts: Record<ImportStatus, number>;
+  overwrites: number;
+  suggested: number;
+  total: number;
+  filename: string | null;
+}
+
+export interface ImportCommitResult {
+  saved: number;
+  rejected: { customer_ref: string; reason: string }[];
+  coverage: ContactsCoverage;
+}
+
+export function useContactsCoverage() {
+  return useSWR<ContactsCoverage>("/api/be/dashboard/contacts/coverage", fetcher);
+}
+
+export function previewContactsImport(csv: string, filename?: string) {
+  return post<ImportPreview>("/api/be/dashboard/contacts/import/preview", { csv, filename });
+}
+
+export function commitContactsImport(
+  rows: { customer_ref: string; email: string | null; phone: string | null }[],
+) {
+  return post<ImportCommitResult>("/api/be/dashboard/contacts/import/commit", { rows });
+}

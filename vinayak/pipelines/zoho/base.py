@@ -50,6 +50,9 @@ class ZohoBasePipeline(ABC):
         except Exception as exc:
             self._fail_run(conn, run_id, str(exc))
             logger.exception("%s: ❌ failed (%s)", self.PIPELINE_NAME, company_id)
+            # Same alert, same key shape as TranzAct runs (pipelines/base.py).
+            from vinayak.pipelines.base import _alert_sync_failed
+            _alert_sync_failed(company_id, self.PIPELINE_NAME, exc)
             raise
         finally:
             conn.close()

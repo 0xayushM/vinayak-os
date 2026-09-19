@@ -98,6 +98,8 @@ def _iter_company_creds() -> Iterator[tuple[str, TranzactCreds]]:
             )
         except Exception as exc:  # noqa: BLE001
             logger.error("Scheduler: failed to load creds for %s: %s", company_id, exc)
+            from vinayak import alerts
+            alerts.creds_failed(company_id, "tranzact", f"{type(exc).__name__}: {exc}")
 
 
 def _run_for_all(name: str) -> None:
@@ -121,6 +123,8 @@ def _run_for_all(name: str) -> None:
                                   name, refresh_only=True)
         except Exception as exc:  # noqa: BLE001
             logger.error("Scheduler: %s refresh failed for %s: %s", name, company_id, exc)
+            from vinayak import alerts
+            alerts.sync_failed(company_id, name, f"{type(exc).__name__}: {exc}"[:1000])
 
 
 # ── Job functions ─────────────────────────────────────────────────────────────
@@ -190,6 +194,8 @@ def _iter_zoho_creds():
                 organization_id=d["organization_id"], dc=d.get("dc", "in"))
         except Exception as exc:  # noqa: BLE001
             logger.error("Scheduler: failed to load Zoho creds for %s: %s", company_id, exc)
+            from vinayak import alerts
+            alerts.creds_failed(company_id, "zoho", f"{type(exc).__name__}: {exc}")
 
 
 def _run_zoho_all() -> None:
@@ -222,6 +228,8 @@ def _run_zoho_all() -> None:
         except Exception as exc:  # noqa: BLE001
             logger.error("Scheduler: Zoho canonical rebuild failed for %s: %s",
                          company_id, exc)
+            from vinayak import alerts
+            alerts.canonical_failed(company_id, "zoho", f"{type(exc).__name__}: {exc}"[:1000])
 
 
 # ── The morning brief (06:00 IST) ─────────────────────────────────────────────
@@ -235,6 +243,10 @@ def _send_morning_briefs() -> None:
                     res["delivered"], res["companies"])
     except Exception as exc:  # noqa: BLE001 — a brief must never break the scheduler
         logger.exception("Morning brief failed: %s", exc)
+        from vinayak import alerts
+        alerts.raise_alert("brief_failed", "brief_failed:all",
+                           "Morning brief job failed for every workspace",
+                           f"The 06:00 brief job could not run: {type(exc).__name__}: {exc}")
 
 
 # ── Scheduler instance ────────────────────────────────────────────────────────
