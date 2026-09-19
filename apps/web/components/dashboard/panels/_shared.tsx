@@ -61,7 +61,7 @@ export function fmtDate(iso?: string | null): string {
 export function CoverageNote({ from, to }: { from?: string | null; to?: string | null }) {
   if (!from && !to) return null;
   return (
-    <p className="text-[10.5px] text-zinc-600 pt-2">
+    <p className="text-[10.5px] text-zinc-600 pt-3 mt-auto">
       Data in view: {fmtDate(from)} – {fmtDate(to)}
     </p>
   );

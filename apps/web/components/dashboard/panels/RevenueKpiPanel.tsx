@@ -18,7 +18,7 @@ export function RevenueKpiPanel({ range }: { range?: DateRange } = {}) {
       loading={isLoading}
       error={error}
     >
-      <div className="grid grid-cols-2 gap-4 pt-2">
+      <div className="flex-1 grid grid-cols-2 grid-rows-[auto_auto] content-between gap-4 pt-2">
         <KpiCard label="Revenue · goods value" value={formatCurrency(d?.period_total_goods ?? d?.period_total ?? 0, true)} accent="blue" sub={`${formatNumber(d?.invoice_count ?? 0)} invoices`} />
         <KpiCard label="Revenue · invoice total" value={formatCurrency(d?.period_total_invoiced ?? 0, true)} accent="emerald" sub="incl. tax / freight" />
         <KpiCard label="Avg / Invoice" value={formatCurrency(d?.avg_invoice_value ?? 0, true)} accent="violet" sub="per printed invoice (incl. tax)" />

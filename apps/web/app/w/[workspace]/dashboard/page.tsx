@@ -7,6 +7,7 @@ import { workspacePath } from "@/lib/api";
 import { usePulse } from "@/hooks/usePulse";
 import { useMe } from "@/hooks/useMilestones";
 import { PulseCardView } from "@/components/dashboard/PulseCard";
+import { ErrorState } from "@/components/ui/ErrorState";
 
 /**
  * Today — the landing page.
@@ -66,8 +67,8 @@ export default function TodayPage({ params }: { params: Promise<{ workspace: str
       )}
 
       {error && (
-        <div className="surface-card p-6 text-sm text-zinc-400">
-          Could not load the Pulse: {String(error.message)}
+        <div className="surface-card">
+          <ErrorState error={error} onRetry={() => mutate()} />
         </div>
       )}
 

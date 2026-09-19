@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils/cn";
 import { getWorkspace, workspacePath } from "@/lib/api";
+import { ApiError, friendlyMessage } from "@/lib/errors";
 import { useChatDock } from "@/components/dashboard/ChatDock";
 import { draftChase, createExperiment, type PulseCard as Card } from "@/hooks/usePulse";
 import {
@@ -109,10 +110,12 @@ export function PulseCardView({ card, onChanged }: { card: Card; onChanged?: () 
         if (other) {
           const first = results.find(
             (r) => r.status === "rejected" &&
-              !/already exists|idempotency/i.test(String((r.reason as Error)?.message)),
+              !/already exists|idempotency/i.test(String(
+                r.reason instanceof ApiError ? r.reason.detail : (r.reason as Error)?.message,
+              )),
           );
-          setErr(String((first as PromiseRejectedResult | undefined)?.reason?.message
-                        ?? "Could not draft those reminders."));
+          setErr(first ? friendlyMessage((first as PromiseRejectedResult).reason)
+                       : "Could not draft those reminders.");
         }
       } else if (a.kind === "draft_nudge") {
         // The reorder engine ships with the marketing wave; until then, logging
@@ -142,7 +145,7 @@ export function PulseCardView({ card, onChanged }: { card: Card; onChanged?: () 
       }
       onChanged?.();
     } catch (e) {
-      setErr((e as Error).message);
+      setErr(friendlyMessage(e));
     } finally {
       setBusy(false);
     }

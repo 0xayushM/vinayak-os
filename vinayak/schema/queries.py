@@ -111,6 +111,8 @@ _DATE_COLS = {
     "canon_sales_invoice_flat":     "invoice_date",
     "canon_purchase_invoice_flat":  "invoice_date",
     "canon_sales_quotation_flat":   "quote_date",
+    "canon_sales_order_flat":       "order_date",
+    "canon_purchase_order_flat":    "po_date",
     "canon_grn_flat":        "grn_date",
     "canon_production_flat": "production_date",
 }

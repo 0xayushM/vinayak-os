@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { PageHeader } from "@/components/dashboard/PageHeader";
 import { cn } from "@/lib/utils/cn";
+import { friendlyMessage } from "@/lib/errors";
 import {
   useExperiments, createExperiment, patchExperiment,
   type Experiment, type ExperimentStatus,
@@ -58,13 +59,13 @@ export default function ExperimentsPage() {
       setNf({ title: "", hypothesis: "", metric: "", baseline: "", target: "", ends_at: "" });
       setShowNew(false);
       await mutate();
-    } catch (e) { setErr((e as Error).message); } finally { setBusy(null); }
+    } catch (e) { setErr(friendlyMessage(e)); } finally { setBusy(null); }
   }
 
   async function transition(id: string, status: ExperimentStatus) {
     setBusy(id); setErr(null);
     try { await patchExperiment(id, { status }); await mutate(); }
-    catch (e) { setErr((e as Error).message); } finally { setBusy(null); }
+    catch (e) { setErr(friendlyMessage(e)); } finally { setBusy(null); }
   }
 
   async function onClose() {
@@ -77,7 +78,7 @@ export default function ExperimentsPage() {
         outcome_notes: closing.notes || undefined,
       });
       setClosing(null); await mutate();
-    } catch (e) { setErr((e as Error).message); } finally { setBusy(null); }
+    } catch (e) { setErr(friendlyMessage(e)); } finally { setBusy(null); }
   }
 
   return (

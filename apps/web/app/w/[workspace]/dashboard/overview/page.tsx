@@ -11,6 +11,10 @@ import {
 } from "@/components/dashboard/panels";
 import { useRevenueSummary } from "@/hooks/useDashboard";
 
+/** Every card in a grid gets the same height: at least 360px, or the tallest
+ *  card's height if one needs more. Panels spread their content to fill it. */
+const CARD_GRID = "grid gap-4 items-stretch auto-rows-[minmax(360px,1fr)]";
+
 /**
  * Daily overview — the whole business on one screen.
  *
@@ -51,7 +55,7 @@ export default function OverviewPage({ params }: { params: Promise<{ workspace: 
         note="Revenue day by day, who it came from, and what they bought."
       />
       <RevenueDailyPanel range={range} />
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 items-start">
+      <div className={`${CARD_GRID} grid-cols-1 md:grid-cols-2 xl:grid-cols-4`}>
         <RevenueKpiPanel range={range} />
         <RevenueTrendPanel range={range} />
         <CustomerConcentrationPanel range={range} />
@@ -62,7 +66,7 @@ export default function OverviewPage({ params }: { params: Promise<{ workspace: 
         question="What is in the pipeline, and what is it costing?"
         note="Quotes yet to convert, spend with vendors, and how much of the catalogue can be costed."
       />
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 items-start">
+      <div className={`${CARD_GRID} grid-cols-1 md:grid-cols-2 xl:grid-cols-3`}>
         <QuotePipelinePanel range={range} />
         <PurchaseSummaryPanel range={range} />
         <BomCoveragePanel />
@@ -72,7 +76,7 @@ export default function OverviewPage({ params }: { params: Promise<{ workspace: 
         question="What does the working day look like right now?"
         note="The live books — receivables, order book, purchase orders, stock, receipts, production."
       />
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 items-start">
+      <div className={`${CARD_GRID} grid-cols-1 md:grid-cols-2 xl:grid-cols-3`}>
         <ArAgingPanel />
         <OpenOrdersPanel />
         <OpenPosPanel />

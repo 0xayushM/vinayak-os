@@ -2,9 +2,10 @@
 
 import { relativeTime } from "@/lib/utils/cn";
 import { PanelMeta } from "@/hooks/useDashboard";
-import { AlertTriangle, Loader2 } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
 import { SyncButton } from "@/components/dashboard/SyncButton";
+import { ErrorState } from "@/components/ui/ErrorState";
 
 interface PanelWrapperProps {
   title: string;
@@ -59,19 +60,16 @@ export function PanelWrapper({
       {/* Hairline under header */}
       <div className="mx-5 h-px bg-white/[0.05] shrink-0" />
 
-      {/* Body */}
-      <div className="flex-1 px-5 py-4 min-h-0">
+      {/* Body — a column, so a panel can let its chart or list take up the
+          spare height and pin its footnote to the bottom when a grid row
+          stretches every card to the same height. */}
+      <div className="flex-1 px-5 py-4 min-h-0 flex flex-col">
         {loading ? (
-          <div className="h-full flex items-center justify-center py-10">
+          <div className="flex-1 flex items-center justify-center py-10">
             <Loader2 className="w-5 h-5 text-zinc-600 animate-spin" />
           </div>
         ) : error ? (
-          <div className="h-full flex items-center justify-center py-10">
-            <div className="text-center">
-              <AlertTriangle className="w-5 h-5 text-red-400 mx-auto mb-2" />
-              <p className="text-xs text-red-300/80">{error.message}</p>
-            </div>
-          </div>
+          <ErrorState error={error} compact />
         ) : (
           children
         )}

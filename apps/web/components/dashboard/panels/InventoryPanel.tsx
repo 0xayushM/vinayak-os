@@ -14,7 +14,7 @@ export function InventoryPanel() {
   const categories = catData?.data?.categories ?? [];
   return (
     <PanelWrapper title="Inventory" subtitle="Stock valuation" meta={sumData?.meta} loading={sumLoading} error={sumError}>
-      <div className="space-y-3 pt-1">
+      <div className="flex-1 flex flex-col gap-3 pt-1">
         <div className="grid grid-cols-2 gap-3">
           <KpiCard label="Total Value" value={formatCurrency(d?.total_value ?? 0, true)} accent="blue" />
           <KpiCard label="SKUs Tracked" value={formatNumber(d?.total_skus ?? 0)} accent="emerald" />
@@ -22,14 +22,16 @@ export function InventoryPanel() {
           <KpiCard label="Zero Stock" value={formatNumber(d?.zero_stock_count ?? 0)} accent="red" />
         </div>
         {categories.length > 0 && (
-          <ResponsiveContainer width="100%" height={90}>
-            <BarChart data={categories.slice(0, 6)} margin={{ top: 0, right: 4, left: -20, bottom: 0 }}>
-              <XAxis dataKey="category" tick={{ fill: "#C4977A", fontSize: 9 }} axisLine={false} tickLine={false} />
-              <YAxis tick={{ fill: "#C4977A", fontSize: 9 }} axisLine={false} tickLine={false} tickFormatter={(v) => formatCurrency(v, true)} />
-              <Tooltip {...tooltipStyle} formatter={fmt("Value")} />
-              <Bar dataKey="value" fill={GREEN} radius={[3, 3, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
+          <div className="flex-1 min-h-[72px]">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={categories.slice(0, 6)} margin={{ top: 0, right: 4, left: -20, bottom: 0 }}>
+                <XAxis dataKey="category" tick={{ fill: "#C4977A", fontSize: 9 }} axisLine={false} tickLine={false} />
+                <YAxis tick={{ fill: "#C4977A", fontSize: 9 }} axisLine={false} tickLine={false} tickFormatter={(v) => formatCurrency(v, true)} />
+                <Tooltip {...tooltipStyle} formatter={fmt("Value")} />
+                <Bar dataKey="value" fill={GREEN} radius={[3, 3, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
         )}
       </div>
     </PanelWrapper>

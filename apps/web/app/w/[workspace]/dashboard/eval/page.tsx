@@ -3,6 +3,7 @@
 import { useEval } from "@/hooks/useDashboard";
 import { ShieldCheck, ShieldAlert, Play, Loader2, CheckCircle2, XCircle } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
+import { friendlyMessage } from "@/lib/errors";
 
 function Metric({ label, value, good, hint }: { label: string; value: string; good: boolean; hint?: string }) {
   return (
@@ -37,7 +38,7 @@ export default function EvalPage() {
         </button>
       </div>
 
-      {error && <div className="text-xs text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2">{error.message}</div>}
+      {error && <div className="text-xs text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2">{friendlyMessage(error)}</div>}
       {!data && !isLoading && <p className="text-xs text-zinc-600">Click “Run eval” to evaluate the reasoning engine against the golden set.</p>}
       {isLoading && <div className="flex items-center gap-2 text-zinc-500 text-sm"><Loader2 className="w-4 h-4 animate-spin" /> Running cases…</div>}
 

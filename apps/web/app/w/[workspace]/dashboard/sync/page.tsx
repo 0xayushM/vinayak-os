@@ -1,6 +1,7 @@
 "use client";
 
 import { useSyncHealth, useIngestQuality } from "@/hooks/useDashboard";
+import { ErrorState } from "@/components/ui/ErrorState";
 import { CheckCircle, AlertTriangle, RefreshCw, Database } from "lucide-react";
 import { cn, friendlySyncError, syncLabel } from "@/lib/utils/cn";
 
@@ -138,8 +139,8 @@ export default function SyncHealthPage() {
       )}
 
       {error && (
-        <div className="bg-red-500/10 border border-red-500/20 rounded-xl px-4 py-3 text-sm text-red-400">
-          {error.message}
+        <div className="surface-card">
+          <ErrorState error={error} />
         </div>
       )}
 

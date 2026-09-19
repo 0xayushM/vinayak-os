@@ -12,13 +12,11 @@
  */
 import useSWR from "swr";
 import { apiFetch } from "@/lib/api";
+import { apiErrorFor, apiErrorFromResponse } from "@/lib/errors";
 
 async function fetcher<T>(url: string): Promise<T> {
   const res = await apiFetch(url);
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new Error(err.detail ?? `HTTP ${res.status}`);
-  }
+  if (!res.ok) throw await apiErrorFromResponse(res);
   return res.json();
 }
 
@@ -29,7 +27,7 @@ async function send<T>(url: string, method: string, body?: unknown): Promise<T> 
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.detail ?? `HTTP ${res.status}`);
+  if (!res.ok) throw apiErrorFor(res.status, data.detail);
   return data as T;
 }
 

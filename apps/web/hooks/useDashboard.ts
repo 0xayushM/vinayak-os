@@ -9,14 +9,12 @@
  */
 import useSWR, { SWRConfiguration } from "swr";
 import { apiFetch } from "@/lib/api";
+import { apiErrorFromResponse } from "@/lib/errors";
 
 // ── SWR fetcher ───────────────────────────────────────────────────────────────
 async function fetcher<T>(url: string): Promise<T> {
   const res = await apiFetch(url);
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new Error(err.detail ?? `HTTP ${res.status}`);
-  }
+  if (!res.ok) throw await apiErrorFromResponse(res);
   return res.json();
 }
 
@@ -551,7 +549,7 @@ export async function saveProfile(body: Partial<BusinessProfile>): Promise<void>
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  if (!res.ok) throw await apiErrorFromResponse(res);
 }
 
 export function useMemory(entityRef?: string) {
@@ -570,17 +568,17 @@ export async function addFact(body: {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  if (!res.ok) throw await apiErrorFromResponse(res);
 }
 
 export async function deleteFact(id: string): Promise<void> {
   const res = await apiFetch(`/api/be/dashboard/memory/${id}`, { method: "DELETE" });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  if (!res.ok) throw await apiErrorFromResponse(res);
 }
 
 export async function revalidateMemory(): Promise<{ time_stale: number; contradiction_stale: number }> {
   const res = await apiFetch("/api/be/dashboard/memory/revalidate", { method: "POST" });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  if (!res.ok) throw await apiErrorFromResponse(res);
   return res.json();
 }
 
@@ -620,7 +618,7 @@ export interface ChatThreadMeta { id: string; title: string; created_at: string;
 
 async function beJson<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await apiFetch(url, init);
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  if (!res.ok) throw await apiErrorFromResponse(res);
   return res.json();
 }
 
@@ -654,10 +652,7 @@ export async function askQuestion(question: string, threadId?: string): Promise<
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ question, thread_id: threadId ?? null }),
   });
-  if (!res.ok) {
-    const e = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new Error(e.detail ?? `HTTP ${res.status}`);
-  }
+  if (!res.ok) throw await apiErrorFromResponse(res);
   return res.json();
 }
 

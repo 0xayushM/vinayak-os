@@ -12,6 +12,7 @@ import {
 } from "@/hooks/useDashboard";
 import { AnswerCard } from "@/components/dashboard/ChatMessage";
 import { cn } from "@/lib/utils/cn";
+import { friendlyMessage } from "@/lib/errors";
 
 // ── Provider (toggle from anywhere) ───────────────────────────────────────────
 interface DockCtx {
@@ -179,7 +180,7 @@ function ChatDock() {
       setTabs((ts) => ts.map((t) => {
         if (t.key !== key) return t;
         const turns = t.turns.slice();
-        turns[turns.length - 1] = { q, error: (e as Error).message };
+        turns[turns.length - 1] = { q, error: friendlyMessage(e) };
         return { ...t, turns };
       }));
     } finally { setLoading(false); }

@@ -13,6 +13,8 @@
  * each send their own header and see their own data — no shared global state.
  */
 
+import { networkError } from "@/lib/errors";
+
 const WORKSPACE_HEADER = "X-Workspace-Id";
 const WS_RE = /^\/w\/([^/]+)/;
 
@@ -37,7 +39,7 @@ export function workspacePath(ws: string | null, suffix = ""): string {
  *                   the URL hasn't changed to /w/{ws}/… yet). Pass null to
  *                   explicitly send no header; omit to read from the URL.
  */
-export function apiFetch(
+export async function apiFetch(
   input: string,
   init: RequestInit = {},
   workspace?: string | null,
@@ -45,5 +47,12 @@ export function apiFetch(
   const ws = workspace !== undefined ? workspace : getWorkspace();
   const headers = new Headers(init.headers);
   if (ws) headers.set(WORKSPACE_HEADER, ws);
-  return fetch(input, { ...init, credentials: "include", headers });
+  try {
+    return await fetch(input, { ...init, credentials: "include", headers });
+  } catch (e) {
+    // Never reached a server (offline, DNS, server restarting). Aborts are the
+    // caller's own doing — let those through untouched.
+    if (e instanceof DOMException && e.name === "AbortError") throw e;
+    throw networkError(e);
+  }
 }

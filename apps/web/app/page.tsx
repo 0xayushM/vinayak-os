@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Loader2, Plus, AlertTriangle, LogOut } from "lucide-react";
 import { apiFetch, workspacePath } from "@/lib/api";
+import { ApiError } from "@/lib/errors";
 import NewWorkspaceForm from "@/components/dashboard/NewWorkspaceForm";
 
 interface Workspace {
@@ -44,7 +45,7 @@ export default function Home() {
         }
       })
       .catch((e) => {
-        setError(e.message);
+        setError(e instanceof ApiError ? e.message : "Could not load your brands.");
         setView("error");
       });
   }, [router]);

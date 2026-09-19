@@ -12,7 +12,7 @@ export function TopSkusPanel({ range }: { range?: DateRange } = {}) {
   const max  = skus[0]?.revenue ?? 1;
   return (
     <PanelWrapper title="Top SKUs by Revenue" subtitle={rangeSubtitle(range)} meta={data?.meta} loading={isLoading} error={error}>
-      <div className="space-y-2 pt-1">
+      <div className="flex-1 flex flex-col justify-between gap-2 pt-1">
         {skus.slice(0, 8).map((s) => (
           <div key={s.sku_code} className="flex items-center gap-2 text-xs">
             <span title={s.sku_code} className="text-zinc-500 font-mono w-24 shrink-0 truncate">{s.sku_code}</span>
