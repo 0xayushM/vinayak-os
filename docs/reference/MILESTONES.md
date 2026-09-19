@@ -98,10 +98,15 @@ Vercel (web) + Railway (API and worker) + Supabase (Postgres and auth), CI on
 every push. Today is the landing page: nine decision cards, each naming a delta,
 a cause or a decision, plus the 06:00 IST brief by email.
 
-**Left:** deploy the worker as its own Railway service (start command in the dashboard, see `Procfile`);
-apply migrations 024–025 with `python -m vinayak.scripts.migrate`; set
-`ALERT_EMAIL`, an email provider and `NEXT_PUBLIC_APP_URL` on Railway; confirm the
-workspace Sandeep opens is the one that is connected and syncing. ⬜
+**Done 19 Sep:** migrations 024–025 applied; the worker runs as its own Railway
+service (start command in the dashboard, see `Procfile`) — the syncs, the brief
+and the brain no longer depend on the API process.
+
+**Left:** set `ALERT_EMAIL` and an email provider on both services (until then
+nothing is emailed — briefs, chases or alerts); move web's healthcheck and restart
+policy out of `railway.json` into the dashboard before **1 Dec**, when Railway
+stops reading config files; confirm the workspace Sandeep opens is the one that
+is connected and syncing. ⬜
 
 ### 2 · Sandeep has used it ≥ 4 days/week for 60 consecutive days — 🟡
 
@@ -341,8 +346,8 @@ two documents; it is **Monday 2 Nov** everywhere now. The numbers did not move
 between the 16th and the 17th, and could not have: every clock left is waiting
 on a person.
 
-**Next — engineering, to deploy:** apply migrations 024–025
-(`python -m vinayak.scripts.migrate`) · create the worker service on Railway ·
+**Next — engineering, to deploy:** ~~apply migrations 024–025~~ ·
+~~create the worker service on Railway~~ (both done 19 Sep) ·
 move web's healthcheck and restart policy out of `railway.json` into the
 dashboard before **1 Dec**, when Railway stops reading config files · set `ALERT_EMAIL`, an email provider and
 `NEXT_PUBLIC_APP_URL` · import contacts for the overdue customers.
